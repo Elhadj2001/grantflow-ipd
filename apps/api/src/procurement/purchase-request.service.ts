@@ -75,8 +75,9 @@ export class PurchaseRequestService {
    * Soumet la DA — passe en statut PENDING_PI et initialise le workflow.
    * À implémenter avec le moteur de workflow Camunda/Temporal.
    */
-  async submit(prId: string, userId: string) {
-    // TODO: vérifier ownership, contrôle budget final, démarrer workflow
+  async submit(prId: string, _userId: string) {
+    // TODO Sprint 0.3: utiliser _userId pour vérifier l'ownership et alimenter l'audit log
+    // TODO Sprint 2 : contrôle budget final, démarrer workflow d'approbation
     const pr = await this.prisma.purchaseRequest.findUnique({ where: { id: prId } });
     if (!pr) throw new NotFoundException('DA introuvable.');
     if (pr.status !== 'draft') throw new BadRequestException('Seule une DA en brouillon peut être soumise.');

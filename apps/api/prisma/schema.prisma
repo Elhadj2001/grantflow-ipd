@@ -552,7 +552,8 @@ model PurchaseRequestLine {
   quantity       Decimal @db.Decimal(18, 4)
   unit           String  @default("unit")
   unitPrice      Decimal @db.Decimal(18, 4) @map("unit_price")
-  lineTotal      Decimal @db.Decimal(18, 2) @map("line_total")
+  // GENERATED ALWAYS AS (quantity * unit_price) STORED — PostgreSQL le calcule, NE PAS écrire (cf. CLAUDE.md §9).
+  lineTotal      Decimal @default(dbgenerated()) @db.Decimal(18, 2) @map("line_total")
   budgetLineId   String  @db.Uuid @map("budget_line_id")
   defaultAccount String? @map("default_account")
 
@@ -627,7 +628,8 @@ model PurchaseOrderLine {
   unit             String
   unitPrice        Decimal @db.Decimal(18, 4) @map("unit_price")
   taxCodeId        String? @db.Uuid @map("tax_code_id")
-  lineTotal        Decimal @db.Decimal(18, 2) @map("line_total")
+  // GENERATED ALWAYS AS (quantity * unit_price) STORED — PostgreSQL le calcule, NE PAS écrire (cf. CLAUDE.md §9).
+  lineTotal        Decimal @default(dbgenerated()) @db.Decimal(18, 2) @map("line_total")
   budgetLineId     String  @db.Uuid @map("budget_line_id")
 
   po                PurchaseOrder        @relation(fields: [poId], references: [id], onDelete: Cascade)
@@ -922,7 +924,8 @@ model OverheadCalculation {
   periodId       String   @db.Uuid @map("period_id")
   eligibleBase   Decimal  @db.Decimal(18, 2) @map("eligible_base")
   overheadRate   Decimal  @db.Decimal(6, 4) @map("overhead_rate")
-  overheadAmount Decimal  @db.Decimal(18, 2) @map("overhead_amount")
+  // GENERATED ALWAYS AS (eligible_base * overhead_rate) STORED — calculée par PostgreSQL (cf. CLAUDE.md §9).
+  overheadAmount Decimal  @default(dbgenerated()) @db.Decimal(18, 2) @map("overhead_amount")
   journalEntryId String?  @db.Uuid @map("journal_entry_id")
   computedAt     DateTime @default(now()) @db.Timestamptz(6) @map("computed_at")
 
