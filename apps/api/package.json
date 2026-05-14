@@ -39,7 +39,7 @@
     "pino-pretty": "^10.3.0",
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.0",
-    "zod": "^3.22.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.0",
