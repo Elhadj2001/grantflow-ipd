@@ -1,0 +1,132 @@
+# 🪟 Installation de l'environnement de développement sur Windows 11
+
+Ce guide pas-à-pas vous permet de monter l'infra locale de GRANTFLOW IPD sur **Windows 11** en moins d'une heure.
+
+## 1. Installer WSL2 (recommandé)
+
+Docker Desktop fonctionne mieux avec WSL2 (Windows Subsystem for Linux 2). Dans une **PowerShell admin** :
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Redémarrez la machine. À la fin du redémarrage, Ubuntu se lance et vous demande de créer un utilisateur/mot de passe Linux. Ce sera votre environnement bash recommandé pour les commandes du projet.
+
+## 2. Installer Docker Desktop
+
+1. Téléchargez Docker Desktop : https://www.docker.com/products/docker-desktop/
+2. Lancez l'installateur (laissez l'option « Use WSL 2 instead of Hyper-V » cochée).
+3. Redémarrez si demandé.
+4. Au premier lancement, dans **Settings → Resources → WSL Integration**, activez l'intégration avec votre distribution Ubuntu.
+
+Vérification :
+
+```bash
+docker --version              # → Docker version 27.x
+docker compose version        # → Docker Compose version v2.x
+docker run --rm hello-world   # → Hello from Docker!
+```
+
+## 3. Installer Node.js 22 LTS
+
+Le plus simple : depuis https://nodejs.org/, choisir la version LTS (22.x).
+
+Vérification :
+
+```bash
+node --version    # → v22.x.x
+npm --version     # → 10.x ou 11.x
+```
+
+## 4. (Optionnel) Installer psql en local
+
+`psql` n'est pas indispensable puisqu'on peut exécuter les commandes via le conteneur Postgres. Mais si vous voulez les avoir sur votre machine :
+
+- Téléchargez les "Command Line Tools" depuis https://www.postgresql.org/download/windows/
+- Ou via `winget` : `winget install PostgreSQL.PostgreSQL`
+
+Sans psql local, l'init DDL se fait via :
+
+```bash
+docker compose exec -T postgres psql -U grantflow -d grantflow_dev < docs/grantflow_ddl_postgresql.sql
+```
+
+## 5. Cloner et installer le projet
+
+Dans votre dossier de travail :
+
+```bash
+git clone <url-du-repo> grantflow-ipd
+cd grantflow-ipd
+cp .env.example .env
+npm install
+```
+
+## 6. Lancer la stack
+
+```bash
+# 1) Démarrer l'infra
+docker compose up -d
+
+# 2) Attendre 30 secondes que Postgres et Keycloak finissent leur init
+docker compose ps
+# → Tous les services doivent être "Up" ou "healthy"
+
+# 3) Charger le DDL (source de vérité)
+docker compose exec -T postgres \
+  psql -U grantflow -d grantflow_dev < docs/grantflow_ddl_postgresql.sql
+
+# 4) Générer le client Prisma et lancer le seed
+cd apps/api
+npm run prisma:generate
+npm run prisma:seed
+cd ..
+
+# 5) Démarrer l'API et le front (deux terminaux séparés)
+npm run dev:api    # → http://localhost:4000/api/v1
+npm run dev:web    # → http://localhost:3000
+```
+
+## 7. Vérification automatique
+
+Lancez le script de validation pour confirmer que tout est en ordre :
+
+```bash
+bash scripts/validate-stack.sh
+```
+
+Vous devriez voir : `✅ Tous les contrôles ont passé (14/14).`
+
+## 8. Comptes par défaut (Keycloak)
+
+| Rôle | E-mail | Mot de passe |
+|---|---|---|
+| Super admin | admin@pasteur.sn | Admin#2026 |
+| DAF | daf@pasteur.sn | Daf#2026 |
+| Comptable | compta@pasteur.sn | Compta#2026 |
+| Trésorier | tres@pasteur.sn | Tres#2026 |
+| PI | pi@pasteur.sn | Pi#2026 |
+| Demandeur (vous) | amadou@pasteur.sn | Demandeur#2026 |
+
+Admin Keycloak : http://localhost:8080 — login `admin` / mdp `admin`.
+
+## 9. Pièges classiques sur Windows
+
+| Symptôme | Cause probable | Solution |
+|---|---|---|
+| `bash: docker: command not found` | Docker Desktop pas démarré ou WSL non configuré | Démarrer Docker Desktop, vérifier l'intégration WSL |
+| Postgres redémarre en boucle | Le volume `apps/api/prisma/init/` est introuvable | Vérifier que le fichier `apps/api/prisma/init/.gitkeep` existe |
+| Keycloak ne charge pas le realm | Mauvais nom de fichier ou JSON invalide | Vérifier `docker compose logs keycloak` |
+| Port 5432 déjà utilisé | Un Postgres local tourne déjà | `net stop postgresql-x64-16` ou changer le port dans docker-compose.yml |
+| Lenteur extrême sur certaines opérations | Antivirus qui scanne node_modules | Exclure le dossier projet de l'analyse temps réel |
+
+## 10. Arrêt et nettoyage
+
+```bash
+docker compose down              # Arrête tous les services (volumes conservés)
+docker compose down -v           # Arrête ET supprime les volumes (reset complet)
+```
+
+---
+
+_Si vous bloquez, partagez la sortie de `docker compose ps` et `docker compose logs <service>` dans Cowork pour aide._

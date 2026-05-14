@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation projet
+    url: https://github.com/eniang68/grantflow-ipd/blob/main/CLAUDE.md
+    about: Consulter les règles et conventions du projet avant d'ouvrir une issue
+  - name: 💬 Discussion (Cowork)
+    url: https://claude.ai
+    about: Pour les questions ouvertes / sujets de design, utiliser Cowork

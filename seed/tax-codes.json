@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "description": "Codes TVA et retenues applicables au Sénégal (fiscalité 2026)",
+    "reference_legale": "Code Général des Impôts du Sénégal",
+    "instructions_seed": "Charger via prisma.taxCode.upsert où code est la clé d'unicité.",
+    "source": "docs/grantflow_ddl_postgresql.sql — INSERT INTO ref.tax_code"
+  },
+  "tax_codes": [
+    { "code": "TVA18",  "label": "TVA collectée 18 %",         "rate": 0.18,   "account_code": "445" },
+    { "code": "TVA0",   "label": "Exonéré recherche",          "rate": 0.0,    "account_code": "445",
+      "note": "Régime d'exonération applicable aux importations de matériel de recherche scientifique." },
+    { "code": "RAS5",   "label": "Retenue à la source 5 %",    "rate": 0.05,   "account_code": "445",
+      "note": "Retenue applicable aux prestations de services rendues par des non-résidents." }
+  ]
+}

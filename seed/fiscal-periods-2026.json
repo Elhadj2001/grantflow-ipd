@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "description": "Périodes fiscales 2026 (exercice civil)",
+    "instructions_seed": "Charger via prisma.fiscalPeriod.upsert où code est la clé d'unicité.",
+    "note": "L'exercice fiscal de l'IPD est calé sur l'année civile (01/01 — 31/12). Les périodes incluent la périodicité mensuelle, trimestrielle et annuelle."
+  },
+  "periods": [
+    { "code": "2026",     "period_type": "year",    "start_date": "2026-01-01", "end_date": "2026-12-31" },
+
+    { "code": "2026-Q1",  "period_type": "quarter", "start_date": "2026-01-01", "end_date": "2026-03-31" },
+    { "code": "2026-Q2",  "period_type": "quarter", "start_date": "2026-04-01", "end_date": "2026-06-30" },
+    { "code": "2026-Q3",  "period_type": "quarter", "start_date": "2026-07-01", "end_date": "2026-09-30" },
+    { "code": "2026-Q4",  "period_type": "quarter", "start_date": "2026-10-01", "end_date": "2026-12-31" },
+
+    { "code": "2026-01",  "period_type": "month",   "start_date": "2026-01-01", "end_date": "2026-01-31" },
+    { "code": "2026-02",  "period_type": "month",   "start_date": "2026-02-01", "end_date": "2026-02-28" },
+    { "code": "2026-03",  "period_type": "month",   "start_date": "2026-03-01", "end_date": "2026-03-31" },
+    { "code": "2026-04",  "period_type": "month",   "start_date": "2026-04-01", "end_date": "2026-04-30" },
+    { "code": "2026-05",  "period_type": "month",   "start_date": "2026-05-01", "end_date": "2026-05-31" },
+    { "code": "2026-06",  "period_type": "month",   "start_date": "2026-06-01", "end_date": "2026-06-30" },
+    { "code": "2026-07",  "period_type": "month",   "start_date": "2026-07-01", "end_date": "2026-07-31" },
+    { "code": "2026-08",  "period_type": "month",   "start_date": "2026-08-01", "end_date": "2026-08-31" },
+    { "code": "2026-09",  "period_type": "month",   "start_date": "2026-09-01", "end_date": "2026-09-30" },
+    { "code": "2026-10",  "period_type": "month",   "start_date": "2026-10-01", "end_date": "2026-10-31" },
+    { "code": "2026-11",  "period_type": "month",   "start_date": "2026-11-01", "end_date": "2026-11-30" },
+    { "code": "2026-12",  "period_type": "month",   "start_date": "2026-12-01", "end_date": "2026-12-31" }
+  ]
+}

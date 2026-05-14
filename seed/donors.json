@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "description": "Bailleurs typiques de l'Institut Pasteur de Dakar",
+    "instructions_seed": "Charger via prisma.donor.upsert où code est la clé d'unicité.",
+    "source": "docs/grantflow_ddl_postgresql.sql — INSERT INTO ref.donor"
+  },
+  "donors": [
+    { "code": "BMGF",  "label": "Bill & Melinda Gates Foundation",                                "type": "private_foundation", "country": "USA"    },
+    { "code": "EDCTP", "label": "European & Developing Countries Clinical Trials Partnership",  "type": "public_intl",        "country": "EU"     },
+    { "code": "UE",    "label": "Union Européenne (Horizon Europe)",                              "type": "public_intl",        "country": "EU"     },
+    { "code": "AFD",   "label": "Agence Française de Développement",                              "type": "bilateral",          "country": "France" },
+    { "code": "GAVI",  "label": "GAVI The Vaccine Alliance",                                      "type": "public_intl",        "country": "CH"     },
+    { "code": "CEPI",  "label": "Coalition for Epidemic Preparedness Innovations",                "type": "public_intl",        "country": "NO"     },
+    { "code": "WHO",   "label": "Organisation Mondiale de la Santé",                              "type": "multilateral",       "country": "CH"     },
+    { "code": "USAID", "label": "United States Agency for International Development",             "type": "bilateral",          "country": "USA"    },
+    { "code": "IPD",   "label": "Fonds propres IPD",                                              "type": "own_funds",          "country": "SN"     }
+  ]
+}

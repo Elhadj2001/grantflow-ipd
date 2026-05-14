@@ -1,0 +1,1006 @@
+// =====================================================================
+//  GRANTFLOW IPD — Schéma Prisma complet
+//
+//  Généré à partir de docs/grantflow_ddl_postgresql.sql (source de vérité).
+//  Le DDL est exécuté directement via psql ; ce schéma reflète la structure
+//  côté client (Prisma ORM). Les contraintes CHECK, triggers et colonnes
+//  GENERATED ... STORED restent gérées par PostgreSQL.
+// =====================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["auth", "ref", "procurement", "ap", "gl", "co", "reporting", "audit"]
+}
+
+// =====================================================================
+//  ENUMS
+// =====================================================================
+
+enum UserStatus {
+  active
+  suspended
+  locked
+
+  @@map("user_status")
+  @@schema("auth")
+}
+
+enum AxisType {
+  project
+  donor
+  grant
+  program
+  cost_center
+  activity
+  geo
+
+  @@map("axis_type")
+  @@schema("ref")
+}
+
+enum DonorType {
+  public_intl
+  private_foundation
+  bilateral
+  multilateral
+  government
+  own_funds
+
+  @@map("donor_type")
+  @@schema("ref")
+}
+
+enum GrantStatus {
+  draft
+  active
+  suspended
+  closed
+
+  @@map("grant_status")
+  @@schema("ref")
+}
+
+enum PrStatus {
+  draft
+  submitted
+  pending_pi
+  pending_cg
+  pending_daf
+  approved
+  rejected
+  cancelled
+  closed
+
+  @@map("pr_status")
+  @@schema("procurement")
+}
+
+enum PoStatus {
+  draft
+  sent
+  acknowledged
+  partially_received
+  received
+  invoiced
+  closed
+  cancelled
+
+  @@map("po_status")
+  @@schema("procurement")
+}
+
+enum GrStatus {
+  draft
+  partial
+  complete
+  rejected
+
+  @@map("gr_status")
+  @@schema("procurement")
+}
+
+enum InvoiceStatus {
+  captured
+  matching
+  exception_price
+  exception_qty
+  matched
+  pending_validation
+  posted
+  partially_paid
+  paid
+  rejected
+  archived
+
+  @@map("invoice_status")
+  @@schema("ap")
+}
+
+enum PaymentStatus {
+  queued
+  prepared
+  executed
+  failed
+  reconciled
+  cancelled
+
+  @@map("payment_status")
+  @@schema("ap")
+}
+
+enum PaymentMethod {
+  sepa
+  swift
+  check
+  cash
+  direct_debit
+
+  @@map("payment_method")
+  @@schema("ap")
+}
+
+enum EntryStatus {
+  draft
+  posted
+  reversed
+
+  @@map("entry_status")
+  @@schema("gl")
+}
+
+enum JournalType {
+  AC
+  VE
+  BQ
+  CA
+  OD
+  PA
+
+  @@map("journal_type")
+  @@schema("gl")
+}
+
+enum FundMovement {
+  allocation
+  reprise
+  adjustment
+
+  @@map("fund_movement")
+  @@schema("co")
+}
+
+// =====================================================================
+//  AUDIT
+// =====================================================================
+
+model EventLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  occurredAt    DateTime @default(now()) @db.Timestamptz(6) @map("occurred_at")
+  actorId       String?  @db.Uuid @map("actor_id")
+  actorEmail    String?  @db.Citext @map("actor_email")
+  action        String
+  entityType    String   @map("entity_type")
+  entityId      String?  @db.Uuid @map("entity_id")
+  payloadBefore Json?    @db.JsonB @map("payload_before")
+  payloadAfter  Json?    @db.JsonB @map("payload_after")
+  ipAddress     String?  @db.Inet @map("ip_address")
+  userAgent     String?  @map("user_agent")
+  hashChain     String?  @map("hash_chain")
+
+  @@index([entityType, entityId], map: "idx_audit_event_log_entity")
+  @@index([actorId, occurredAt(sort: Desc)], map: "idx_audit_event_log_actor")
+  @@map("event_log")
+  @@schema("audit")
+}
+
+// =====================================================================
+//  AUTH
+// =====================================================================
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  label       String
+  description String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("role")
+  @@schema("auth")
+}
+
+model Permission {
+  id     String @id @default(uuid()) @db.Uuid
+  code   String @unique
+  label  String
+  module String
+
+  roles RolePermission[]
+
+  @@map("permission")
+  @@schema("auth")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid @map("role_id")
+  permissionId String @db.Uuid @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permission")
+  @@schema("auth")
+}
+
+model AppUser {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique @db.Citext
+  fullName     String     @map("full_name")
+  employeeCode String?    @map("employee_code")
+  department   String?
+  status       UserStatus @default(active)
+  mfaEnabled   Boolean    @default(false) @map("mfa_enabled")
+  lastLoginAt  DateTime?  @db.Timestamptz(6) @map("last_login_at")
+  createdAt    DateTime   @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt    DateTime   @default(now()) @db.Timestamptz(6) @map("updated_at")
+
+  roles                  UserRole[]
+  delegationsGiven       Delegation[]      @relation("DelegationDelegator")
+  delegationsReceived    Delegation[]      @relation("DelegationDelegate")
+  projectsAsPi           Project[]
+  prsRequested           PurchaseRequest[]
+  approvalSteps          ApprovalStep[]
+  purchaseOrdersAsBuyer  PurchaseOrder[]
+  goodsReceiptsReceived  GoodsReceipt[]
+  paymentRunsPrepared    PaymentRun[]      @relation("PaymentRunPreparer")
+  paymentRunsApproved    PaymentRun[]      @relation("PaymentRunApprover")
+  fiscalPeriodsClosed    FiscalPeriod[]
+  journalEntriesPosted   JournalEntry[]
+  reportRunsGenerated    ReportRun[]
+
+  @@index([status], map: "idx_user_status")
+  @@map("app_user")
+  @@schema("auth")
+}
+
+model UserRole {
+  userId     String   @db.Uuid @map("user_id")
+  roleId     String   @db.Uuid @map("role_id")
+  assignedAt DateTime @default(now()) @db.Timestamptz(6) @map("assigned_at")
+
+  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_role")
+  @@schema("auth")
+}
+
+model Delegation {
+  id          String   @id @default(uuid()) @db.Uuid
+  delegatorId String   @db.Uuid @map("delegator_id")
+  delegateId  String   @db.Uuid @map("delegate_id")
+  scope       Json     @db.JsonB
+  validFrom   DateTime @db.Date @map("valid_from")
+  validTo     DateTime @db.Date @map("valid_to")
+
+  delegator AppUser @relation("DelegationDelegator", fields: [delegatorId], references: [id])
+  delegate  AppUser @relation("DelegationDelegate", fields: [delegateId], references: [id])
+
+  @@map("delegation")
+  @@schema("auth")
+}
+
+// =====================================================================
+//  REF
+// =====================================================================
+
+model GlAccount {
+  id               String  @id @default(uuid()) @db.Uuid
+  code             String  @unique
+  label            String
+  class            String  @db.Char(1)
+  parentCode       String? @map("parent_code")
+  isMovement       Boolean @default(true) @map("is_movement")
+  isActive         Boolean @default(true) @map("is_active")
+  syscebnlSpecific Boolean @default(false) @map("syscebnl_specific")
+  description      String?
+
+  budgetLinesAsDefault      BudgetLine[]
+  prLinesAsDefault          PurchaseRequestLine[]
+  invoiceLines              InvoiceLine[]
+  taxCodes                  TaxCode[]
+  allocationRulesAsSource   AllocationRule[]
+  journalLines              JournalLine[]
+
+  @@index([class], map: "idx_gl_account_class")
+  @@map("gl_account")
+  @@schema("ref")
+}
+
+model AnalyticalAxis {
+  id       String   @id @default(uuid()) @db.Uuid
+  type     AxisType
+  code     String
+  label    String
+  parentId String?  @db.Uuid @map("parent_id")
+  isActive Boolean  @default(true) @map("is_active")
+  metadata Json?    @default("{}") @db.JsonB
+
+  parent             AnalyticalAxis?    @relation("AxisHierarchy", fields: [parentId], references: [id])
+  children           AnalyticalAxis[]   @relation("AxisHierarchy")
+  prsAsCostCenter    PurchaseRequest[]  @relation("PrCostCenter")
+  prsAsActivity      PurchaseRequest[]  @relation("PrActivity")
+  jlAsCostCenter     JournalLine[]      @relation("JlCostCenter")
+  jlAsActivity       JournalLine[]      @relation("JlActivity")
+  allocationTargets  AllocationTarget[]
+
+  @@unique([type, code])
+  @@index([type], map: "idx_axis_type")
+  @@map("analytical_axis")
+  @@schema("ref")
+}
+
+model Program {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  label       String
+  description String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  projects Project[]
+
+  @@map("program")
+  @@schema("ref")
+}
+
+model Project {
+  id          String    @id @default(uuid()) @db.Uuid
+  code        String    @unique
+  title       String
+  programId   String?   @db.Uuid @map("program_id")
+  piUserId    String?   @db.Uuid @map("pi_user_id")
+  startDate   DateTime  @db.Date @map("start_date")
+  endDate     DateTime? @db.Date @map("end_date")
+  status      String    @default("active")
+  description String?
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  program          Program?           @relation(fields: [programId], references: [id])
+  pi               AppUser?           @relation(fields: [piUserId], references: [id])
+  grants           GrantAgreement[]
+  purchaseRequests PurchaseRequest[]
+  journalLines     JournalLine[]
+  allocationTargets AllocationTarget[]
+
+  @@index([piUserId], map: "idx_project_pi")
+  @@map("project")
+  @@schema("ref")
+}
+
+model Donor {
+  id                  String    @id @default(uuid()) @db.Uuid
+  code                String    @unique
+  label               String
+  type                DonorType
+  country             String?
+  contactEmail        String?   @db.Citext @map("contact_email")
+  reportingTemplateId String?   @db.Uuid @map("reporting_template_id")
+  isActive            Boolean   @default(true) @map("is_active")
+
+  grants           GrantAgreement[]
+  reportTemplates  ReportTemplate[]
+
+  @@map("donor")
+  @@schema("ref")
+}
+
+model GrantAgreement {
+  id           String      @id @default(uuid()) @db.Uuid
+  reference    String      @unique
+  donorId      String      @db.Uuid @map("donor_id")
+  projectId    String      @db.Uuid @map("project_id")
+  amount       Decimal     @db.Decimal(18, 2)
+  currency     String      @db.Char(3)
+  overheadRate Decimal     @default(0) @db.Decimal(6, 4) @map("overhead_rate")
+  startDate    DateTime    @db.Date @map("start_date")
+  endDate      DateTime    @db.Date @map("end_date")
+  status       GrantStatus @default(draft)
+  signedAt     DateTime?   @db.Date @map("signed_at")
+  notes        String?
+  createdAt    DateTime    @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  donor             Donor                  @relation(fields: [donorId], references: [id])
+  project           Project                @relation(fields: [projectId], references: [id])
+  budgetLines       BudgetLine[]
+  purchaseRequests  PurchaseRequest[]
+  journalLines      JournalLine[]
+  dedicatedFunds    DedicatedFundMovement[]
+  overheadCalcs     OverheadCalculation[]
+  allocationTargets AllocationTarget[]
+  reportRuns        ReportRun[]
+
+  @@index([projectId], map: "idx_grant_project")
+  @@index([donorId], map: "idx_grant_donor")
+  @@map("grant_agreement")
+  @@schema("ref")
+}
+
+model BudgetLine {
+  id                 String  @id @default(uuid()) @db.Uuid
+  grantId            String  @db.Uuid @map("grant_id")
+  code               String
+  label              String
+  budgetedAmount     Decimal @db.Decimal(18, 2) @map("budgeted_amount")
+  defaultAccount     String? @map("default_account")
+  isOverheadEligible Boolean @default(true) @map("is_overhead_eligible")
+
+  grant                GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  defaultAccountRef    GlAccount?            @relation(fields: [defaultAccount], references: [code])
+  purchaseRequestLines PurchaseRequestLine[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  journalLines         JournalLine[]
+
+  @@unique([grantId, code])
+  @@map("budget_line")
+  @@schema("ref")
+}
+
+model Supplier {
+  id                String   @id @default(uuid()) @db.Uuid
+  code              String   @unique
+  name              String
+  vatNumber         String?  @map("vat_number")
+  address           String?
+  country           String?
+  iban              String?
+  bic               String?
+  bankName          String?  @map("bank_name")
+  paymentTermsDays  Int      @default(30) @map("payment_terms_days")
+  currencyDefault   String   @default("XOF") @db.Char(3) @map("currency_default")
+  riskScore         Int?     @default(0) @map("risk_score")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  purchaseOrders PurchaseOrder[]
+  invoices       Invoice[]
+
+  @@map("supplier")
+  @@schema("ref")
+}
+
+model ExchangeRate {
+  id           String   @id @default(uuid()) @db.Uuid
+  fromCurrency String   @db.Char(3) @map("from_currency")
+  toCurrency   String   @db.Char(3) @map("to_currency")
+  rate         Decimal  @db.Decimal(18, 8)
+  rateDate     DateTime @db.Date @map("rate_date")
+  source       String?
+
+  @@unique([fromCurrency, toCurrency, rateDate])
+  @@index([rateDate], map: "idx_exchange_rate_date")
+  @@map("exchange_rate")
+  @@schema("ref")
+}
+
+model TaxCode {
+  id          String  @id @default(uuid()) @db.Uuid
+  code        String  @unique
+  label       String
+  rate        Decimal @db.Decimal(6, 4)
+  accountCode String? @map("account_code")
+  isActive    Boolean @default(true) @map("is_active")
+
+  account            GlAccount?          @relation(fields: [accountCode], references: [code])
+  purchaseOrderLines PurchaseOrderLine[]
+  invoiceLines       InvoiceLine[]
+
+  @@map("tax_code")
+  @@schema("ref")
+}
+
+// =====================================================================
+//  PROCUREMENT
+// =====================================================================
+
+model PurchaseRequest {
+  id              String    @id @default(uuid()) @db.Uuid
+  prNumber        String    @unique @map("pr_number")
+  requestedBy     String    @db.Uuid @map("requested_by")
+  requestedAt     DateTime  @default(now()) @db.Timestamptz(6) @map("requested_at")
+  neededBy        DateTime? @db.Date @map("needed_by")
+  status          PrStatus  @default(draft)
+  projectId       String    @db.Uuid @map("project_id")
+  grantId         String    @db.Uuid @map("grant_id")
+  costCenterId    String?   @db.Uuid @map("cost_center_id")
+  activityId      String?   @db.Uuid @map("activity_id")
+  totalAmount     Decimal   @default(0) @db.Decimal(18, 2) @map("total_amount")
+  currency        String    @default("XOF") @db.Char(3)
+  description     String?
+  rejectionReason String?   @map("rejection_reason")
+  updatedAt       DateTime  @default(now()) @db.Timestamptz(6) @map("updated_at")
+
+  requester      AppUser               @relation(fields: [requestedBy], references: [id])
+  project        Project               @relation(fields: [projectId], references: [id])
+  grant          GrantAgreement        @relation(fields: [grantId], references: [id])
+  costCenter     AnalyticalAxis?       @relation("PrCostCenter", fields: [costCenterId], references: [id])
+  activity       AnalyticalAxis?       @relation("PrActivity", fields: [activityId], references: [id])
+  lines          PurchaseRequestLine[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([status], map: "idx_pr_status")
+  @@index([requestedBy], map: "idx_pr_requested_by")
+  @@index([projectId], map: "idx_pr_project")
+  @@map("purchase_request")
+  @@schema("procurement")
+}
+
+model PurchaseRequestLine {
+  id             String  @id @default(uuid()) @db.Uuid
+  prId           String  @db.Uuid @map("pr_id")
+  lineNumber     Int     @map("line_number")
+  description    String
+  quantity       Decimal @db.Decimal(18, 4)
+  unit           String  @default("unit")
+  unitPrice      Decimal @db.Decimal(18, 4) @map("unit_price")
+  lineTotal      Decimal @db.Decimal(18, 2) @map("line_total")
+  budgetLineId   String  @db.Uuid @map("budget_line_id")
+  defaultAccount String? @map("default_account")
+
+  pr                PurchaseRequest     @relation(fields: [prId], references: [id], onDelete: Cascade)
+  budgetLine        BudgetLine          @relation(fields: [budgetLineId], references: [id])
+  defaultAccountRef GlAccount?          @relation(fields: [defaultAccount], references: [code])
+  purchaseOrderLines PurchaseOrderLine[]
+
+  @@unique([prId, lineNumber])
+  @@map("purchase_request_line")
+  @@schema("procurement")
+}
+
+model ApprovalStep {
+  id            String    @id @default(uuid()) @db.Uuid
+  entityType    String    @map("entity_type")
+  entityId      String    @db.Uuid @map("entity_id")
+  stepOrder     Int       @map("step_order")
+  approverId    String?   @db.Uuid @map("approver_id")
+  approverRole  String?   @map("approver_role")
+  status        String    @default("pending")
+  decidedAt     DateTime? @db.Timestamptz(6) @map("decided_at")
+  decisionNotes String?   @map("decision_notes")
+
+  approver AppUser? @relation(fields: [approverId], references: [id])
+
+  @@index([entityType, entityId], map: "idx_approval_entity")
+  @@map("approval_step")
+  @@schema("procurement")
+}
+
+model PurchaseOrder {
+  id              String    @id @default(uuid()) @db.Uuid
+  poNumber        String    @unique @map("po_number")
+  prId            String?   @db.Uuid @map("pr_id")
+  supplierId      String    @db.Uuid @map("supplier_id")
+  orderDate       DateTime  @default(now()) @db.Date @map("order_date")
+  expectedDate    DateTime? @db.Date @map("expected_date")
+  status          PoStatus  @default(draft)
+  totalHt         Decimal   @default(0) @db.Decimal(18, 2) @map("total_ht")
+  totalVat        Decimal   @default(0) @db.Decimal(18, 2) @map("total_vat")
+  totalTtc        Decimal   @default(0) @db.Decimal(18, 2) @map("total_ttc")
+  currency        String    @default("XOF") @db.Char(3)
+  incoterm        String?
+  deliveryAddress String?   @map("delivery_address")
+  buyerId         String?   @db.Uuid @map("buyer_id")
+  sentAt          DateTime? @db.Timestamptz(6) @map("sent_at")
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  pr            PurchaseRequest?    @relation(fields: [prId], references: [id])
+  supplier      Supplier            @relation(fields: [supplierId], references: [id])
+  buyer         AppUser?            @relation(fields: [buyerId], references: [id])
+  lines         PurchaseOrderLine[]
+  goodsReceipts GoodsReceipt[]
+  invoices      Invoice[]
+
+  @@index([supplierId], map: "idx_po_supplier")
+  @@index([status], map: "idx_po_status")
+  @@map("purchase_order")
+  @@schema("procurement")
+}
+
+model PurchaseOrderLine {
+  id               String  @id @default(uuid()) @db.Uuid
+  poId             String  @db.Uuid @map("po_id")
+  prLineId         String? @db.Uuid @map("pr_line_id")
+  lineNumber       Int     @map("line_number")
+  description      String
+  quantity         Decimal @db.Decimal(18, 4)
+  quantityReceived Decimal @default(0) @db.Decimal(18, 4) @map("quantity_received")
+  quantityInvoiced Decimal @default(0) @db.Decimal(18, 4) @map("quantity_invoiced")
+  unit             String
+  unitPrice        Decimal @db.Decimal(18, 4) @map("unit_price")
+  taxCodeId        String? @db.Uuid @map("tax_code_id")
+  lineTotal        Decimal @db.Decimal(18, 2) @map("line_total")
+  budgetLineId     String  @db.Uuid @map("budget_line_id")
+
+  po                PurchaseOrder        @relation(fields: [poId], references: [id], onDelete: Cascade)
+  prLine            PurchaseRequestLine? @relation(fields: [prLineId], references: [id])
+  taxCode           TaxCode?             @relation(fields: [taxCodeId], references: [id])
+  budgetLine        BudgetLine           @relation(fields: [budgetLineId], references: [id])
+  goodsReceiptLines GoodsReceiptLine[]
+  invoiceLines      InvoiceLine[]
+  invoiceMatches    InvoiceMatch[]
+
+  @@unique([poId, lineNumber])
+  @@map("purchase_order_line")
+  @@schema("procurement")
+}
+
+model GoodsReceipt {
+  id              String   @id @default(uuid()) @db.Uuid
+  grNumber        String   @unique @map("gr_number")
+  poId            String   @db.Uuid @map("po_id")
+  receiptDate     DateTime @default(now()) @db.Date @map("receipt_date")
+  receivedBy      String   @db.Uuid @map("received_by")
+  status          GrStatus @default(draft)
+  deliveryNoteRef String?  @map("delivery_note_ref")
+  notes           String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  po       PurchaseOrder      @relation(fields: [poId], references: [id])
+  receiver AppUser            @relation(fields: [receivedBy], references: [id])
+  lines    GoodsReceiptLine[]
+
+  @@map("goods_receipt")
+  @@schema("procurement")
+}
+
+model GoodsReceiptLine {
+  id            String    @id @default(uuid()) @db.Uuid
+  grId          String    @db.Uuid @map("gr_id")
+  poLineId      String    @db.Uuid @map("po_line_id")
+  quantity      Decimal   @db.Decimal(18, 4)
+  batchNumber   String?   @map("batch_number")
+  expiryDate    DateTime? @db.Date @map("expiry_date")
+  serialNumbers String[]  @map("serial_numbers")
+  qualityCheck  String?   @map("quality_check")
+  coldChainOk   Boolean?  @map("cold_chain_ok")
+
+  gr             GoodsReceipt      @relation(fields: [grId], references: [id], onDelete: Cascade)
+  poLine         PurchaseOrderLine @relation(fields: [poLineId], references: [id])
+  invoiceMatches InvoiceMatch[]
+
+  @@index([poLineId], map: "idx_gr_line_po")
+  @@map("goods_receipt_line")
+  @@schema("procurement")
+}
+
+// =====================================================================
+//  ACCOUNTS PAYABLE
+// =====================================================================
+
+model Invoice {
+  id              String        @id @default(uuid()) @db.Uuid
+  invoiceNumber   String        @map("invoice_number")
+  supplierId      String        @db.Uuid @map("supplier_id")
+  invoiceDate     DateTime      @db.Date @map("invoice_date")
+  dueDate         DateTime      @db.Date @map("due_date")
+  receivedAt      DateTime      @default(now()) @db.Timestamptz(6) @map("received_at")
+  status          InvoiceStatus @default(captured)
+  totalHt         Decimal       @db.Decimal(18, 2) @map("total_ht")
+  totalVat        Decimal       @default(0) @db.Decimal(18, 2) @map("total_vat")
+  totalTtc        Decimal       @db.Decimal(18, 2) @map("total_ttc")
+  currency        String        @default("XOF") @db.Char(3)
+  exchangeRate    Decimal?      @db.Decimal(18, 8) @map("exchange_rate")
+  poId            String?       @db.Uuid @map("po_id")
+  ocrConfidence   Decimal?      @db.Decimal(5, 2) @map("ocr_confidence")
+  pdfObjectKey    String?       @map("pdf_object_key")
+  capturedPayload Json?         @db.JsonB @map("captured_payload")
+  rejectionReason String?       @map("rejection_reason")
+  postedAt        DateTime?     @db.Timestamptz(6) @map("posted_at")
+  createdAt       DateTime      @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  supplier Supplier       @relation(fields: [supplierId], references: [id])
+  po       PurchaseOrder? @relation(fields: [poId], references: [id])
+  lines    InvoiceLine[]
+  payments Payment[]
+
+  @@unique([supplierId, invoiceNumber])
+  @@index([status], map: "idx_invoice_status")
+  @@index([dueDate], map: "idx_invoice_due")
+  @@index([poId], map: "idx_invoice_po")
+  @@map("invoice")
+  @@schema("ap")
+}
+
+model InvoiceLine {
+  id          String   @id @default(uuid()) @db.Uuid
+  invoiceId   String   @db.Uuid @map("invoice_id")
+  lineNumber  Int      @map("line_number")
+  description String
+  quantity    Decimal? @db.Decimal(18, 4)
+  unitPrice   Decimal? @db.Decimal(18, 4) @map("unit_price")
+  lineTotal   Decimal  @db.Decimal(18, 2) @map("line_total")
+  taxCodeId   String?  @db.Uuid @map("tax_code_id")
+  poLineId    String?  @db.Uuid @map("po_line_id")
+  glAccount   String?  @map("gl_account")
+
+  invoice        Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  taxCode        TaxCode?           @relation(fields: [taxCodeId], references: [id])
+  poLine         PurchaseOrderLine? @relation(fields: [poLineId], references: [id])
+  glAccountRef   GlAccount?         @relation(fields: [glAccount], references: [code])
+  invoiceMatches InvoiceMatch[]
+
+  @@unique([invoiceId, lineNumber])
+  @@map("invoice_line")
+  @@schema("ap")
+}
+
+model InvoiceMatch {
+  id             String   @id @default(uuid()) @db.Uuid
+  invoiceLineId  String   @db.Uuid @map("invoice_line_id")
+  poLineId       String   @db.Uuid @map("po_line_id")
+  grLineId       String?  @db.Uuid @map("gr_line_id")
+  qtyMatched     Decimal  @db.Decimal(18, 4) @map("qty_matched")
+  priceVariance  Decimal? @default(0) @db.Decimal(18, 2) @map("price_variance")
+  qtyVariance    Decimal? @default(0) @db.Decimal(18, 4) @map("qty_variance")
+  matchResult    String   @map("match_result")
+  matchedAt      DateTime @default(now()) @db.Timestamptz(6) @map("matched_at")
+
+  invoiceLine InvoiceLine       @relation(fields: [invoiceLineId], references: [id])
+  poLine      PurchaseOrderLine @relation(fields: [poLineId], references: [id])
+  grLine      GoodsReceiptLine? @relation(fields: [grLineId], references: [id])
+
+  @@map("invoice_match")
+  @@schema("ap")
+}
+
+model PaymentRun {
+  id           String   @id @default(uuid()) @db.Uuid
+  runNumber    String   @unique @map("run_number")
+  runDate      DateTime @default(now()) @db.Date @map("run_date")
+  currency     String   @default("XOF") @db.Char(3)
+  bankAccount  String?  @map("bank_account")
+  preparedBy   String?  @db.Uuid @map("prepared_by")
+  approvedBy   String?  @db.Uuid @map("approved_by")
+  totalAmount  Decimal  @default(0) @db.Decimal(18, 2) @map("total_amount")
+  status       String   @default("draft")
+  sepaFileKey  String?  @map("sepa_file_key")
+  createdAt    DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  preparer AppUser?  @relation("PaymentRunPreparer", fields: [preparedBy], references: [id])
+  approver AppUser?  @relation("PaymentRunApprover", fields: [approvedBy], references: [id])
+  payments Payment[]
+
+  @@map("payment_run")
+  @@schema("ap")
+}
+
+model Payment {
+  id            String        @id @default(uuid()) @db.Uuid
+  paymentRunId  String?       @db.Uuid @map("payment_run_id")
+  invoiceId     String        @db.Uuid @map("invoice_id")
+  amount        Decimal       @db.Decimal(18, 2)
+  currency      String        @db.Char(3)
+  method        PaymentMethod
+  paymentDate   DateTime      @db.Date @map("payment_date")
+  status        PaymentStatus @default(queued)
+  bankReference String?       @map("bank_reference")
+  fxGainLoss    Decimal?      @default(0) @db.Decimal(18, 2) @map("fx_gain_loss")
+  createdAt     DateTime      @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  paymentRun PaymentRun? @relation(fields: [paymentRunId], references: [id])
+  invoice    Invoice     @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId], map: "idx_payment_invoice")
+  @@map("payment")
+  @@schema("ap")
+}
+
+// =====================================================================
+//  GENERAL LEDGER
+// =====================================================================
+
+model FiscalPeriod {
+  id         String    @id @default(uuid()) @db.Uuid
+  code       String    @unique
+  periodType String    @map("period_type")
+  startDate  DateTime  @db.Date @map("start_date")
+  endDate    DateTime  @db.Date @map("end_date")
+  isClosed   Boolean   @default(false) @map("is_closed")
+  closedAt   DateTime? @db.Timestamptz(6) @map("closed_at")
+  closedBy   String?   @db.Uuid @map("closed_by")
+
+  closer            AppUser?                @relation(fields: [closedBy], references: [id])
+  journalEntries    JournalEntry[]
+  dedicatedFunds    DedicatedFundMovement[]
+  overheadCalcs     OverheadCalculation[]
+  reportRuns        ReportRun[]
+
+  @@map("fiscal_period")
+  @@schema("gl")
+}
+
+model JournalEntry {
+  id            String      @id @default(uuid()) @db.Uuid
+  entryNumber   String      @unique @map("entry_number")
+  journal       JournalType
+  entryDate     DateTime    @db.Date @map("entry_date")
+  periodId      String      @db.Uuid @map("period_id")
+  label         String
+  sourceType    String?     @map("source_type")
+  sourceId      String?     @db.Uuid @map("source_id")
+  status        EntryStatus @default(draft)
+  postedAt      DateTime?   @db.Timestamptz(6) @map("posted_at")
+  postedBy      String?     @db.Uuid @map("posted_by")
+  reversedById  String?     @db.Uuid @map("reversed_by_id")
+  createdAt     DateTime    @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  period          FiscalPeriod            @relation(fields: [periodId], references: [id])
+  poster          AppUser?                @relation(fields: [postedBy], references: [id])
+  reversedBy      JournalEntry?           @relation("EntryReversal", fields: [reversedById], references: [id])
+  reversals       JournalEntry[]          @relation("EntryReversal")
+  lines           JournalLine[]
+  dedicatedFunds  DedicatedFundMovement[]
+  overheadCalcs   OverheadCalculation[]
+
+  @@index([periodId], map: "idx_je_period")
+  @@index([status], map: "idx_je_status")
+  @@index([sourceType, sourceId], map: "idx_je_source")
+  @@map("journal_entry")
+  @@schema("gl")
+}
+
+model JournalLine {
+  id             String  @id @default(uuid()) @db.Uuid
+  entryId        String  @db.Uuid @map("entry_id")
+  lineNumber     Int     @map("line_number")
+  accountCode    String  @map("account_code")
+  auxiliaryCode  String? @map("auxiliary_code")
+  label          String?
+  debit          Decimal @default(0) @db.Decimal(18, 2)
+  credit         Decimal @default(0) @db.Decimal(18, 2)
+  currency       String  @default("XOF") @db.Char(3)
+  debitCurrency  Decimal? @default(0) @db.Decimal(18, 2) @map("debit_currency")
+  creditCurrency Decimal? @default(0) @db.Decimal(18, 2) @map("credit_currency")
+  projectId      String?  @db.Uuid @map("project_id")
+  grantId        String?  @db.Uuid @map("grant_id")
+  budgetLineId   String?  @db.Uuid @map("budget_line_id")
+  costCenterId   String?  @db.Uuid @map("cost_center_id")
+  activityId     String?  @db.Uuid @map("activity_id")
+
+  entry      JournalEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account    GlAccount       @relation(fields: [accountCode], references: [code])
+  project    Project?        @relation(fields: [projectId], references: [id])
+  grant      GrantAgreement? @relation(fields: [grantId], references: [id])
+  budgetLine BudgetLine?     @relation(fields: [budgetLineId], references: [id])
+  costCenter AnalyticalAxis? @relation("JlCostCenter", fields: [costCenterId], references: [id])
+  activity   AnalyticalAxis? @relation("JlActivity", fields: [activityId], references: [id])
+
+  @@unique([entryId, lineNumber])
+  @@index([accountCode], map: "idx_jl_account")
+  @@index([projectId], map: "idx_jl_project")
+  @@index([grantId], map: "idx_jl_grant")
+  @@map("journal_line")
+  @@schema("gl")
+}
+
+// =====================================================================
+//  CONTROLLING
+// =====================================================================
+
+model DedicatedFundMovement {
+  id             String       @id @default(uuid()) @db.Uuid
+  grantId        String       @db.Uuid @map("grant_id")
+  periodId       String       @db.Uuid @map("period_id")
+  movementType   FundMovement @map("movement_type")
+  amount         Decimal      @db.Decimal(18, 2)
+  currency       String       @default("XOF") @db.Char(3)
+  journalEntryId String?      @db.Uuid @map("journal_entry_id")
+  rationale      String?
+  computedAt     DateTime     @default(now()) @db.Timestamptz(6) @map("computed_at")
+
+  grant        GrantAgreement @relation(fields: [grantId], references: [id])
+  period       FiscalPeriod   @relation(fields: [periodId], references: [id])
+  journalEntry JournalEntry?  @relation(fields: [journalEntryId], references: [id])
+
+  @@index([grantId], map: "idx_dfm_grant")
+  @@map("dedicated_fund_movement")
+  @@schema("co")
+}
+
+model OverheadCalculation {
+  id             String   @id @default(uuid()) @db.Uuid
+  grantId        String   @db.Uuid @map("grant_id")
+  periodId       String   @db.Uuid @map("period_id")
+  eligibleBase   Decimal  @db.Decimal(18, 2) @map("eligible_base")
+  overheadRate   Decimal  @db.Decimal(6, 4) @map("overhead_rate")
+  overheadAmount Decimal  @db.Decimal(18, 2) @map("overhead_amount")
+  journalEntryId String?  @db.Uuid @map("journal_entry_id")
+  computedAt     DateTime @default(now()) @db.Timestamptz(6) @map("computed_at")
+
+  grant        GrantAgreement @relation(fields: [grantId], references: [id])
+  period       FiscalPeriod   @relation(fields: [periodId], references: [id])
+  journalEntry JournalEntry?  @relation(fields: [journalEntryId], references: [id])
+
+  @@map("overhead_calculation")
+  @@schema("co")
+}
+
+model AllocationRule {
+  id            String  @id @default(uuid()) @db.Uuid
+  code          String  @unique
+  label         String
+  sourceAccount String? @map("source_account")
+  method        String
+  isActive      Boolean @default(true) @map("is_active")
+  parameters    Json?   @default("{}") @db.JsonB
+
+  sourceAccountRef GlAccount?         @relation(fields: [sourceAccount], references: [code])
+  targets          AllocationTarget[]
+
+  @@map("allocation_rule")
+  @@schema("co")
+}
+
+model AllocationTarget {
+  id           String  @id @default(uuid()) @db.Uuid
+  ruleId       String  @db.Uuid @map("rule_id")
+  projectId    String? @db.Uuid @map("project_id")
+  grantId      String? @db.Uuid @map("grant_id")
+  costCenterId String? @db.Uuid @map("cost_center_id")
+  weight       Decimal @db.Decimal(8, 4)
+
+  rule       AllocationRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  project    Project?        @relation(fields: [projectId], references: [id])
+  grant      GrantAgreement? @relation(fields: [grantId], references: [id])
+  costCenter AnalyticalAxis? @relation(fields: [costCenterId], references: [id])
+
+  @@map("allocation_target")
+  @@schema("co")
+}
+
+// =====================================================================
+//  REPORTING
+// =====================================================================
+
+model ReportTemplate {
+  id              String @id @default(uuid()) @db.Uuid
+  code            String @unique
+  label           String
+  donorId         String? @db.Uuid @map("donor_id")
+  outputFormat    String @default("pdf") @map("output_format")
+  templatePayload Json   @default("{}") @db.JsonB @map("template_payload")
+
+  donor Donor?      @relation(fields: [donorId], references: [id])
+  runs  ReportRun[]
+
+  @@map("report_template")
+  @@schema("reporting")
+}
+
+model ReportRun {
+  id              String   @id @default(uuid()) @db.Uuid
+  templateId      String   @db.Uuid @map("template_id")
+  periodId        String   @db.Uuid @map("period_id")
+  grantId         String?  @db.Uuid @map("grant_id")
+  generatedBy     String   @db.Uuid @map("generated_by")
+  generatedAt     DateTime @default(now()) @db.Timestamptz(6) @map("generated_at")
+  fileObjectKey   String?  @map("file_object_key")
+  payloadSnapshot Json?    @db.JsonB @map("payload_snapshot")
+
+  template  ReportTemplate  @relation(fields: [templateId], references: [id])
+  period    FiscalPeriod    @relation(fields: [periodId], references: [id])
+  grant     GrantAgreement? @relation(fields: [grantId], references: [id])
+  generator AppUser         @relation(fields: [generatedBy], references: [id])
+
+  @@map("report_run")
+  @@schema("reporting")
+}

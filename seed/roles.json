@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "description": "Rôles RBAC du système GRANTFLOW IPD",
+    "instructions_seed": "Charger via prisma.role.upsert où code est la clé d'unicité.",
+    "source": "docs/grantflow_ddl_postgresql.sql — INSERT INTO auth.role"
+  },
+  "roles": [
+    { "code": "SUPER_ADMIN", "label": "Super administrateur",                "description": "Accès complet à la plateforme et au paramétrage technique." },
+    { "code": "DAF",         "label": "Directeur Administratif et Financier", "description": "Pilotage financier, validations finales, vision consolidée." },
+    { "code": "CONTROLEUR",  "label": "Contrôleur de gestion",                "description": "Paramétrage conventions, supervision analytique, reporting bailleur." },
+    { "code": "COMPTABLE",   "label": "Comptable",                            "description": "Saisie, validation factures, écritures comptables." },
+    { "code": "TRESORIER",   "label": "Trésorier",                            "description": "Mise en paiement, gestion bancaire, anti-fraude." },
+    { "code": "ACHETEUR",    "label": "Acheteur",                             "description": "Sourcing, gestion fournisseurs, émission des bons de commande." },
+    { "code": "MAGASINIER",  "label": "Magasinier / Réception",               "description": "Constatation du service fait, traçabilité réactifs." },
+    { "code": "PI",          "label": "Principal Investigator",               "description": "Validation budgétaire des DA sur son projet/grant." },
+    { "code": "DEMANDEUR",   "label": "Demandeur",                            "description": "Saisie des DA, consultation de son périmètre." },
+    { "code": "BAILLEUR",    "label": "Bailleur / Auditeur (lecture)",        "description": "Consultation en lecture seule des conventions et reporting." }
+  ]
+}

@@ -1,0 +1,192 @@
+{
+  "realm": "grantflow",
+  "displayName": "GRANTFLOW IPD",
+  "displayNameHtml": "<strong>GRANTFLOW</strong> Institut Pasteur de Dakar",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 5,
+  "defaultRoles": ["offline_access", "uma_authorization"],
+  "requiredCredentials": ["password"],
+  "passwordPolicy": "length(10) and digits(1) and lowerCase(1) and upperCase(1) and notUsername",
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyPeriod": 30,
+  "browserSecurityHeaders": {
+    "contentSecurityPolicyReportOnly": "",
+    "xContentTypeOptions": "nosniff",
+    "xRobotsTag": "none",
+    "xFrameOptions": "SAMEORIGIN",
+    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self'; object-src 'none';",
+    "xXSSProtection": "1; mode=block",
+    "strictTransportSecurity": "max-age=31536000; includeSubDomains"
+  },
+  "accessTokenLifespan": 1800,
+  "ssoSessionIdleTimeout": 28800,
+  "ssoSessionMaxLifespan": 36000,
+  "internationalizationEnabled": true,
+  "supportedLocales": ["fr", "en"],
+  "defaultLocale": "fr",
+
+  "roles": {
+    "realm": [
+      { "name": "SUPER_ADMIN", "description": "Super administrateur — accès complet" },
+      { "name": "DAF",         "description": "Directeur Administratif et Financier" },
+      { "name": "CONTROLEUR",  "description": "Contrôleur de gestion" },
+      { "name": "COMPTABLE",   "description": "Comptable" },
+      { "name": "TRESORIER",   "description": "Trésorier" },
+      { "name": "ACHETEUR",    "description": "Acheteur" },
+      { "name": "MAGASINIER",  "description": "Magasinier / Réception" },
+      { "name": "PI",          "description": "Principal Investigator" },
+      { "name": "DEMANDEUR",   "description": "Demandeur" },
+      { "name": "BAILLEUR",    "description": "Bailleur / Auditeur (lecture seule)" }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "grantflow-api",
+      "name": "GRANTFLOW API (Backend NestJS)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "changeme-grantflow-api-secret",
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "attributes": {
+        "access.token.lifespan": "1800"
+      }
+    },
+    {
+      "clientId": "grantflow-web",
+      "name": "GRANTFLOW Web (Frontend Next.js)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+      ],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "publicKeyConfidential": false,
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-grantflow-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "grantflow-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "admin@pasteur.sn",
+      "email": "admin@pasteur.sn",
+      "firstName": "Admin",
+      "lastName": "IPD",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Admin#2026", "temporary": false }],
+      "realmRoles": ["SUPER_ADMIN"]
+    },
+    {
+      "username": "daf@pasteur.sn",
+      "email": "daf@pasteur.sn",
+      "firstName": "Awa",
+      "lastName": "DIOP",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Daf#2026", "temporary": false }],
+      "realmRoles": ["DAF"]
+    },
+    {
+      "username": "compta@pasteur.sn",
+      "email": "compta@pasteur.sn",
+      "firstName": "Mor",
+      "lastName": "SECK",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Compta#2026", "temporary": false }],
+      "realmRoles": ["COMPTABLE"]
+    },
+    {
+      "username": "tres@pasteur.sn",
+      "email": "tres@pasteur.sn",
+      "firstName": "Aïssatou",
+      "lastName": "FALL",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Tres#2026", "temporary": false }],
+      "realmRoles": ["TRESORIER"]
+    },
+    {
+      "username": "pi@pasteur.sn",
+      "email": "pi@pasteur.sn",
+      "firstName": "Fatou",
+      "lastName": "SARR",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Pi#2026", "temporary": false }],
+      "realmRoles": ["PI"]
+    },
+    {
+      "username": "amadou@pasteur.sn",
+      "email": "amadou@pasteur.sn",
+      "firstName": "El Hadj Amadou",
+      "lastName": "NIANG",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Demandeur#2026", "temporary": false }],
+      "realmRoles": ["DEMANDEUR"]
+    }
+  ]
+}

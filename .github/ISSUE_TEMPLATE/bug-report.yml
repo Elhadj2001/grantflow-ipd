@@ -1,0 +1,90 @@
+name: 🐛 Bug report
+description: Signaler un dysfonctionnement
+title: "[Bug] <description courte>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de remplir un maximum d'informations pour faciliter le diagnostic.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Sévérité
+      options:
+        - 🔥 Critique — bloque la production
+        - 🟠 Élevée — fonctionnalité majeure HS
+        - 🟡 Moyenne — contournement possible
+        - 🔵 Faible — cosmétique
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Zone impactée
+      options:
+        - Auth / Keycloak
+        - Procurement (DA, BC, Réception)
+        - Comptabilité (FI, CO)
+        - Reporting bailleur
+        - OCR / Capture factures
+        - Trésorerie / Paiements
+        - Frontend (Next.js)
+        - Infrastructure (Docker, CI)
+        - Base de données (PostgreSQL / Prisma)
+        - Autre
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      placeholder: Que se passe-t-il ?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes pour reproduire
+      value: |
+        1. Aller sur ...
+        2. Cliquer sur ...
+        3. Observer ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportement observé
+      description: Inclure messages d'erreur, captures, logs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environnement
+      value: |
+        - OS : Windows 11 / macOS / Linux
+        - Navigateur : Chrome XX / Firefox XX
+        - Branche : sprint-X / main
+        - Commit : <SHA>
+        - Docker Desktop : <version>
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Informations complémentaires
+      description: Sortie de `docker compose ps`, logs Prisma, captures, etc.

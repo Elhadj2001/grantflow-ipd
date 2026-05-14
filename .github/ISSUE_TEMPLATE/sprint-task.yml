@@ -1,0 +1,97 @@
+name: 🎯 Tâche de sprint
+description: Créer une tâche de développement liée à un sprint et un module
+title: "[Sprint X] <verbe à l'infinitif> <objet>"
+labels: ["sprint-task"]
+projects: ["eniang68/GRANTFLOW Sprints"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de bien renseigner le contexte métier — c'est ce qui guidera Claude Code / Antigravity.
+
+  - type: dropdown
+    id: sprint
+    attributes:
+      label: Sprint
+      options:
+        - Sprint 0 — Bootstrap
+        - Sprint 1 — Référentiels
+        - Sprint 2 — Demandes d'achat
+        - Sprint 3 — Bons de commande
+        - Sprint 4 — OCR & factures
+        - Sprint 5 — Comptabilité & analytique
+        - Sprint 6 — Reporting bailleur
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module fonctionnel
+      options:
+        - M1 — Référentiels
+        - M2 — Demandes d'achat
+        - M3 — Bons de commande
+        - M4 — Réception
+        - M5 — Factures fournisseurs (OCR)
+        - M6 — Trésorerie & paiement
+        - M7 — Comptabilité générale (FI)
+        - M8 — Comptabilité analytique (CO)
+        - M9 — Reporting bailleur
+        - Transverse (sécurité, infra, docs)
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User story
+      description: Format "En tant que ... je veux ... afin de ..."
+      placeholder: |
+        En tant que comptable, je veux pouvoir saisir une facture en multidevises afin de comptabiliser les achats internationaux des projets BMGF.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Critères d'acceptation
+      description: Liste à cocher, mesurables, testables
+      value: |
+        - [ ] Endpoint REST exposé sous `/api/v1/...`
+        - [ ] DTO validé par Zod
+        - [ ] Garde `@Roles(...)` appliquée
+        - [ ] Tests unitaires (service) avec couverture ≥ 80 %
+        - [ ] Test d'intégration (controller) en succès / 401 / 403
+        - [ ] Documentation Swagger générée
+        - [ ] Audit log automatique pour les opérations mutatives
+        - [ ] Pas d'écriture dans les colonnes `GENERATED`
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-notes
+    attributes:
+      label: Notes techniques
+      description: Tables Prisma concernées, contraintes métier, dépendances externes
+      placeholder: |
+        - Tables : ap.invoice, ap.invoice_line
+        - Trigger respecté : gl.check_period_open
+        - Dépend du module M3 (Purchase Order) terminé
+
+  - type: input
+    id: story-points
+    attributes:
+      label: Story points (1, 2, 3, 5, 8, 13)
+      placeholder: "3"
+
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Définition de "Terminé"
+      value: |
+        - [ ] Code mergé dans la branche sprint
+        - [ ] CI au vert (lint, typecheck, test)
+        - [ ] Code review réalisée par moi (auto) + idéalement encadrant
+        - [ ] Documentation mise à jour (CLAUDE.md, docs/*)
+        - [ ] Capture / GIF dans la PR si UI impactée

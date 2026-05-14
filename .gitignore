@@ -1,0 +1,35 @@
+# Node
+node_modules/
+.npm/
+*.log
+*.tsbuildinfo
+
+# Build
+dist/
+build/
+.next/
+out/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Tests
+coverage/
+test-results/
+playwright-report/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Prisma
+prisma/migrations/dev.db*
+
+# MinIO local
+minio_data/
+
+# OS
+Thumbs.db

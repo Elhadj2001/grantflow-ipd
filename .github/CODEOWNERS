@@ -1,0 +1,29 @@
+# CODEOWNERS — GRANTFLOW IPD
+# Documentation : https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Format : <pattern> @owner1 @owner2
+
+# Par défaut : l'auteur du mémoire est propriétaire de tout
+*                                @eniang68
+
+# Documentation technique et CLAUDE.md (cœur du contexte agent IA)
+/CLAUDE.md                       @eniang68
+/docs/                           @eniang68
+/ANTIGRAVITY_PROMPTS.md          @eniang68
+
+# Source de vérité du schéma comptable (revue obligatoire)
+/docs/grantflow_ddl_postgresql.sql   @eniang68
+/seed/                               @eniang68
+
+# CI/CD
+/.github/                        @eniang68
+
+# Code backend (NestJS)
+/apps/api/                       @eniang68
+
+# Code frontend (Next.js)
+/apps/web/                       @eniang68
+
+# Quand l'encadrant pédagogique et le maître de stage seront ajoutés au repo,
+# remplacer la ligne par défaut par :
+# *  @eniang68 @encadrant-miage @maitre-stage-ipd
