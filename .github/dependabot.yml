@@ -1,6 +1,18 @@
+# =====================================================================
+#  Dependabot — GRANTFLOW IPD
+#
+#  Stratégie de mise à jour :
+#   - Patch + minor : PR automatiques (compatibilité garantie par semver)
+#   - Major        : IGNORÉS — upgrade manuel uniquement (peut casser)
+#   - Sécurité     : toujours autorisé (override l'ignore via security-updates)
+#
+#  Pour traiter un major spécifique : créer une branche manuelle, tester,
+#  ouvrir une PR sans passer par Dependabot.
+# =====================================================================
+
 version: 2
 updates:
-  # Backend NestJS
+  # ============ Backend NestJS ============
   - package-ecosystem: "npm"
     directory: "/apps/api"
     schedule:
@@ -8,23 +20,24 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Africa/Dakar"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "backend"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "backend"]
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
     groups:
       nestjs:
-        patterns:
-          - "@nestjs/*"
+        patterns: ["@nestjs/*"]
+        update-types: ["minor", "patch"]
       prisma:
-        patterns:
-          - "@prisma/*"
-          - "prisma"
+        patterns: ["@prisma/*", "prisma"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Bloquer tous les majors — upgrades manuels seulement
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  # Frontend Next.js
+  # ============ Frontend Next.js ============
   - package-ecosystem: "npm"
     directory: "/apps/web"
     schedule:
@@ -32,47 +45,50 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Africa/Dakar"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "frontend"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "frontend"]
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
     groups:
       next-react:
-        patterns:
-          - "next"
-          - "react"
-          - "react-dom"
+        patterns: ["next", "react", "react-dom"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  # Workspace racine
+  # ============ Workspace racine ============
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 2
-    labels:
-      - "dependencies"
+    labels: ["dependencies"]
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  # GitHub Actions
+  # ============ GitHub Actions ============
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
-    labels:
-      - "ci"
+    labels: ["ci"]
     commit-message:
       prefix: "ci(deps)"
+    # Pour les actions GitHub, on accepte les majors (changements rares et testés)
 
-  # Docker
+  # ============ Docker images ============
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "monthly"
-    labels:
-      - "infrastructure"
+    labels: ["infrastructure"]
     commit-message:
       prefix: "chore(docker)"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
