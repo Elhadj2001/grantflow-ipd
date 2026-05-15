@@ -191,10 +191,14 @@ model EventLog {
   payloadAfter  Json?    @db.JsonB @map("payload_after")
   ipAddress     String?  @db.Inet @map("ip_address")
   userAgent     String?  @map("user_agent")
+  result        String   @default("success")
+  errorCode     String?  @map("error_code")
+  requestId     String?  @db.Uuid @map("request_id")
   hashChain     String?  @map("hash_chain")
 
   @@index([entityType, entityId], map: "idx_audit_event_log_entity")
   @@index([actorId, occurredAt(sort: Desc)], map: "idx_audit_event_log_actor")
+  @@index([requestId], map: "idx_audit_event_log_request_id")
   @@map("event_log")
   @@schema("audit")
 }

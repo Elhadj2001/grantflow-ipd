@@ -13,6 +13,11 @@
  * Les fixtures sont la source unique de vérité — toute modification du plan
  * comptable ou des bailleurs doit se faire dans les JSON, jamais ici.
  */
+// Side-effect : charge le .env de la racine AVANT toute import qui aurait
+// besoin de DATABASE_URL. Doit rester en TOUTE PREMIÈRE position — voir
+// load-env.ts pour le détail (hoisting des imports en CJS).
+import './load-env';
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PrismaClient, type DonorType } from '@prisma/client';

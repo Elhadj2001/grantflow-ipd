@@ -1,0 +1,38 @@
+/**
+ * Catalogue centralisé des codes d'erreur métier.
+ *
+ * Format : `MODULE.SUB_CODE` (UPPER_SNAKE, séparé par `.`).
+ *  - Stable dans le temps : les fronts (i18next, ngx-translate, react-intl)
+ *    et clients externes (intégrations bailleurs) résolvent leurs traductions
+ *    sur ces clés. Ne JAMAIS renommer un code — ajouter un nouveau si besoin.
+ *  - Source unique : ne laisser AUCUNE chaîne magique dans le code applicatif,
+ *    toujours passer par `ErrorCode.*`.
+ *
+ * Convention HTTP en prod :
+ *   La réponse renvoyée au client ne doit contenir que `{ code }`.
+ *   Le `message` est résolu côté front via le catalogue i18n.
+ *   Le message technique transporté par l'exception reste pour les logs serveur.
+ */
+export const ErrorCode = {
+  AUTH: {
+    UNAUTHENTICATED: 'AUTH.UNAUTHENTICATED',
+    INVALID_TOKEN:   'AUTH.INVALID_TOKEN',
+    EXPIRED_TOKEN:   'AUTH.EXPIRED_TOKEN',
+    FORBIDDEN_ROLE:  'AUTH.FORBIDDEN_ROLE',
+  },
+  AUDIT: {
+    PERSIST_FAILED:  'AUDIT.PERSIST_FAILED',
+  },
+} as const;
+
+/**
+ * Union de tous les codes possibles — sert de contrainte de type
+ * dans `BusinessException` pour interdire les codes inventés à la volée.
+ */
+type LeafValues<T> = T extends string
+  ? T
+  : T extends Record<string, unknown>
+    ? { [K in keyof T]: LeafValues<T[K]> }[keyof T]
+    : never;
+
+export type ErrorCodeValue = LeafValues<typeof ErrorCode>;

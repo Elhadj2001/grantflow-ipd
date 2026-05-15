@@ -14,8 +14,12 @@ services:
       POSTGRES_PASSWORD: grantflow
       POSTGRES_DB: grantflow_dev
       TZ: Africa/Dakar
+    # Host port 5433 to coexist with a native PostgreSQL service that may
+    # already own 5432 on Windows dev machines. The container itself keeps
+    # the standard 5432 — internal DSNs (other containers, healthcheck)
+    # are unaffected; only host-side DATABASE_URL must use 5433.
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./apps/api/prisma/init:/docker-entrypoint-initdb.d:ro
