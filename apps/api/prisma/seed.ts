@@ -13,6 +13,13 @@
  * Les fixtures sont la source unique de vérité — toute modification du plan
  * comptable ou des bailleurs doit se faire dans les JSON, jamais ici.
  */
+// Charge le .env de la racine du monorepo AVANT toute import qui aurait
+// besoin de DATABASE_URL (notamment `@prisma/client`). `ts-node` exécute
+// ce fichier directement — pas de bootstrap NestJS qui ferait le boulot.
+import { config as loadEnv } from 'dotenv';
+import { resolve } from 'node:path';
+loadEnv({ path: resolve(__dirname, '../../../.env') });
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PrismaClient, type DonorType } from '@prisma/client';
