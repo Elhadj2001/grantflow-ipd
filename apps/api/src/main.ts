@@ -1,7 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
+import { ZodValidationPipe } from 'nestjs-zod';
 import helmet from 'helmet';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app.module';
@@ -22,14 +23,15 @@ async function bootstrap(): Promise<void> {
   // Préfixe API + version
   app.setGlobalPrefix('api/v1');
 
-  // Validation globale
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  // Validation globale — Zod via nestjs-zod.
+  //
+  // Tous les DTO du projet sont déclarés via `createZodDto(zodSchema)` (cf.
+  // create-pr.dto.ts). `ZodValidationPipe` global :
+  //  - valide le body / query / params contre le schéma Zod du DTO,
+  //  - renvoie 400 avec un body normalisé `{ statusCode, message, errors }`
+  //    si la validation échoue (au lieu de laisser passer un payload
+  //    invalide qui ferait planter le service en 500).
+  app.useGlobalPipes(new ZodValidationPipe());
 
   // Swagger OpenAPI
   const swagger = new DocumentBuilder()
