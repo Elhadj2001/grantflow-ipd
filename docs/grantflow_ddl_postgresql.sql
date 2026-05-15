@@ -84,10 +84,24 @@ CREATE TABLE audit.event_log (
     payload_after   JSONB,
     ip_address      INET,
     user_agent      TEXT,
-    hash_chain      TEXT  -- chaînage pour inviolabilité (hash du précédent + payload)
+    -- Résultat de la tentative (cf. AuditLogInterceptor) :
+    --   success            → mutation 2xx
+    --   denied             → 401/403 (auth/role refusé)
+    --   failed_validation  → 4xx applicatif (400/404/409/422)
+    --   failed_internal    → 5xx (réservé, non écrit par l'interceptor — laissé pour le logger)
+    result          TEXT NOT NULL DEFAULT 'success',
+    -- Code d'erreur i18n stable (cf. common/exceptions/error-codes.ts) si result != 'success'.
+    error_code      TEXT,
+    -- Correlation ID (UUID généré par pino-http) — permet le tracing E2E entre
+    -- les logs serveur et la piste d'audit. Colonne dédiée + index pour les
+    -- recherches "qu'a fait cette requête X ?" (audit bailleur).
+    request_id      UUID,
+    hash_chain      TEXT,  -- chaînage pour inviolabilité (hash du précédent + payload)
+    CHECK (result IN ('success','denied','failed_validation','failed_internal'))
 );
-CREATE INDEX idx_audit_event_log_entity ON audit.event_log(entity_type, entity_id);
-CREATE INDEX idx_audit_event_log_actor  ON audit.event_log(actor_id, occurred_at DESC);
+CREATE INDEX idx_audit_event_log_entity     ON audit.event_log(entity_type, entity_id);
+CREATE INDEX idx_audit_event_log_actor      ON audit.event_log(actor_id, occurred_at DESC);
+CREATE INDEX idx_audit_event_log_request_id ON audit.event_log(request_id);
 
 -- Fonction utilitaire de hash-chaining (Tamper-evident log)
 CREATE OR REPLACE FUNCTION audit.compute_hash_chain() RETURNS trigger AS $$
@@ -105,7 +119,10 @@ BEGIN
         NEW.action ||
         NEW.entity_type ||
         coalesce(NEW.entity_id::text,'') ||
-        coalesce(NEW.payload_after::text,''),
+        NEW.result ||
+        coalesce(NEW.error_code,'') ||
+        coalesce(NEW.payload_after::text,'') ||
+        coalesce(NEW.request_id::text,''),
     'sha256'), 'hex');
     RETURN NEW;
 END;
