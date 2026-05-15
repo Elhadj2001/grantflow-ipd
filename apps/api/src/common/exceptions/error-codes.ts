@@ -23,6 +23,17 @@ export const ErrorCode = {
   AUDIT: {
     PERSIST_FAILED:  'AUDIT.PERSIST_FAILED',
   },
+  /**
+   * Erreurs métier transverses. Toute entité référentielle peut les
+   * lever — pas besoin d'un namespace dédié par entité tant que la
+   * sémantique reste générique (doublon, déjà inactif, etc.).
+   */
+  BUSINESS: {
+    NOT_FOUND:        'BUSINESS.NOT_FOUND',
+    DUPLICATE_CODE:   'BUSINESS.DUPLICATE_CODE',
+    ALREADY_INACTIVE: 'BUSINESS.ALREADY_INACTIVE',
+    ALREADY_ACTIVE:   'BUSINESS.ALREADY_ACTIVE',
+  },
 } as const;
 
 /**

@@ -72,3 +72,58 @@ export class ForbiddenRoleException extends BusinessException {
     );
   }
 }
+
+/**
+ * 404 — entité référencée introuvable. Plus précis qu'un `NotFoundException`
+ * Nest car porte le code i18n `BUSINESS.NOT_FOUND` consommable par le front.
+ */
+export class EntityNotFoundException extends BusinessException {
+  constructor(entity: string, key: Record<string, unknown>) {
+    super(
+      ErrorCode.BUSINESS.NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `${entity} not found`,
+      { entity, key },
+    );
+  }
+}
+
+/**
+ * 409 — conflit d'unicité sur le code métier (UNIQUE constraint violée).
+ * Plus parlant qu'un `ConflictException` brut pour le front qui peut
+ * afficher un message dédié "ce code est déjà utilisé".
+ */
+export class DuplicateCodeException extends BusinessException {
+  constructor(entity: string, code: string) {
+    super(
+      ErrorCode.BUSINESS.DUPLICATE_CODE,
+      HttpStatus.CONFLICT,
+      `${entity} with code "${code}" already exists`,
+      { entity, code },
+    );
+  }
+}
+
+/** 409 — tentative de soft-delete d'une entité déjà inactive. */
+export class AlreadyInactiveException extends BusinessException {
+  constructor(entity: string, id: string) {
+    super(
+      ErrorCode.BUSINESS.ALREADY_INACTIVE,
+      HttpStatus.CONFLICT,
+      `${entity} is already inactive`,
+      { entity, id },
+    );
+  }
+}
+
+/** 409 — tentative de restore d'une entité déjà active. */
+export class AlreadyActiveException extends BusinessException {
+  constructor(entity: string, id: string) {
+    super(
+      ErrorCode.BUSINESS.ALREADY_ACTIVE,
+      HttpStatus.CONFLICT,
+      `${entity} is already active`,
+      { entity, id },
+    );
+  }
+}
