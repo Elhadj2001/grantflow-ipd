@@ -117,8 +117,35 @@ Admin Keycloak : http://localhost:8080 — login `admin` / mdp `admin`.
 | `bash: docker: command not found` | Docker Desktop pas démarré ou WSL non configuré | Démarrer Docker Desktop, vérifier l'intégration WSL |
 | Postgres redémarre en boucle | Le volume `apps/api/prisma/init/` est introuvable | Vérifier que le fichier `apps/api/prisma/init/.gitkeep` existe |
 | Keycloak ne charge pas le realm | Mauvais nom de fichier ou JSON invalide | Vérifier `docker compose logs keycloak` |
-| Port 5432 déjà utilisé | Un Postgres local tourne déjà | `net stop postgresql-x64-16` ou changer le port dans docker-compose.yml |
+| Port 5432 déjà utilisé | Un Postgres local tourne déjà | **Le projet utilise déjà 5433 côté host pour éviter ce conflit** — voir le bloc "Postgres natif Windows" ci-dessous |
 | Lenteur extrême sur certaines opérations | Antivirus qui scanne node_modules | Exclure le dossier projet de l'analyse temps réel |
+
+### Postgres natif Windows — conflit de port
+
+**Symptôme** : Prisma renvoie au seed `Authentication failed against database server at localhost, the provided database credentials for (not available) are not valid` alors que `docker compose exec postgres psql ...` fonctionne.
+
+**Cause** : un PostgreSQL natif Windows (typiquement `postgresql-x64-18`) écoute sur `0.0.0.0:5432` et capte les connexions du host avant que Docker n'y arrive. Le rejet d'auth vient du Postgres natif, pas de Docker.
+
+**Solution déjà appliquée dans ce repo** :
+- `docker-compose.yml` mappe le conteneur sur le port host `5433` (ligne `5433:5432`)
+- `.env.example` et donc le `.env` cible `postgresql://...:5433/...`
+- Les connexions intra-conteneur (autres services Docker, healthchecks, `docker compose exec psql`) restent sur le port standard `5432` interne
+
+**Vérifier qui occupe `5432` sur ton host** (PowerShell) :
+
+```powershell
+Get-NetTCPConnection -LocalPort 5432 -State Listen |
+  Select-Object LocalAddress,OwningProcess
+Get-Process -Id <PID> | Select-Object Id,ProcessName,Path
+```
+
+Si tu veux que ton Postgres natif libère le port (optionnel — pas nécessaire grâce au remap 5433) :
+
+```powershell
+Stop-Service -Name postgresql-x64-18
+# Ou désactiver le démarrage automatique :
+Set-Service -Name postgresql-x64-18 -StartupType Manual
+```
 
 ## 10. Arrêt et nettoyage
 
