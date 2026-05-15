@@ -251,7 +251,9 @@ CREATE TABLE ref.donor (
     country       TEXT,
     contact_email CITEXT,
     reporting_template_id UUID,
-    is_active     BOOLEAN NOT NULL DEFAULT true
+    is_active     BOOLEAN NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE ref.grant_agreement (
