@@ -2,6 +2,9 @@ import { Body, Controller, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PurchaseRequestService } from './purchase-request.service';
 import { CreatePurchaseRequestDto } from './dto/create-pr.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 
 @ApiBearerAuth()
 @ApiTags('procurement')
@@ -10,18 +13,23 @@ export class PurchaseRequestController {
   constructor(private readonly svc: PurchaseRequestService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Créer une demande d\'achat (statut DRAFT)' })
-  async create(@Body() dto: CreatePurchaseRequestDto) {
-    // TODO: récupérer userId depuis @CurrentUser() une fois AuthGuard implémenté
-    const userId = 'placeholder-user-id';
-    return this.svc.create(userId, dto);
+  @Roles('DEMANDEUR', 'PI', 'SUPER_ADMIN')
+  @ApiOperation({ summary: "Créer une demande d'achat (statut DRAFT)" })
+  async create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreatePurchaseRequestDto,
+  ): Promise<unknown> {
+    return this.svc.create(user, dto);
   }
 
   @Post(':id/submit')
+  @Roles('PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Soumettre la DA à validation' })
-  async submit(@Param('id') id: string) {
-    const userId = 'placeholder-user-id';
-    return this.svc.submit(id, userId);
+  async submit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<unknown> {
+    return this.svc.submit(id, user);
   }
 
   // TODO Sprint 2 :

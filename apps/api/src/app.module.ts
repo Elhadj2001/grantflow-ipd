@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -7,16 +9,47 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { ProcurementModule } from './procurement/procurement.module';
 
+const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     LoggerModule.forRoot({
       pinoHttp: {
-        transport: process.env.NODE_ENV !== 'production'
-          ? { target: 'pino-pretty', options: { singleLine: true } }
-          : undefined,
-        redact: ['req.headers.authorization'],
+        /**
+         * Correlation ID :
+         *   - Si un client (gateway, web) fournit déjà un `x-request-id`
+         *     UUID-valide, on le réutilise — utile pour propager une trace
+         *     existante.
+         *   - Sinon on génère un UUID v4 frais.
+         *
+         * Le résultat est exposé via `req.id` à l'`AuditLogInterceptor`,
+         * qui le persiste dans `audit.event_log.request_id` (colonne UUID
+         * indexée + inclus dans le hash chain — cf. DDL).
+         */
+        genReqId: (req: IncomingMessage): string => {
+          const raw = req.headers['x-request-id'];
+          const headerId = Array.isArray(raw) ? raw[0] : raw;
+          return headerId && UUID_HEADER_REGEX.test(headerId) ? headerId : randomUUID();
+        },
         customProps: () => ({ service: 'grantflow-api' }),
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'req.body.password',
+            'req.body.iban',
+            'res.headers["set-cookie"]',
+            '*.email',
+            '*.iban',
+            '*.password',
+          ],
+          censor: '[REDACTED]',
+        },
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? { target: 'pino-pretty', options: { singleLine: true } }
+            : undefined,
       },
     }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),

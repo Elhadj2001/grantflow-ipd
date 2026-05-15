@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseRequestDto } from './dto/create-pr.dto';
+import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 
 @Injectable()
 export class PurchaseRequestService {
@@ -16,7 +17,7 @@ export class PurchaseRequestService {
    * 2. Chaque ligne pointe sur une budgetLine du grant.
    * 3. La somme des lignes est compatible avec le solde disponible (sinon BadRequest).
    */
-  async create(userId: string, dto: CreatePurchaseRequestDto) {
+  async create(actor: AuthenticatedUser, dto: CreatePurchaseRequestDto) {
     const grant = await this.prisma.grantAgreement.findUnique({
       where: { id: dto.grantId },
       include: { budgetLines: true },
@@ -42,7 +43,7 @@ export class PurchaseRequestService {
       const pr = await tx.purchaseRequest.create({
         data: {
           prNumber,
-          requestedBy: userId,
+          requestedBy: actor.id,
           neededBy: dto.neededBy,
           status: 'draft',
           projectId: dto.projectId,
@@ -66,7 +67,7 @@ export class PurchaseRequestService {
         include: { lines: true },
       });
 
-      this.logger.log(`PR ${pr.prNumber} créée par ${userId} (montant ${totalAmount} ${dto.currency})`);
+      this.logger.log(`PR ${pr.prNumber} créée par ${actor.id} (montant ${totalAmount} ${dto.currency})`);
       return pr;
     });
   }
@@ -74,10 +75,15 @@ export class PurchaseRequestService {
   /**
    * Soumet la DA — passe en statut PENDING_PI et initialise le workflow.
    * À implémenter avec le moteur de workflow Camunda/Temporal.
+   *
+   * `actor` n'est pas encore exploité ici (l'ownership check + audit
+   * applicatif viendront au Sprint 2), mais la signature est déjà figée
+   * pour ne pas faire un breaking change controller / service en cascade.
+   * L'audit log de la transition est déjà géré globalement par
+   * `AuditLogInterceptor` côté HTTP — pas besoin de logger manuel ici.
    */
-  async submit(prId: string, _userId: string) {
-    // TODO Sprint 0.3: utiliser _userId pour vérifier l'ownership et alimenter l'audit log
-    // TODO Sprint 2 : contrôle budget final, démarrer workflow d'approbation
+  async submit(prId: string, actor: AuthenticatedUser) {
+    this.logger.debug(`submit() called for pr=${prId} by actor=${actor.id}`);
     const pr = await this.prisma.purchaseRequest.findUnique({ where: { id: prId } });
     if (!pr) throw new NotFoundException('DA introuvable.');
     if (pr.status !== 'draft') throw new BadRequestException('Seule une DA en brouillon peut être soumise.');
