@@ -115,7 +115,7 @@ BEGIN
     LIMIT 1;
     NEW.hash_chain := encode(digest(
         coalesce(prev_hash,'GENESIS') ||
-        NEW.actor_id::text ||
+        coalesce(NEW.actor_id::text,'') ||
         NEW.action ||
         NEW.entity_type ||
         coalesce(NEW.entity_id::text,'') ||

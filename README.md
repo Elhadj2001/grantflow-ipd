@@ -57,6 +57,9 @@ cd grantflow-ipd
 
 # 2. Variables d'environnement
 cp .env.example .env
+# Note: Postgres est exposé sur le port host 5433 (et non 5432) pour
+# cohabiter avec un éventuel Postgres natif sur Windows.
+# Voir docs/SETUP_WINDOWS.md §9 si tu rencontres un conflit de port.
 
 # 3. Installer les dépendances
 npm install
@@ -77,9 +80,11 @@ npm run dev --workspace=apps/web    # → http://localhost:3000
 
 Comptes par défaut (seed) :
 - `admin@pasteur.sn` / `Admin#2026`
-- `daf@pasteur.sn` / `Daf#2026`
+- `daf@pasteur.sn` / `Daf#2026-IPD`
 - `compta@pasteur.sn` / `Compta#2026`
-- `pi@pasteur.sn` / `Pi#2026`
+- `tres@pasteur.sn` / `Tres#2026-IPD`
+- `pi@pasteur.sn` / `Pi#2026-IPD`
+- `amadou@pasteur.sn` / `Demandeur#2026`
 
 ---
 
