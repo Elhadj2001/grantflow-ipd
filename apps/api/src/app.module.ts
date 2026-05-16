@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { ProcurementModule } from './procurement/procurement.module';
+import { DonorModule } from './referential/donor/donor.module';
 
 const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -57,8 +58,11 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     HealthModule,
     AuthModule,
     ProcurementModule,
+    // Référentiels — un sous-module par entité (M1).
+    DonorModule,
+    // TODO Sprint 1.2+ : ProjectModule, GrantModule, BudgetLineModule,
+    //                    SupplierModule, AnalyticalAxisModule, TaxCodeModule.
     // À ajouter au fil des sprints :
-    // ReferentialModule,
     // ApModule,
     // GlModule,
     // CoModule,
