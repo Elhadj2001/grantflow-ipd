@@ -79,6 +79,15 @@ export const RejectInvoiceSchema = z
 
 export class RejectInvoiceDto extends createZodDto(RejectInvoiceSchema) {}
 
+/** Annulation de comptabilisation (DAF/SUPER_ADMIN) — motif obligatoire. */
+export const CancelPostingSchema = z
+  .object({
+    reason: z.string().min(5).max(500),
+  })
+  .strict();
+
+export class CancelPostingDto extends createZodDto(CancelPostingSchema) {}
+
 /**
  * Métadonnées optionnelles lors d'un upload PDF. L'OCR remplit le reste,
  * mais le comptable peut pré-déclarer le supplier / PO si visible sur
