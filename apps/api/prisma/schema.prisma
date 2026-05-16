@@ -287,6 +287,7 @@ model AppUser {
   reportRunsGenerated   ReportRun[]
   cashBoxesCustodian    CashBox[]
   cashSettlementsDone   CashSettlement[]
+  invoicesMatched       Invoice[]        @relation("InvoiceMatchedBy")
 
   @@index([status], map: "idx_user_status")
   @@map("app_user")
@@ -820,9 +821,13 @@ model Invoice {
   rejectionReason String?       @map("rejection_reason")
   postedAt        DateTime?     @map("posted_at") @db.Timestamptz(6)
   createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  matchedBy       String?       @map("matched_by") @db.Uuid
+  matchedAt       DateTime?     @map("matched_at") @db.Timestamptz(6)
+  matchSummary    Json?         @map("match_summary") @db.JsonB
 
   supplier Supplier       @relation(fields: [supplierId], references: [id])
   po       PurchaseOrder? @relation(fields: [poId], references: [id])
+  matcher  AppUser?       @relation("InvoiceMatchedBy", fields: [matchedBy], references: [id])
   lines    InvoiceLine[]
   payments Payment[]
 
