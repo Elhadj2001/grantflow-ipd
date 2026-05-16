@@ -386,26 +386,50 @@ CREATE TABLE procurement.approval_step (
 CREATE INDEX idx_approval_entity ON procurement.approval_step(entity_type, entity_id);
 
 -- Bons de commande
+--
+-- Sprint 3 — colonnes additionnelles :
+--   acknowledged_at/acknowledged_by  : retour explicite du fournisseur
+--   cancelled_at/cancellation_reason : annulation après émission (extourne classe 8)
+--   pdf_object_key                   : clé MinIO du PDF généré
+--   email_sent_at/email_sent_to      : trace de l'envoi (retry possible via /resend)
 CREATE TABLE procurement.purchase_order (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    po_number       TEXT UNIQUE NOT NULL,
-    pr_id           UUID REFERENCES procurement.purchase_request(id),
-    supplier_id     UUID NOT NULL REFERENCES ref.supplier(id),
-    order_date      DATE NOT NULL DEFAULT CURRENT_DATE,
-    expected_date   DATE,
-    status          procurement.po_status NOT NULL DEFAULT 'draft',
-    total_ht        NUMERIC(18,2) NOT NULL DEFAULT 0,
-    total_vat       NUMERIC(18,2) NOT NULL DEFAULT 0,
-    total_ttc       NUMERIC(18,2) NOT NULL DEFAULT 0,
-    currency        CHAR(3) NOT NULL DEFAULT 'XOF',
-    incoterm        TEXT,
-    delivery_address TEXT,
-    buyer_id        UUID REFERENCES auth.app_user(id),
-    sent_at         TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    po_number           TEXT UNIQUE NOT NULL,
+    pr_id               UUID REFERENCES procurement.purchase_request(id),
+    supplier_id         UUID NOT NULL REFERENCES ref.supplier(id),
+    order_date          DATE NOT NULL DEFAULT CURRENT_DATE,
+    expected_date       DATE,
+    status              procurement.po_status NOT NULL DEFAULT 'draft',
+    total_ht            NUMERIC(18,2) NOT NULL DEFAULT 0,
+    total_vat           NUMERIC(18,2) NOT NULL DEFAULT 0,
+    total_ttc           NUMERIC(18,2) NOT NULL DEFAULT 0,
+    currency            CHAR(3) NOT NULL DEFAULT 'XOF',
+    incoterm            TEXT,
+    delivery_address    TEXT,
+    buyer_id            UUID REFERENCES auth.app_user(id),
+    sent_at             TIMESTAMPTZ,
+    acknowledged_at     TIMESTAMPTZ,
+    acknowledged_by     TEXT,
+    cancelled_at        TIMESTAMPTZ,
+    cancellation_reason TEXT,
+    pdf_object_key      TEXT,
+    email_sent_at       TIMESTAMPTZ,
+    email_sent_to       TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_po_supplier ON procurement.purchase_order(supplier_id);
 CREATE INDEX idx_po_status   ON procurement.purchase_order(status);
+
+-- Liaison N-N PR ↔ PO : un BC peut consolider plusieurs DAs ; une DA peut
+-- théoriquement aussi être éclatée entre plusieurs BCs (split partiel,
+-- gestion ultérieure). La colonne `pr_id` historique (1-1) reste, pointant
+-- vers la "première" PR, mais l'autorité est cette table de liaison.
+CREATE TABLE procurement.purchase_order_pr (
+    po_id UUID NOT NULL REFERENCES procurement.purchase_order(id) ON DELETE CASCADE,
+    pr_id UUID NOT NULL REFERENCES procurement.purchase_request(id),
+    PRIMARY KEY (po_id, pr_id)
+);
+CREATE INDEX idx_po_pr_pr ON procurement.purchase_order_pr(pr_id);
 
 CREATE TABLE procurement.purchase_order_line (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -809,6 +833,7 @@ INSERT INTO ref.gl_account (code, label, class, is_movement, syscebnl_specific) 
 ('8',      'COMPTES SPÉCIAUX', '8', false, true),
 ('80',     'Engagements hors bilan', '8', false, true),
 ('801',    'Engagements donnés (BC en cours)', '8', true, true),
+('802',    'Contre-engagement BC en cours', '8', true, true),
 ('9',      'COMPTABILITÉ ANALYTIQUE', '9', false, true),
 ('90',     'Comptes réfléchis', '9', false, true),
 ('92',     'Sections analytiques', '9', true, true),

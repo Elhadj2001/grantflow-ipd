@@ -70,6 +70,8 @@
     { "code": "80",   "label": "Engagements hors bilan", "class": "8", "is_movement": false, "syscebnl_specific": true },
     { "code": "801",  "label": "Engagements donnés (BC en cours)", "class": "8", "is_movement": true, "syscebnl_specific": true,
       "description": "Engagement comptable créé à la validation d'un BC, contrepartie en classe 8. Réversion à la comptabilisation de la facture." },
+    { "code": "802",  "label": "Contre-engagement BC en cours", "class": "8", "is_movement": true, "syscebnl_specific": true,
+      "description": "Symétrique du compte 801. Équilibre les engagements hors bilan. Extourné à la facturation." },
 
     { "code": "9",    "label": "COMPTABILITÉ ANALYTIQUE", "class": "9", "is_movement": false, "syscebnl_specific": true },
     { "code": "90",   "label": "Comptes réfléchis", "class": "9", "is_movement": false, "syscebnl_specific": true },
