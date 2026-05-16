@@ -72,10 +72,12 @@ enum PrStatus {
   pending_pi
   pending_cg
   pending_daf
+  pending_caissier
   approved
   rejected
   cancelled
   closed
+  settled
 
   @@map("pr_status")
   @@schema("procurement")
@@ -279,6 +281,8 @@ model AppUser {
   fiscalPeriodsClosed   FiscalPeriod[]
   journalEntriesPosted  JournalEntry[]
   reportRunsGenerated   ReportRun[]
+  cashBoxesCustodian    CashBox[]
+  cashSettlementsDone   CashSettlement[]
 
   @@index([status], map: "idx_user_status")
   @@map("app_user")
@@ -526,6 +530,49 @@ model TaxCode {
   @@schema("ref")
 }
 
+/// Caisse en espèces (petite caisse). Plafonds appliqués au service —
+/// les CHECK protègent seulement les invariants positifs (cf. DDL §SPRINT 2.3).
+model CashBox {
+  id              String   @id @default(uuid()) @db.Uuid
+  code            String   @unique
+  label           String
+  custodianUserId String?  @map("custodian_user_id") @db.Uuid
+  currency        String   @default("XOF") @db.Char(3)
+  currentBalance  Decimal  @default(0) @map("current_balance") @db.Decimal(18, 2)
+  ceiling         Decimal  @default(500000) @db.Decimal(18, 2)
+  perRequestMax   Decimal  @default(100000) @map("per_request_max") @db.Decimal(18, 2)
+  perDayUserMax   Decimal  @default(200000) @map("per_day_user_max") @db.Decimal(18, 2)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  custodian        AppUser?          @relation(fields: [custodianUserId], references: [id])
+  purchaseRequests PurchaseRequest[]
+
+  @@index([isActive], map: "idx_cash_box_active")
+  @@map("cash_box")
+  @@schema("ref")
+}
+
+/// Régularisation d'une avance de mission (DA `cash_advance`). Une seule
+/// entrée par DA (UNIQUE sur purchase_request_id côté DDL).
+model CashSettlement {
+  id                String   @id @default(uuid()) @db.Uuid
+  purchaseRequestId String   @unique @map("purchase_request_id") @db.Uuid
+  actualSpent       Decimal  @map("actual_spent") @db.Decimal(18, 2)
+  variance          Decimal  @db.Decimal(18, 2)
+  justifications    String?
+  settledBy         String?  @map("settled_by") @db.Uuid
+  settledAt         DateTime @default(now()) @map("settled_at") @db.Timestamptz(6)
+
+  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  settler         AppUser?        @relation(fields: [settledBy], references: [id])
+
+  @@index([purchaseRequestId], map: "idx_cash_settlement_pr")
+  @@map("cash_settlement")
+  @@schema("ref")
+}
+
 // =====================================================================
 //  PROCUREMENT
 // =====================================================================
@@ -546,6 +593,7 @@ model PurchaseRequest {
   description     String?
   requestType     PrType    @default(standard) @map("request_type")
   rejectionReason String?   @map("rejection_reason")
+  cashBoxId       String?   @map("cash_box_id") @db.Uuid
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   requester      AppUser               @relation(fields: [requestedBy], references: [id])
@@ -553,6 +601,8 @@ model PurchaseRequest {
   grant          GrantAgreement        @relation(fields: [grantId], references: [id])
   costCenter     AnalyticalAxis?       @relation("PrCostCenter", fields: [costCenterId], references: [id])
   activity       AnalyticalAxis?       @relation("PrActivity", fields: [activityId], references: [id])
+  cashBox        CashBox?              @relation(fields: [cashBoxId], references: [id])
+  cashSettlement CashSettlement?
   lines          PurchaseRequestLine[]
   purchaseOrders PurchaseOrder[]
 
