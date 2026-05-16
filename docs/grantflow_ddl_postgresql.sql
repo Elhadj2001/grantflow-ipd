@@ -312,9 +312,14 @@ CREATE TABLE ref.exchange_rate (
     rate          NUMERIC(18,8) NOT NULL CHECK (rate > 0),
     rate_date     DATE NOT NULL,
     source        TEXT,
+    is_fixed     BOOLEAN NOT NULL DEFAULT false,
     UNIQUE (from_currency, to_currency, rate_date)
 );
 CREATE INDEX idx_exchange_rate_date ON ref.exchange_rate(rate_date);
+-- Index partiel : un seul taux fixe possible par paire devise (BCEAO EUR/XOF).
+CREATE INDEX idx_exchange_rate_fixed
+    ON ref.exchange_rate(from_currency, to_currency)
+    WHERE is_fixed = true;
 
 CREATE TABLE ref.tax_code (
     id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

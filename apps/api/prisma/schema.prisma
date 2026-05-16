@@ -492,6 +492,7 @@ model ExchangeRate {
   rate         Decimal  @db.Decimal(18, 8)
   rateDate     DateTime @map("rate_date") @db.Date
   source       String?
+  isFixed      Boolean  @default(false) @map("is_fixed")
 
   @@unique([fromCurrency, toCurrency, rateDate])
   @@index([rateDate], map: "idx_exchange_rate_date")

@@ -340,3 +340,119 @@ export class InvalidBicException extends BusinessException {
     );
   }
 }
+
+/**
+ * 409 — désactivation d'un code TVA encore référencé par une DA/BC/facture/écriture.
+ * On force le contrôle de gestion à remplacer le code dans les pièces ouvertes
+ * avant de l'archiver, sinon les recalculs de TVA seraient cassés.
+ */
+export class TaxCodeHasUsageException extends BusinessException {
+  constructor(taxCodeId: string, details: Record<string, number>) {
+    super(
+      ErrorCode.BUSINESS.TAX_CODE_HAS_USAGE,
+      HttpStatus.CONFLICT,
+      `Tax code is referenced by procurement/invoice/journal lines`,
+      { taxCodeId, ...details },
+    );
+  }
+}
+
+/**
+ * 409 — désactivation d'un compte général qui porte au moins une écriture
+ * validée. Garantie SYSCEBNL : un compte mouvementé reste actif jusqu'à
+ * archivage de l'exercice (cf. CLAUDE.md §1 référentiel comptable).
+ */
+export class GlAccountHasEntriesException extends BusinessException {
+  constructor(accountCode: string, journalLineCount: number) {
+    super(
+      ErrorCode.BUSINESS.GL_ACCOUNT_HAS_ENTRIES,
+      HttpStatus.CONFLICT,
+      `GL account has ${journalLineCount} journal line(s) — cannot deactivate`,
+      { accountCode, journalLineCount },
+    );
+  }
+}
+
+/** 409 — désactivation d'un compte parent avec des sous-comptes actifs. */
+export class GlAccountHasChildrenException extends BusinessException {
+  constructor(accountCode: string, childCount: number) {
+    super(
+      ErrorCode.BUSINESS.GL_ACCOUNT_HAS_CHILDREN,
+      HttpStatus.CONFLICT,
+      `GL account has ${childCount} active child account(s) — deactivate them first`,
+      { accountCode, childCount },
+    );
+  }
+}
+
+/**
+ * 400 — Le premier chiffre du code de compte doit correspondre à la classe.
+ * SYSCEBNL/OHADA : classe 1 = capitaux, 2 = immobilisations, 6 = charges, etc.
+ * Code 6011 → class doit être '6'. Sinon la balance générale serait fausse.
+ */
+export class InvalidClassPrefixException extends BusinessException {
+  constructor(code: string, declaredClass: string) {
+    super(
+      ErrorCode.BUSINESS.INVALID_CLASS_PREFIX,
+      HttpStatus.BAD_REQUEST,
+      `Code "${code}" must start with declared class "${declaredClass}"`,
+      { code, declaredClass },
+    );
+  }
+}
+
+/** 404 — aucun taux de change disponible pour le couple (from,to) à la date demandée. */
+export class ExchangeRateNotFoundException extends BusinessException {
+  constructor(from: string, to: string, date?: string) {
+    super(
+      ErrorCode.BUSINESS.EXCHANGE_RATE_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `No exchange rate found for ${from}→${to}${date ? ` on or before ${date}` : ''}`,
+      { from, to, date: date ?? null },
+    );
+  }
+}
+
+/** 400 — fromCurrency === toCurrency : pas de conversion possible. */
+export class SameCurrencyException extends BusinessException {
+  constructor(currency: string) {
+    super(
+      ErrorCode.BUSINESS.SAME_CURRENCY,
+      HttpStatus.BAD_REQUEST,
+      `from and to currencies must differ (received "${currency}")`,
+      { currency },
+    );
+  }
+}
+
+/**
+ * 409 — tentative d'insérer un taux variable pour un couple devise qui a
+ * déjà une parité fixe BCEAO (ex: EUR/XOF). La parité fixe est sacro-sainte —
+ * on refuse explicitement plutôt que de risquer un override silencieux.
+ */
+export class FixedRateExistsException extends BusinessException {
+  constructor(from: string, to: string) {
+    super(
+      ErrorCode.BUSINESS.FIXED_RATE_EXISTS,
+      HttpStatus.CONFLICT,
+      `A fixed exchange rate already exists for ${from}→${to} — cannot add a variable rate`,
+      { from, to },
+    );
+  }
+}
+
+/**
+ * 409 — tentative de modifier/supprimer une ligne `isFixed=true` par un
+ * utilisateur non SUPER_ADMIN. Cas exceptionnel : SUPER_ADMIN peut corriger
+ * une erreur de saisie sur la parité (rarissime).
+ */
+export class ImmutableFixedRateException extends BusinessException {
+  constructor(rateId: string, action: 'update' | 'delete') {
+    super(
+      ErrorCode.BUSINESS.IMMUTABLE_FIXED_RATE,
+      HttpStatus.CONFLICT,
+      `Cannot ${action} a fixed BCEAO exchange rate (requires SUPER_ADMIN override)`,
+      { rateId, action },
+    );
+  }
+}

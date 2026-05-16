@@ -113,6 +113,43 @@ async function seedTaxCodes() {
   console.log(`✅ ${codes.length} codes TVA chargés`);
 }
 
+/**
+ * Parités fixes BCEAO/UEMOA — seed obligatoire avant tout calcul XOF/EUR.
+ *
+ * 1 EUR = 655,957 XOF (décret 04/01/1999, garantie BCEAO).
+ * On insère les deux sens (EUR→XOF et XOF→EUR) avec `isFixed=true` :
+ * le service ExchangeRate les détecte et les retourne quelle que soit
+ * la date de demande.
+ */
+async function seedFixedExchangeRates() {
+  const FIXED_EUR_XOF = 655.957;
+  const rates = [
+    { from: 'EUR', to: 'XOF', rate: FIXED_EUR_XOF },
+    { from: 'XOF', to: 'EUR', rate: 1 / FIXED_EUR_XOF },
+  ];
+  for (const r of rates) {
+    await prisma.exchangeRate.upsert({
+      where: {
+        fromCurrency_toCurrency_rateDate: {
+          fromCurrency: r.from,
+          toCurrency: r.to,
+          rateDate: new Date('1999-01-04'),
+        },
+      },
+      update: { isFixed: true, rate: r.rate, source: 'BCEAO_FIXED' },
+      create: {
+        fromCurrency: r.from,
+        toCurrency: r.to,
+        rate: r.rate,
+        rateDate: new Date('1999-01-04'),
+        source: 'BCEAO_FIXED',
+        isFixed: true,
+      },
+    });
+  }
+  console.log(`✅ ${rates.length} parités fixes BCEAO (EUR↔XOF) chargées`);
+}
+
 async function seedFiscalPeriods() {
   const periods = loadFixture<FiscalPeriodFixture>('fiscal-periods-2026.json', 'periods');
   for (const p of periods) {
@@ -220,6 +257,7 @@ async function main() {
   await seedRoles();
   await seedDonors();
   await seedTaxCodes();
+  await seedFixedExchangeRates();
   await seedFiscalPeriods();
   await seedUsers();
   await seedDemoProjects();
