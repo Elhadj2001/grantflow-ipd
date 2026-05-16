@@ -343,9 +343,31 @@ model GlAccount {
   taxCodes                TaxCode[]
   allocationRulesAsSource AllocationRule[]
   journalLines            JournalLine[]
+  bankAccounts            BankAccount[]
 
   @@index([class], map: "idx_gl_account_class")
   @@map("gl_account")
+  @@schema("ref")
+}
+
+model BankAccount {
+  id             String   @id @default(uuid()) @db.Uuid
+  code           String   @unique
+  label          String
+  accountNumber  String   @map("account_number")
+  bic            String?
+  bankName       String   @map("bank_name")
+  currency       String   @default("XOF") @db.Char(3)
+  glAccountCode  String   @map("gl_account")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  glAccount   GlAccount    @relation(fields: [glAccountCode], references: [code])
+  paymentRuns PaymentRun[]
+
+  @@index([currency], map: "idx_bank_account_currency")
+  @@map("bank_account")
   @@schema("ref")
 }
 
@@ -882,22 +904,29 @@ model InvoiceMatch {
 }
 
 model PaymentRun {
-  id          String   @id @default(uuid()) @db.Uuid
-  runNumber   String   @unique @map("run_number")
-  runDate     DateTime @default(now()) @map("run_date") @db.Date
-  currency    String   @default("XOF") @db.Char(3)
-  bankAccount String?  @map("bank_account")
-  preparedBy  String?  @map("prepared_by") @db.Uuid
-  approvedBy  String?  @map("approved_by") @db.Uuid
-  totalAmount Decimal  @default(0) @map("total_amount") @db.Decimal(18, 2)
-  status      String   @default("draft")
-  sepaFileKey String?  @map("sepa_file_key")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                   String    @id @default(uuid()) @db.Uuid
+  runNumber            String    @unique @map("run_number")
+  runDate              DateTime  @default(now()) @map("run_date") @db.Date
+  currency             String    @default("XOF") @db.Char(3)
+  bankAccountLegacy    String?   @map("bank_account")
+  bankAccountId        String?   @map("bank_account_id") @db.Uuid
+  preparedBy           String?   @map("prepared_by") @db.Uuid
+  approvedBy           String?   @map("approved_by") @db.Uuid
+  totalAmount          Decimal   @default(0) @map("total_amount") @db.Decimal(18, 2)
+  status               String    @default("draft")
+  sepaFileKey          String?   @map("sepa_file_key")
+  preparationWarnings  Json?     @map("preparation_warnings") @db.JsonB
+  rejectionReason      String?   @map("rejection_reason")
+  approvedAt           DateTime? @map("approved_at") @db.Timestamptz(6)
+  executedAt           DateTime? @map("executed_at") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  preparer AppUser?  @relation("PaymentRunPreparer", fields: [preparedBy], references: [id])
-  approver AppUser?  @relation("PaymentRunApprover", fields: [approvedBy], references: [id])
-  payments Payment[]
+  preparer    AppUser?     @relation("PaymentRunPreparer", fields: [preparedBy], references: [id])
+  approver    AppUser?     @relation("PaymentRunApprover", fields: [approvedBy], references: [id])
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
+  payments    Payment[]
 
+  @@index([status], map: "idx_payment_run_status")
   @@map("payment_run")
   @@schema("ap")
 }
@@ -919,6 +948,7 @@ model Payment {
   invoice    Invoice     @relation(fields: [invoiceId], references: [id])
 
   @@index([invoiceId], map: "idx_payment_invoice")
+  @@index([status], map: "idx_payment_status")
   @@map("payment")
   @@schema("ap")
 }
