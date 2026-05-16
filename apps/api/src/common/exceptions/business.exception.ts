@@ -498,9 +498,10 @@ export class PiNotOwnerOfProjectException extends BusinessException {
 
 /**
  * 501 — workflow d'approbation cash (petty_cash, cash_advance) pas encore
- * implémenté. Posé en sprint 2.2 pour le sprint 2.3 — toute tentative
- * d'approuver une DA non-standard renvoie 501 explicite plutôt qu'un comportement
- * dégradé silencieux.
+ * implémenté. Conservée pour rétro-compatibilité, plus émise depuis sprint 2.3
+ * (le workflow est désormais opérationnel).
+ *
+ * @deprecated since sprint 2.3
  */
 export class CashWorkflowNotYetImplementedException extends BusinessException {
   constructor(prId: string, requestType: string) {
@@ -509,6 +510,121 @@ export class CashWorkflowNotYetImplementedException extends BusinessException {
       HttpStatus.NOT_IMPLEMENTED,
       `Approval workflow for request_type "${requestType}" will be available in Sprint 2.3`,
       { prId, requestType },
+    );
+  }
+}
+
+/**
+ * 409 — DA cash_* sur un grant dont la convention interdit le paiement
+ * en espèces (`grant.allows_cash_payment = false`). Cas typique : un
+ * bailleur public qui exige une trace bancaire pour chaque dépense.
+ */
+export class CashPaymentNotAllowedException extends BusinessException {
+  constructor(grantId: string) {
+    super(
+      ErrorCode.BUSINESS.CASH_PAYMENT_NOT_ALLOWED,
+      HttpStatus.CONFLICT,
+      `Grant convention forbids cash payments`,
+      { grantId },
+    );
+  }
+}
+
+/** 400 — DA petty_cash/cash_advance créée sans `cashBoxId`. */
+export class CashBoxRequiredException extends BusinessException {
+  constructor(requestType: string) {
+    super(
+      ErrorCode.BUSINESS.CASH_BOX_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `cashBoxId is required for request_type "${requestType}"`,
+      { requestType },
+    );
+  }
+}
+
+/** 409 — DA rattachée à une caisse désactivée. */
+export class CashBoxInactiveException extends BusinessException {
+  constructor(cashBoxId: string) {
+    super(
+      ErrorCode.BUSINESS.CASH_BOX_INACTIVE,
+      HttpStatus.CONFLICT,
+      `Cash box is inactive`,
+      { cashBoxId },
+    );
+  }
+}
+
+/** 409 — total DA > plafond par requête de la caisse. */
+export class CashLimitPerRequestExceededException extends BusinessException {
+  constructor(cashBoxId: string, requested: number, max: number) {
+    super(
+      ErrorCode.BUSINESS.CASH_LIMIT_PER_REQUEST_EXCEEDED,
+      HttpStatus.CONFLICT,
+      `Requested amount (${requested}) exceeds per-request limit (${max})`,
+      { cashBoxId, requested, max },
+    );
+  }
+}
+
+/** 409 — somme des DA petty_cash du jour pour ce demandeur > plafond. */
+export class CashLimitPerDayExceededException extends BusinessException {
+  constructor(cashBoxId: string, todaySpent: number, requested: number, max: number) {
+    super(
+      ErrorCode.BUSINESS.CASH_LIMIT_PER_DAY_EXCEEDED,
+      HttpStatus.CONFLICT,
+      `Daily limit per user exceeded (${todaySpent} + ${requested} > ${max})`,
+      { cashBoxId, todaySpent, requested, max },
+    );
+  }
+}
+
+/** 409 — l'approbation finale décrémenterait la caisse en dessous de zéro. */
+export class CashBoxInsufficientFundsException extends BusinessException {
+  constructor(cashBoxId: string, balance: number, requested: number) {
+    super(
+      ErrorCode.BUSINESS.CASH_BOX_INSUFFICIENT_FUNDS,
+      HttpStatus.CONFLICT,
+      `Cash box balance (${balance}) is insufficient for requested amount (${requested})`,
+      { cashBoxId, balance, requested },
+    );
+  }
+}
+
+/** 409 — settle déjà enregistré pour cette DA. */
+export class PrAlreadySettledException extends BusinessException {
+  constructor(prId: string) {
+    super(
+      ErrorCode.BUSINESS.PR_ALREADY_SETTLED,
+      HttpStatus.CONFLICT,
+      `Purchase request has already been settled`,
+      { prId },
+    );
+  }
+}
+
+/**
+ * 409 — opération réservée à un `request_type` particulier. Cas typique :
+ * tentative de settle sur une DA standard ou petty_cash.
+ */
+export class PrTypeMismatchException extends BusinessException {
+  constructor(prId: string, expected: string, actual: string) {
+    super(
+      ErrorCode.BUSINESS.PR_TYPE_MISMATCH,
+      HttpStatus.CONFLICT,
+      `Operation requires request_type "${expected}" (current "${actual}")`,
+      { prId, expected, actual },
+    );
+  }
+}
+
+/** 409 — settle ne peut s'appliquer qu'à une DA cash_advance approved. */
+export class PrNotApprovedForSettleException extends BusinessException {
+  constructor(prId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PR_NOT_APPROVED_FOR_SETTLE,
+      HttpStatus.CONFLICT,
+      `Purchase request must be "approved" before settle (current "${status}")`,
+      { prId, status },
     );
   }
 }

@@ -68,7 +68,24 @@ export const ErrorCode = {
     PR_NOT_IN_APPROVAL:         'BUSINESS.PR_NOT_IN_APPROVAL',
     PI_NOT_OWNER_OF_PROJECT:    'BUSINESS.PI_NOT_OWNER_OF_PROJECT',
     SPLITTING_DETECTED:         'BUSINESS.SPLITTING_DETECTED',
+    /**
+     * Conservé pour rétro-compatibilité — sprint 2.3 implémente le workflow
+     * cash. Aucun chemin de code n'émet plus ce code, mais le catalogue le
+     * garde pour ne pas casser les i18n côté front (renommer un code stable
+     * est interdit, cf. §1 de ce fichier).
+     */
     CASH_WORKFLOW_NOT_YET_IMPLEMENTED: 'BUSINESS.CASH_WORKFLOW_NOT_YET_IMPLEMENTED',
+    /** Sprint 2.3 — workflow petite caisse / avance de mission. */
+    CASH_PAYMENT_NOT_ALLOWED:        'BUSINESS.CASH_PAYMENT_NOT_ALLOWED',
+    CASH_LIMIT_PER_REQUEST_EXCEEDED: 'BUSINESS.CASH_LIMIT_PER_REQUEST_EXCEEDED',
+    CASH_LIMIT_PER_DAY_EXCEEDED:     'BUSINESS.CASH_LIMIT_PER_DAY_EXCEEDED',
+    CASH_BOX_INACTIVE:               'BUSINESS.CASH_BOX_INACTIVE',
+    CASH_BOX_INSUFFICIENT_FUNDS:     'BUSINESS.CASH_BOX_INSUFFICIENT_FUNDS',
+    CASH_BOX_REQUIRED:               'BUSINESS.CASH_BOX_REQUIRED',
+    CASH_ADVANCE_NOT_SETTLED:        'BUSINESS.CASH_ADVANCE_NOT_SETTLED',
+    PR_ALREADY_SETTLED:              'BUSINESS.PR_ALREADY_SETTLED',
+    PR_TYPE_MISMATCH:                'BUSINESS.PR_TYPE_MISMATCH',
+    PR_NOT_APPROVED_FOR_SETTLE:      'BUSINESS.PR_NOT_APPROVED_FOR_SETTLE',
   },
   REF: {
     INVALID_GL_ACCOUNT: 'REF.INVALID_GL_ACCOUNT',
