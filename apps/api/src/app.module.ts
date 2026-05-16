@@ -17,6 +17,7 @@ import { AnalyticalAxisModule } from './referential/analytical-axis/analytical-a
 import { TaxCodeModule } from './referential/tax-code/tax-code.module';
 import { ExchangeRateModule } from './referential/exchange-rate/exchange-rate.module';
 import { GlAccountModule } from './referential/gl-account/gl-account.module';
+import { CashBoxModule } from './referential/cash-box/cash-box.module';
 
 const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -76,6 +77,7 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     TaxCodeModule,
     ExchangeRateModule,
     GlAccountModule,
+    CashBoxModule,
     // À ajouter au fil des sprints :
     // ApModule,
     // GlModule,
