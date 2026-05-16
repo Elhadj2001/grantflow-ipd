@@ -428,6 +428,91 @@ export class ProjectGrantMismatchException extends BusinessException {
   }
 }
 
+/**
+ * 403 — l'acteur a un rôle reconnu, mais l'étape pending exige un autre rôle.
+ * Exemple : DAF qui tente d'approuver une DA en `pending_pi`.
+ */
+export class PrNotAwaitingYouException extends BusinessException {
+  constructor(prId: string, expectedRole: string, actorRoles: readonly string[]) {
+    super(
+      ErrorCode.BUSINESS.PR_NOT_AWAITING_YOU,
+      HttpStatus.FORBIDDEN,
+      `Purchase request requires "${expectedRole}" approval`,
+      { prId, expectedRole, actorRoles: [...actorRoles] },
+    );
+  }
+}
+
+/**
+ * 409 — l'étape d'approbation est déjà décidée (approved/rejected/returned).
+ * Cas typique : double-click ou race sur le bouton "Approuver".
+ */
+export class PrAlreadyDecidedException extends BusinessException {
+  constructor(prId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PR_ALREADY_DECIDED,
+      HttpStatus.CONFLICT,
+      `Purchase request decision already recorded (status="${status}")`,
+      { prId, status },
+    );
+  }
+}
+
+/** 400 — un rejet doit être motivé (reason ≥ 5 caractères). */
+export class RejectionReasonRequiredException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.REJECTION_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty rejection reason is required (min 5 chars)`,
+    );
+  }
+}
+
+/** 409 — opération de workflow sur une DA qui n'est pas dans un statut d'approbation. */
+export class PrNotInApprovalException extends BusinessException {
+  constructor(prId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PR_NOT_IN_APPROVAL,
+      HttpStatus.CONFLICT,
+      `Purchase request status "${status}" is not in an approval state`,
+      { prId, status },
+    );
+  }
+}
+
+/**
+ * 403 — un PI tente d'approuver une DA dont le projet ne le déclare pas
+ * `piUserId`. Les PI ne valident que leurs propres projets.
+ */
+export class PiNotOwnerOfProjectException extends BusinessException {
+  constructor(piId: string, projectId: string) {
+    super(
+      ErrorCode.BUSINESS.PI_NOT_OWNER_OF_PROJECT,
+      HttpStatus.FORBIDDEN,
+      `PI is not the owner of the project this PR belongs to`,
+      { piId, projectId },
+    );
+  }
+}
+
+/**
+ * 501 — workflow d'approbation cash (petty_cash, cash_advance) pas encore
+ * implémenté. Posé en sprint 2.2 pour le sprint 2.3 — toute tentative
+ * d'approuver une DA non-standard renvoie 501 explicite plutôt qu'un comportement
+ * dégradé silencieux.
+ */
+export class CashWorkflowNotYetImplementedException extends BusinessException {
+  constructor(prId: string, requestType: string) {
+    super(
+      ErrorCode.BUSINESS.CASH_WORKFLOW_NOT_YET_IMPLEMENTED,
+      HttpStatus.NOT_IMPLEMENTED,
+      `Approval workflow for request_type "${requestType}" will be available in Sprint 2.3`,
+      { prId, requestType },
+    );
+  }
+}
+
 /** 400 — BIC ne respecte pas la regex ISO 9362 (8 ou 11 caractères). */
 export class InvalidBicException extends BusinessException {
   constructor(bic: string) {
