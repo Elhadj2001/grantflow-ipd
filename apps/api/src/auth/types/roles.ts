@@ -20,6 +20,7 @@ export const ROLES = [
   'PI',
   'DEMANDEUR',
   'BAILLEUR',
+  'CAISSIER',
 ] as const;
 
 export type Role = (typeof ROLES)[number];

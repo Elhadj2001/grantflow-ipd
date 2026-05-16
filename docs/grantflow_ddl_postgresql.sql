@@ -59,7 +59,7 @@ CREATE TYPE auth.user_status     AS ENUM ('active','suspended','locked');
 CREATE TYPE ref.axis_type        AS ENUM ('project','donor','grant','program','cost_center','activity','geo');
 CREATE TYPE ref.donor_type       AS ENUM ('public_intl','private_foundation','bilateral','multilateral','government','own_funds');
 CREATE TYPE ref.grant_status     AS ENUM ('draft','active','suspended','closed');
-CREATE TYPE procurement.pr_status AS ENUM ('draft','submitted','pending_pi','pending_cg','pending_daf','approved','rejected','cancelled','closed');
+CREATE TYPE procurement.pr_status AS ENUM ('draft','submitted','pending_pi','pending_cg','pending_daf','pending_caissier','approved','rejected','cancelled','closed','settled');
 CREATE TYPE procurement.pr_type AS ENUM ('standard','petty_cash','cash_advance');
 CREATE TYPE procurement.po_status AS ENUM ('draft','sent','acknowledged','partially_received','received','invoiced','closed','cancelled');
 CREATE TYPE procurement.gr_status AS ENUM ('draft','partial','complete','rejected');
@@ -826,7 +826,8 @@ INSERT INTO auth.role (code, label, description) VALUES
 ('MAGASINIER',    'Magasinier / Réception', 'Constatation du service fait'),
 ('PI',            'Principal Investigator', 'Validation budgétaire projet'),
 ('DEMANDEUR',     'Demandeur', 'Saisie des DA'),
-('BAILLEUR',      'Bailleur / Auditeur (lecture)', 'Consultation en lecture seule');
+('BAILLEUR',      'Bailleur / Auditeur (lecture)', 'Consultation en lecture seule'),
+('CAISSIER',      'Caissier', 'Gestion de la caisse en espèces, approbation des DA petty_cash');
 
 -- Quelques bailleurs typiques de l'IPD
 INSERT INTO ref.donor (code, label, type, country) VALUES
@@ -856,6 +857,61 @@ INSERT INTO gl.fiscal_period (code, period_type, start_date, end_date) VALUES
 ('2026-03',  'month',   '2026-03-01', '2026-03-31'),
 ('2026-04',  'month',   '2026-04-01', '2026-04-30'),
 ('2026-05',  'month',   '2026-05-01', '2026-05-31');
+
+-- =====================================================================
+--  SPRINT 2.3 — Petite caisse (petty_cash + cash_advance)
+--
+--  Idéal pour les achats urgents/de faible montant payés en espèces :
+--   - petty_cash    : sortie immédiate, 1 étape (CAISSIER)
+--   - cash_advance  : avance de mission, 2 étapes (PI puis CAISSIER) + settle
+--
+--  Les caisses sont des entités référentielles avec plafonds (par requête,
+--  par jour/utilisateur, plafond global). Le solde est décrémenté à
+--  l'approbation finale et remonté lors du settle (régularisation) pour
+--  cash_advance.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS ref.cash_box (
+    id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code              TEXT UNIQUE NOT NULL,
+    label             TEXT NOT NULL,
+    custodian_user_id UUID REFERENCES auth.app_user(id),
+    currency          CHAR(3) NOT NULL DEFAULT 'XOF',
+    current_balance   NUMERIC(18,2) NOT NULL DEFAULT 0,
+    ceiling           NUMERIC(18,2) NOT NULL DEFAULT 500000,
+    per_request_max   NUMERIC(18,2) NOT NULL DEFAULT 100000,
+    per_day_user_max  NUMERIC(18,2) NOT NULL DEFAULT 200000,
+    is_active         BOOLEAN NOT NULL DEFAULT true,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (current_balance >= 0),
+    CHECK (per_request_max  > 0),
+    CHECK (per_day_user_max > 0),
+    CHECK (ceiling          > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_cash_box_active ON ref.cash_box(is_active);
+
+-- Rattachement de la DA à une caisse — obligatoire métier si request_type ∈
+-- ('petty_cash','cash_advance'), facultatif sinon (standard). Le contrôle
+-- métier est dans le service ; la colonne reste NULLABLE car les DA standard
+-- existantes ne portent pas de caisse.
+ALTER TABLE procurement.purchase_request
+    ADD COLUMN IF NOT EXISTS cash_box_id UUID REFERENCES ref.cash_box(id);
+CREATE INDEX IF NOT EXISTS idx_pr_cash_box ON procurement.purchase_request(cash_box_id)
+    WHERE cash_box_id IS NOT NULL;
+
+-- Régularisation d'une avance de mission. Une seule entrée par DA cash_advance
+-- (UNIQUE), créée par le caissier ou la DAF à la clôture.
+CREATE TABLE IF NOT EXISTS ref.cash_settlement (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    purchase_request_id UUID NOT NULL UNIQUE REFERENCES procurement.purchase_request(id),
+    actual_spent        NUMERIC(18,2) NOT NULL CHECK (actual_spent >= 0),
+    variance            NUMERIC(18,2) NOT NULL,
+    justifications      TEXT,
+    settled_by          UUID REFERENCES auth.app_user(id),
+    settled_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cash_settlement_pr ON ref.cash_settlement(purchase_request_id);
 
 -- =====================================================================
 --  FIN DU SCRIPT — Vérifications rapides

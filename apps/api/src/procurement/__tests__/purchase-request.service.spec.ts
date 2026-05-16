@@ -34,8 +34,12 @@ describe('PurchaseRequestService', () => {
     budgetLine: { findMany: jest.Mock };
     approvalStep: { create: jest.Mock };
     appUser: { findUnique: jest.Mock; create: jest.Mock };
+    cashBox: { findUnique: jest.Mock };
+    purchaseRequestAggregate?: jest.Mock;
     $transaction: jest.Mock;
     $executeRawUnsafe: jest.Mock;
+  } & {
+    purchaseRequest: { aggregate: jest.Mock };
   };
   let svc: PurchaseRequestService;
 
@@ -75,6 +79,7 @@ describe('PurchaseRequestService', () => {
     description: 'test',
     requestType: 'standard',
     rejectionReason: null,
+    cashBoxId: null,
     updatedAt: new Date('2026-05-10T00:00:00Z'),
   };
 
@@ -116,12 +121,14 @@ describe('PurchaseRequestService', () => {
         count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { totalAmount: null } }),
       },
       purchaseRequestLine: { groupBy: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
       purchaseOrderLine: { groupBy: jest.fn().mockResolvedValue([]) },
       grantAgreement: { findUnique: jest.fn() },
       budgetLine: { findMany: jest.fn() },
       approvalStep: { create: jest.fn() },
+      cashBox: { findUnique: jest.fn() },
       // Bridge Keycloak.sub → auth.app_user.id : on assume id == actor.id pour le test.
       appUser: {
         findUnique: jest.fn(({ where }: { where: { email: string } }) => {
@@ -464,6 +471,186 @@ describe('PurchaseRequestService', () => {
         ...pr, requestedBy: 'someone', lines: [], grant: { status: 'active', projectId },
       });
       await expect(svc.submit(otherDemandeur, pr.id)).rejects.toBeInstanceOf(PrNotOwnedException);
+    });
+  });
+
+  // ====================================================================
+  //  CASH FLOWS — create + submit (sprint 2.3)
+  // ====================================================================
+  describe('cash flows — create', () => {
+    const cbId = 'cb000000-0000-0000-0000-000000000001';
+
+    function makeGrant(allowsCash = true) {
+      return { id: grantId, projectId, allowsCashPayment: allowsCash, budgetLines: [{ id: blId1 }] };
+    }
+
+    it('petty_cash on grant.allowsCashPayment=false → CASH_PAYMENT_NOT_ALLOWED', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(false));
+      prisma.cashBox.findUnique.mockResolvedValue({
+        id: cbId, isActive: true, perRequestMax: new Prisma.Decimal('100000'),
+      });
+      const { CashPaymentNotAllowedException } = await import(
+        '../../common/exceptions/business.exception'
+      );
+      await expect(
+        svc.create(
+          demandeur,
+          createDto({ requestType: 'petty_cash', cashBoxId: cbId }),
+        ),
+      ).rejects.toBeInstanceOf(CashPaymentNotAllowedException);
+    });
+
+    it('petty_cash on inactive cash box → CASH_BOX_INACTIVE', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.cashBox.findUnique.mockResolvedValue({
+        id: cbId, isActive: false, perRequestMax: new Prisma.Decimal('100000'),
+      });
+      const { CashBoxInactiveException } = await import(
+        '../../common/exceptions/business.exception'
+      );
+      await expect(
+        svc.create(demandeur, createDto({ requestType: 'petty_cash', cashBoxId: cbId })),
+      ).rejects.toBeInstanceOf(CashBoxInactiveException);
+    });
+
+    it('petty_cash total > perRequestMax → CASH_LIMIT_PER_REQUEST_EXCEEDED', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.cashBox.findUnique.mockResolvedValue({
+        id: cbId, isActive: true, perRequestMax: new Prisma.Decimal('50000'),
+        perDayUserMax: new Prisma.Decimal('200000'),
+      });
+      const { CashLimitPerRequestExceededException } = await import(
+        '../../common/exceptions/business.exception'
+      );
+      await expect(
+        svc.create(
+          demandeur,
+          createDto({
+            requestType: 'petty_cash',
+            cashBoxId: cbId,
+            lines: [{ description: 'A', quantity: 1, unit: 'unit', unitPrice: 60000, budgetLineId: blId1 }],
+          }),
+        ),
+      ).rejects.toBeInstanceOf(CashLimitPerRequestExceededException);
+    });
+
+    it('petty_cash : 4ᵉ DA du jour > perDayUserMax → CASH_LIMIT_PER_DAY_EXCEEDED', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.cashBox.findUnique.mockResolvedValue({
+        id: cbId, isActive: true,
+        perRequestMax: new Prisma.Decimal('100000'),
+        perDayUserMax: new Prisma.Decimal('200000'),
+      });
+      // Déjà 180k consommés aujourd'hui ; on tente d'en ajouter 50k.
+      prisma.purchaseRequest.aggregate.mockResolvedValue({
+        _sum: { totalAmount: new Prisma.Decimal('180000') },
+      });
+      const { CashLimitPerDayExceededException } = await import(
+        '../../common/exceptions/business.exception'
+      );
+      await expect(
+        svc.create(
+          demandeur,
+          createDto({
+            requestType: 'petty_cash',
+            cashBoxId: cbId,
+            lines: [{ description: 'A', quantity: 1, unit: 'unit', unitPrice: 50000, budgetLineId: blId1 }],
+          }),
+        ),
+      ).rejects.toBeInstanceOf(CashLimitPerDayExceededException);
+    });
+
+    it('petty_cash happy path under all limits → 201 + cashBoxId persisted', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.cashBox.findUnique.mockResolvedValue({
+        id: cbId, isActive: true,
+        perRequestMax: new Prisma.Decimal('100000'),
+        perDayUserMax: new Prisma.Decimal('200000'),
+      });
+      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.create.mockImplementation(({ data }) =>
+        Promise.resolve({ ...pr, ...data, lines: [] }),
+      );
+      const res = await svc.create(
+        demandeur,
+        createDto({
+          requestType: 'petty_cash',
+          cashBoxId: cbId,
+          lines: [{ description: 'Eau', quantity: 1, unit: 'unit', unitPrice: 45000, budgetLineId: blId1 }],
+        }),
+      );
+      expect(res.cashBoxId).toBe(cbId);
+      expect(res.requestType).toBe('petty_cash');
+    });
+
+    it('cash_advance has NO per-day limit', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.cashBox.findUnique.mockResolvedValue({
+        id: cbId, isActive: true,
+        perRequestMax: new Prisma.Decimal('200000'),
+        perDayUserMax: new Prisma.Decimal('100000'), // even with a low per-day, cash_advance ignores it
+      });
+      prisma.purchaseRequest.aggregate.mockResolvedValue({
+        _sum: { totalAmount: new Prisma.Decimal('300000') },
+      });
+      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.create.mockImplementation(({ data }) =>
+        Promise.resolve({ ...pr, ...data, lines: [] }),
+      );
+      const res = await svc.create(
+        demandeur,
+        createDto({
+          requestType: 'cash_advance',
+          cashBoxId: cbId,
+          lines: [{ description: 'Mission', quantity: 1, unit: 'unit', unitPrice: 150000, budgetLineId: blId1 }],
+        }),
+      );
+      expect(res.requestType).toBe('cash_advance');
+    });
+
+    it('petty_cash without cashBoxId reaches the service → CASH_BOX_REQUIRED', async () => {
+      // Zod superRefine déjà la 400 en amont, mais on s'assure que le service
+      // double-vérifie pour les appels internes (ex: bulk import futur).
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      const { CashBoxRequiredException } = await import(
+        '../../common/exceptions/business.exception'
+      );
+      await expect(
+        svc.create(demandeur, createDto({ requestType: 'petty_cash' })),
+      ).rejects.toBeInstanceOf(CashBoxRequiredException);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  describe('cash flows — submit (routage de la 1ère étape)', () => {
+    it('petty_cash submit → status pending_caissier + approval_step CAISSIER', async () => {
+      prisma.purchaseRequest.findUnique.mockResolvedValue({
+        ...pr,
+        requestType: 'petty_cash',
+        cashBoxId: 'cb-1',
+        lines: [],
+        grant: { status: 'active', projectId },
+      });
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_caissier' });
+      await svc.submit(demandeur, pr.id);
+      expect(prisma.approvalStep.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ approverRole: 'CAISSIER', stepOrder: 1 }),
+      });
+    });
+
+    it('cash_advance submit → status pending_pi + approval_step PI', async () => {
+      prisma.purchaseRequest.findUnique.mockResolvedValue({
+        ...pr,
+        requestType: 'cash_advance',
+        cashBoxId: 'cb-1',
+        lines: [],
+        grant: { status: 'active', projectId },
+      });
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' });
+      await svc.submit(demandeur, pr.id);
+      expect(prisma.approvalStep.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ approverRole: 'PI', stepOrder: 1 }),
+      });
     });
   });
 });

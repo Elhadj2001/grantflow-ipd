@@ -14,6 +14,7 @@
     { "code": "MAGASINIER",  "label": "Magasinier / Réception",               "description": "Constatation du service fait, traçabilité réactifs." },
     { "code": "PI",          "label": "Principal Investigator",               "description": "Validation budgétaire des DA sur son projet/grant." },
     { "code": "DEMANDEUR",   "label": "Demandeur",                            "description": "Saisie des DA, consultation de son périmètre." },
-    { "code": "BAILLEUR",    "label": "Bailleur / Auditeur (lecture)",        "description": "Consultation en lecture seule des conventions et reporting." }
+    { "code": "BAILLEUR",    "label": "Bailleur / Auditeur (lecture)",        "description": "Consultation en lecture seule des conventions et reporting." },
+    { "code": "CAISSIER",    "label": "Caissier",                             "description": "Gestion de la caisse en espèces, approbation des DA petty_cash." }
   ]
 }
