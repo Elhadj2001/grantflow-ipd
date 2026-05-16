@@ -73,6 +73,7 @@ describe('PurchaseRequestService', () => {
     totalAmount: new Prisma.Decimal('1000'),
     currency: 'XOF',
     description: 'test',
+    requestType: 'standard',
     rejectionReason: null,
     updatedAt: new Date('2026-05-10T00:00:00Z'),
   };
@@ -421,7 +422,7 @@ describe('PurchaseRequestService', () => {
       await expect(svc.submit(demandeur, pr.id)).rejects.toBeInstanceOf(InsufficientBudgetException);
     });
 
-    it('happy path: status → submitted + approval_step created', async () => {
+    it('happy path: status → pending_pi + approval_step created', async () => {
       const ln = line({ lineTotal: new Prisma.Decimal('100'), budgetLineId: blId1 });
       prisma.purchaseRequest.findUnique.mockResolvedValue({
         ...pr, lines: [ln], grant: { status: 'active', projectId },
@@ -429,10 +430,10 @@ describe('PurchaseRequestService', () => {
       prisma.budgetLine.findMany.mockResolvedValue([
         { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000') },
       ]);
-      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'submitted' });
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' });
       prisma.approvalStep.create.mockResolvedValue({});
       const res = await svc.submit(demandeur, pr.id);
-      expect(res.status).toBe('submitted');
+      expect(res.status).toBe('pending_pi');
       expect(prisma.approvalStep.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({

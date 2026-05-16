@@ -46,6 +46,7 @@ describe('GrantService', () => {
     status: 'active',
     signedAt: new Date('2024-01-15T00:00:00Z'),
     notes: null,
+    allowsCashPayment: true,
     createdAt: new Date('2024-01-15T00:00:00Z'),
   };
 

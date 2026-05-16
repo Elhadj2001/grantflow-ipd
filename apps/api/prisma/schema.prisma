@@ -81,6 +81,15 @@ enum PrStatus {
   @@schema("procurement")
 }
 
+enum PrType {
+  standard
+  petty_cash
+  cash_advance
+
+  @@map("pr_type")
+  @@schema("procurement")
+}
+
 enum PoStatus {
   draft
   sent
@@ -423,6 +432,7 @@ model GrantAgreement {
   status       GrantStatus @default(draft)
   signedAt     DateTime?   @map("signed_at") @db.Date
   notes        String?
+  allowsCashPayment Boolean @default(true) @map("allows_cash_payment")
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
   donor             Donor                   @relation(fields: [donorId], references: [id])
@@ -534,6 +544,7 @@ model PurchaseRequest {
   totalAmount     Decimal   @default(0) @map("total_amount") @db.Decimal(18, 2)
   currency        String    @default("XOF") @db.Char(3)
   description     String?
+  requestType     PrType    @default(standard) @map("request_type")
   rejectionReason String?   @map("rejection_reason")
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
