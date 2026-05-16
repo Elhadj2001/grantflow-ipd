@@ -119,15 +119,18 @@ jobs:
           psql -h localhost -U grantflow -d grantflow_ddl_check \
             -f docs/grantflow_ddl_postgresql.sql
 
-      - name: Vérifier les comptes SYSCEBNL (attendu = 55)
+      - name: Vérifier les comptes SYSCEBNL (attendu ≥ 55)
         env:
           PGPASSWORD: grantflow
         run: |
           COUNT=$(psql -h localhost -U grantflow -d grantflow_ddl_check -tAc \
             "SELECT count(*) FROM ref.gl_account;")
           echo "Comptes SYSCEBNL trouvés : $COUNT"
-          if [ "$COUNT" != "55" ]; then
-            echo "::error::Nombre de comptes incorrect : attendu 55, trouvé $COUNT"
+          # Plancher "au moins 55" — détecte les régressions sans bloquer
+          # les ajouts légitimes au fil des sprints (ex: 802 contre-engagement
+          # ajouté au sprint 3).
+          if [ "$COUNT" -lt "55" ]; then
+            echo "::error::Nombre de comptes insuffisant : attendu au moins 55, trouvé $COUNT"
             exit 1
           fi
 

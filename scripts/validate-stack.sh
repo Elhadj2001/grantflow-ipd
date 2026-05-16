@@ -11,7 +11,8 @@
 #    2. L'API NestJS répond sur /api/v1/health
 #    3. Keycloak expose son discovery OIDC pour le realm grantflow
 #    4. MinIO répond (live + bucket grantflow-invoices créé si besoin)
-#    5. PostgreSQL contient bien les 55 comptes SYSCEBNL
+#    5. PostgreSQL contient au moins 55 comptes SYSCEBNL (plancher,
+#       de nouveaux comptes peuvent être ajoutés au fil des sprints)
 #
 #  Code de sortie : 0 si tout OK, 1 si au moins une vérification échoue.
 # =====================================================================
@@ -60,6 +61,42 @@ check() {
   return 0
 }
 
+# Variante numérique : succès si sortie ≥ $expect_min. Utile pour les
+# compteurs qui peuvent croître au fil des sprints (ex: comptes SYSCEBNL).
+check_min() {
+  local label="$1"
+  local cmd="$2"
+  local expect_min="$3"
+
+  echo -en "${B}[..]${N} ${label} ... "
+  local out
+  out=$(eval "$cmd" 2>&1)
+  local rc=$?
+
+  if [ "$rc" -ne 0 ]; then
+    echo -e "${R}KO${N}"
+    echo "     ↳ commande échouée : $cmd"
+    echo "     ↳ $out" | head -3
+    FAIL=$((FAIL+1))
+    return 1
+  fi
+
+  # Garde uniquement les chiffres pour parer aux retours bruités psql.
+  local numeric
+  numeric=$(echo "$out" | tr -dc '0-9' | head -c 10)
+  if [ -z "$numeric" ] || [ "$numeric" -lt "$expect_min" ]; then
+    echo -e "${R}KO${N}"
+    echo "     ↳ attendu : au moins $expect_min"
+    echo "     ↳ obtenu : $(echo "$out" | head -1)"
+    FAIL=$((FAIL+1))
+    return 1
+  fi
+
+  echo -e "${G}OK${N}"
+  PASS=$((PASS+1))
+  return 0
+}
+
 echo ""
 echo "============================================================"
 echo "  GRANTFLOW IPD — Validation stack dev"
@@ -96,7 +133,7 @@ check "Console MinIO"       "curl -s -m 3 -o /dev/null -w '%{http_code}' http://
 # ---- 5) PostgreSQL — données SYSCEBNL ----
 echo ""
 echo -e "${Y}5) PostgreSQL — données SYSCEBNL${N}"
-check "55 comptes SYSCEBNL chargés" \
+check_min "≥ 55 comptes SYSCEBNL chargés" \
   "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc 'SELECT count(*) FROM ref.gl_account;'" \
   "55"
 
