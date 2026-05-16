@@ -1001,6 +1001,21 @@ ALTER TABLE procurement.goods_receipt_line
     CHECK (quantity >= 0);
 
 -- =====================================================================
+--  SPRINT 4.2a — Réception facture + OCR + Matching 3-way
+--
+--  La table ap.invoice / invoice_line / invoice_match existe depuis le
+--  sprint 0. On enrichit ici :
+--    - matched_by / matched_at : qui a soumis au matching et quand
+--    - match_summary : récapitulatif JSONB du dernier run de matching
+--      (compteurs par résultat, max écart prix/qty, détails par ligne)
+-- =====================================================================
+
+ALTER TABLE ap.invoice
+    ADD COLUMN IF NOT EXISTS matched_by    UUID REFERENCES auth.app_user(id),
+    ADD COLUMN IF NOT EXISTS matched_at    TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS match_summary JSONB;
+
+-- =====================================================================
 --  FIN DU SCRIPT — Vérifications rapides
 -- =====================================================================
 -- SELECT COUNT(*) AS nb_tables FROM information_schema.tables
