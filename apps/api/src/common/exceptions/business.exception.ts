@@ -329,6 +329,105 @@ export class InvalidIbanException extends BusinessException {
   }
 }
 
+/**
+ * 409 — tentative de modifier une DA dont le statut interdit l'édition
+ * (≠ draft). Une fois soumise/approuvée, une DA est immutable — toute
+ * correction passe par une annulation + nouvelle DA.
+ */
+export class PrNotEditableException extends BusinessException {
+  constructor(prId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PR_NOT_EDITABLE,
+      HttpStatus.CONFLICT,
+      `Purchase request status "${status}" forbids editing (only draft allowed)`,
+      { prId, status },
+    );
+  }
+}
+
+/** 409 — tentative d'annulation impossible (statut ≠ draft). */
+export class PrNotDeletableException extends BusinessException {
+  constructor(prId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PR_NOT_DELETABLE,
+      HttpStatus.CONFLICT,
+      `Purchase request status "${status}" forbids cancellation`,
+      { prId, status },
+    );
+  }
+}
+
+/**
+ * 404 — un DEMANDEUR tente d'accéder à une DA qui n'est pas la sienne.
+ * On répond 404 plutôt que 403 pour ne pas révéler l'existence de la DA
+ * (sécurité par obscurité — cf. recommandation OWASP).
+ */
+export class PrNotOwnedException extends BusinessException {
+  constructor(prId: string) {
+    super(
+      ErrorCode.BUSINESS.PR_NOT_OWNED,
+      HttpStatus.NOT_FOUND,
+      `Purchase request not found`,
+      { prId },
+    );
+  }
+}
+
+/** 409 — rattachement d'une DA à un grant non actif (draft / suspended / closed). */
+export class GrantNotActiveException extends BusinessException {
+  constructor(grantId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.GRANT_NOT_ACTIVE,
+      HttpStatus.CONFLICT,
+      `Grant status "${status}" forbids new purchase requests`,
+      { grantId, status },
+    );
+  }
+}
+
+/**
+ * 409 — budget insuffisant pour au moins une ligne au moment du submit.
+ * `details.lines` contient le détail par ligne en dépassement, prêt à
+ * être affiché au front.
+ */
+export class InsufficientBudgetException extends BusinessException {
+  constructor(prId: string, lines: Array<Record<string, unknown>>) {
+    super(
+      ErrorCode.BUSINESS.INSUFFICIENT_BUDGET,
+      HttpStatus.CONFLICT,
+      `Insufficient budget on ${lines.length} budget line(s)`,
+      { prId, lines },
+    );
+  }
+}
+
+/**
+ * 400 — la budgetLineId fournie n'appartient pas au grantId. Évite des
+ * écritures analytiques transverses à plusieurs conventions.
+ */
+export class BudgetLineNotInGrantException extends BusinessException {
+  constructor(budgetLineId: string, grantId: string) {
+    super(
+      ErrorCode.BUSINESS.BUDGET_LINE_NOT_IN_GRANT,
+      HttpStatus.BAD_REQUEST,
+      `Budget line does not belong to the specified grant`,
+      { budgetLineId, grantId },
+    );
+  }
+}
+
+/** 400 — grant.projectId ≠ projectId du payload (cohérence DA). */
+export class ProjectGrantMismatchException extends BusinessException {
+  constructor(grantId: string, expectedProjectId: string, actualProjectId: string) {
+    super(
+      ErrorCode.BUSINESS.PROJECT_GRANT_MISMATCH,
+      HttpStatus.BAD_REQUEST,
+      `Grant is attached to a different project`,
+      { grantId, expectedProjectId, actualProjectId },
+    );
+  }
+}
+
 /** 400 — BIC ne respecte pas la regex ISO 9362 (8 ou 11 caractères). */
 export class InvalidBicException extends BusinessException {
   constructor(bic: string) {
