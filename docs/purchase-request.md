@@ -1,22 +1,28 @@
-# Demande d'Achat (Purchase Request) — Sprint 2.1
+# Demande d'Achat (Purchase Request) — Sprints 2.1 → 2.2
 
-## 1. Cycle de vie (M1 — sprint 2.1 uniquement)
+## 1. Cycle de vie
 
 ```
-       create()                      submit()
-draft ─────────────► draft ─────────────────► submitted
-   │
-   │  cancel()
-   ▼
-cancelled
+       create           submit       approve PI                              approve final
+draft ─────────► draft ─────────► pending_pi ──────► [pending_cg ──► pending_daf] ──────► approved
+   │                                  │
+   │ cancel                           │ reject (with reason ≥ 5 chars)
+   ▼                                  ▼
+cancelled                          rejected
+                                      ▲
+                                      │ return-for-changes
+                                      ▼
+                                    draft
 ```
 
-- **draft** : statut initial. La DA est modifiable et annulable par son auteur.
-- **submitted** : statut après `POST /:id/submit`. Le contrôle budgétaire est
-  passé et une `approval_step` initiale est créée (le moteur d'approbation
-  arrive au sprint 2.2).
-- **cancelled** : annulation possible uniquement en draft. Aucune restauration
-  prévue dans ce sprint.
+- **draft** : statut initial / après `return-for-changes`. La DA est éditable
+  et annulable par son auteur (ou SUPER_ADMIN).
+- **pending_pi / pending_cg / pending_daf** : étapes d'approbation. La DA
+  est immuable côté demandeur. Le rôle attendu valide ou refuse.
+- **approved** : workflow terminé, prête à passer en BC (sprint 2.3+).
+- **rejected** : refus avec motif obligatoire enregistré dans
+  `purchase_request.rejection_reason`. Pas de réouverture automatique.
+- **cancelled** : annulation par l'auteur (draft uniquement).
 
 ## 2. Règles d'or appliquées
 
@@ -117,12 +123,90 @@ curl -X DELETE http://localhost:4000/api/v1/purchase-requests/$PR_ID \
 charge concurrente. Compteur basé sur `COUNT(*) + 1` (acceptable jusqu'à
 ~10 000 DA/an ; au-delà, basculer vers une SEQUENCE Postgres dédiée).
 
-## 6. Hors scope (renvoyé au sprint 2.2+)
+## 6. Workflow d'approbation standard (sprint 2.2)
 
-- Workflow d'approbation multi-niveaux (PI → CG → DAF).
-- Création d'un Bon de Commande à partir d'une DA approuvée.
-- Recettes (GR — Goods Receipt) et matching 3-way.
+### 6.1 Routage par seuil
+
+| Montant total (XOF) | Étapes successives |
+|---|---|
+| < 500 000 | PI seul |
+| 500 000 ≤ total < 5 000 000 | PI puis CG |
+| ≥ 5 000 000 | PI puis CG puis DAF |
+
+À chaque approbation, le service crée la prochaine `approval_step` et passe
+la DA en `pending_<role>`. À la dernière étape : `status = approved`.
+
+### 6.2 Anti-fractionnement
+
+Lors de chaque approbation, le service compte les autres DA actives du même
+demandeur sur le même projet dans la fenêtre **30 jours glissants**. Si > 3,
+on émet un **warning non bloquant** dans la réponse (`splittingWarning`) et
+dans le log audit. Les approbateurs voient cette alerte en UI pour décider.
+
+### 6.3 Endpoints workflow
+
+| Verbe | Route | Rôles requis | Effet |
+|---|---|---|---|
+| `POST` | `/:id/approve` | rôle de l'étape (ou SUPER_ADMIN) | passe à l'étape suivante ou approved |
+| `POST` | `/:id/reject` | rôle de l'étape | passe à rejected, motif obligatoire |
+| `POST` | `/:id/return-for-changes` | rôle de l'étape | retour en draft, commentaire obligatoire |
+| `GET` | `/pending-my-approval` | PI/CG/DAF/SUPER_ADMIN | DA en attente de MA décision |
+| `GET` | `/:id/approval-history` | tous sauf BAILLEUR | historique des steps ordonnées |
+
+### 6.4 Exemples curl
+
+```bash
+# Approuver — étape courante (rôle inféré par le service)
+curl -X POST http://localhost:4000/api/v1/purchase-requests/$PR_ID/approve \
+  -H "Authorization: Bearer $TOKEN_PI" \
+  -H "Content-Type: application/json" \
+  -d '{"comment":"Conforme au plan de recherche"}'
+# → 201 { "status": "pending_cg", "nextStepRole": "CONTROLEUR", "splittingWarning": null }
+
+# Refuser (motif obligatoire, min 5 chars)
+curl -X POST http://localhost:4000/api/v1/purchase-requests/$PR_ID/reject \
+  -H "Authorization: Bearer $TOKEN_DAF" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"Hors plan budgétaire trimestriel"}'
+# → 201 { "status": "rejected", "rejectionReason": "Hors plan ..." }
+
+# Renvoyer en draft pour modifications
+curl -X POST http://localhost:4000/api/v1/purchase-requests/$PR_ID/return-for-changes \
+  -H "Authorization: Bearer $TOKEN_PI" \
+  -H "Content-Type: application/json" \
+  -d '{"comment":"Préciser le fournisseur attendu et joindre 2 devis"}'
+# → 201 { "status": "draft", ... }
+
+# Lister mes décisions en attente
+curl 'http://localhost:4000/api/v1/purchase-requests/pending-my-approval?urgent=true' \
+  -H "Authorization: Bearer $TOKEN_CG"
+# → { "data": [ { "id": "...", "currentStepRole": "CONTROLEUR", "isUrgent": true } ], ... }
+
+# Historique complet
+curl http://localhost:4000/api/v1/purchase-requests/$PR_ID/approval-history \
+  -H "Authorization: Bearer $TOKEN_DEM"
+# → [ { "stepOrder": 1, "approverRole": "PI", "status": "approved", "decisionNotes": "..." }, ... ]
+```
+
+### 6.5 Cas particuliers
+
+- **SUPER_ADMIN bypass** : peut approuver/refuser n'importe quelle étape
+  sans contrainte de rôle (utile pour débloquer un blocage).
+- **PI ownership** : un PI ne peut approuver que les DA dont il est `piUserId`
+  du projet. Autre projet → **403 `PI_NOT_OWNER_OF_PROJECT`**.
+- **Double-clic** : si l'étape est déjà décidée, **409 `PR_ALREADY_DECIDED`**.
+- **petty_cash / cash_advance** : tentative d'approve/reject/return renvoie
+  **501 `CASH_WORKFLOW_NOT_YET_IMPLEMENTED`** — workflow dédié au sprint 2.3.
+- **return-for-changes** : la DA repart au statut `draft`, le demandeur peut
+  modifier puis re-soumettre. Une nouvelle approval_step #N+1 sera créée
+  à la prochaine submit (l'historique est cumulatif).
+
+## 7. Hors scope (renvoyé aux sprints suivants)
+
+- Sprint 2.3 — workflow petty_cash / cash_advance (champs DDL déjà posés).
+- Sprint 2.4+ — création d'un Bon de Commande à partir d'une DA approuvée,
+  réception (GR — Goods Receipt) et matching 3-way (PR↔BC↔facture).
 
 ---
 
-_Dernière mise à jour : 16/05/2026 — Sprint 2.1._
+_Dernière mise à jour : 16/05/2026 — Sprint 2.2._

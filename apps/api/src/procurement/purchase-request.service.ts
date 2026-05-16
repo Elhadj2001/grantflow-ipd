@@ -54,7 +54,12 @@ const OPEN_PO_STATUSES: PoStatus[] = [
 
 const ACTIVE_GRANT_STATUS = 'active';
 const DRAFT_STATUS = 'draft';
-const SUBMITTED_STATUS = 'submitted';
+/**
+ * Au sprint 2.1, submit() passait en 'submitted'. Au sprint 2.2, le moteur
+ * d'approbation prend le relais : `submit()` enchaîne directement sur la
+ * 1ère étape (`pending_pi` pour les DA standard).
+ */
+const PENDING_PI_STATUS = 'pending_pi';
 const CANCELLED_STATUS = 'cancelled';
 
 export interface PaginatedPrs {
@@ -158,6 +163,7 @@ export class PurchaseRequestService {
           totalAmount,
           currency: dto.currency,
           description: dto.description,
+          requestType: dto.requestType,
           lines: {
             create: dto.lines.map((line, i) => ({
               lineNumber: i + 1,
@@ -364,7 +370,7 @@ export class PurchaseRequestService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.purchaseRequest.update({
         where: { id: prId },
-        data: { status: SUBMITTED_STATUS, updatedAt: new Date() },
+        data: { status: PENDING_PI_STATUS, updatedAt: new Date() },
       });
       // Approval step initiale — le moteur d'approbation viendra au sprint 2.2.
       await tx.approvalStep.create({

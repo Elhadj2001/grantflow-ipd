@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { createZodDto } from 'nestjs-zod';
 
+/** Aligné sur enum Postgres `procurement.pr_type`. */
+export const PR_REQUEST_TYPES = ['standard', 'petty_cash', 'cash_advance'] as const;
+export type PrRequestTypeLiteral = (typeof PR_REQUEST_TYPES)[number];
+
 /**
  * DTO de création d'une Demande d'Achat.
  *
@@ -17,6 +21,13 @@ export const CreatePurchaseRequestSchema = z.object({
   activityId: z.string().uuid().optional(),
 
   currency: z.string().length(3).default('XOF'),
+
+  /**
+   * Type de DA : 'standard' active le workflow PI→CG→DAF (sprint 2.2).
+   * Les types 'petty_cash' et 'cash_advance' sont acceptés à la création
+   * mais leur workflow d'approbation arrive au sprint 2.3.
+   */
+  requestType: z.enum(PR_REQUEST_TYPES).default('standard'),
 
   lines: z.array(z.object({
     description: z.string().min(2),

@@ -25,10 +25,19 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { PurchaseRequestService } from './purchase-request.service';
+import { ApprovalWorkflowService } from './services/approval-workflow.service';
 import { CreatePurchaseRequestDto } from './dto/create-pr.dto';
 import { UpdatePurchaseRequestDto } from './dto/update-pr.dto';
 import { PurchaseRequestQueryDto } from './dto/pr-query.dto';
+import { PendingApprovalQueryDto } from './dto/pending-approval-query.dto';
 import { CheckBudgetResponseDto } from './dto/check-budget.dto';
+import {
+  ApprovalDecisionResponseDto,
+  ApprovalStepResponseDto,
+  ApproveDecisionDto,
+  RejectDecisionDto,
+  ReturnForChangesDto,
+} from './dto/approval-decision.dto';
 import {
   PurchaseRequestDetailResponseDto,
   PurchaseRequestListResponseDto,
@@ -41,7 +50,30 @@ import {
 @ApiForbiddenResponse({ description: 'Insufficient role (AUTH.FORBIDDEN_ROLE)' })
 @Controller('purchase-requests')
 export class PurchaseRequestController {
-  constructor(private readonly svc: PurchaseRequestService) {}
+  constructor(
+    private readonly svc: PurchaseRequestService,
+    private readonly workflow: ApprovalWorkflowService,
+  ) {}
+
+  // ------------------------------------------------------------------
+  // Workflow — pending approvals (route AVANT /:id pour ne pas être capturée)
+  // ------------------------------------------------------------------
+
+  @Get('pending-my-approval')
+  @Roles('PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Liste des DA en attente de MA décision (filtrée par rôle de l\'acteur)',
+    description:
+      "PI : DA pending_pi des projets dont je suis le PI. " +
+      "CG : toutes pending_cg. DAF : toutes pending_daf. SUPER_ADMIN : toutes en cours.",
+  })
+  @ApiOkResponse()
+  pendingMyApproval(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: PendingApprovalQueryDto,
+  ) {
+    return this.workflow.getMyPendingApprovals(user, query);
+  }
 
   // ------------------------------------------------------------------
   // Read
@@ -147,5 +179,88 @@ export class PurchaseRequestController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.svc.submit(user, id);
+  }
+
+  // ------------------------------------------------------------------
+  // Workflow — decisions
+  // ------------------------------------------------------------------
+
+  @Post(':id/approve')
+  @Roles('PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: "Approuver l'étape pending de la DA — fait avancer vers la suivante",
+    description:
+      "Routage par seuil : <500 000 XOF → APPROVED après PI ; <5 000 000 → CG ; ≥ 5 000 000 → DAF.",
+  })
+  @ApiOkResponse({ type: ApprovalDecisionResponseDto })
+  @ApiNotFoundResponse({ description: 'PR not found' })
+  @ApiConflictResponse({
+    description:
+      'PR_NOT_IN_APPROVAL / PR_ALREADY_DECIDED / PR_NOT_AWAITING_YOU / PI_NOT_OWNER_OF_PROJECT / 501 CASH_WORKFLOW_NOT_YET_IMPLEMENTED',
+  })
+  async approve(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ApproveDecisionDto,
+  ): Promise<ApprovalDecisionResponseDto> {
+    const res = await this.workflow.approveCurrentStep(user, id, dto.comment);
+    return {
+      prId: res.pr.id,
+      status: res.pr.status,
+      nextStepRole: res.nextStepRole,
+      splittingWarning: res.splittingWarning,
+    };
+  }
+
+  @Post(':id/reject')
+  @Roles('PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({ summary: "Refuser l'étape pending (motif obligatoire, min 5 chars)" })
+  @ApiOkResponse({ type: PurchaseRequestResponseDto })
+  @ApiNotFoundResponse({ description: 'PR not found' })
+  @ApiConflictResponse({ description: 'PR_NOT_IN_APPROVAL / PR_NOT_AWAITING_YOU' })
+  reject(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RejectDecisionDto,
+  ) {
+    return this.workflow.rejectCurrentStep(user, id, dto.reason);
+  }
+
+  @Post(':id/return-for-changes')
+  @Roles('PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Renvoyer la DA en draft (le demandeur peut éditer, soumission repart à PI)',
+  })
+  @ApiOkResponse({ type: PurchaseRequestResponseDto })
+  @ApiNotFoundResponse({ description: 'PR not found' })
+  @ApiConflictResponse({ description: 'PR_NOT_IN_APPROVAL / PR_NOT_AWAITING_YOU' })
+  returnForChanges(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ReturnForChangesDto,
+  ) {
+    return this.workflow.returnForChanges(user, id, dto.comment);
+  }
+
+  @Get(':id/approval-history')
+  @Roles('DEMANDEUR', 'PI', 'ACHETEUR', 'CONTROLEUR', 'DAF', 'COMPTABLE', 'TRESORIER', 'SUPER_ADMIN')
+  @ApiOperation({ summary: "Historique d'approbation (étapes ordonnées)" })
+  @ApiOkResponse({ type: [ApprovalStepResponseDto] })
+  async approvalHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ApprovalStepResponseDto[]> {
+    // On passe d'abord par findOne pour valider l'ownership/visibilité.
+    await this.svc.findOne(user, id);
+    const steps = await this.workflow.getApprovalHistory(id);
+    return steps.map((s) => ({
+      id: s.id,
+      stepOrder: s.stepOrder,
+      approverRole: s.approverRole,
+      approverId: s.approverId,
+      status: s.status,
+      decidedAt: s.decidedAt ? s.decidedAt.toISOString() : null,
+      decisionNotes: s.decisionNotes,
+    }));
   }
 }
