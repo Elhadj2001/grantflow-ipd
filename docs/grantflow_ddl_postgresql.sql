@@ -939,6 +939,68 @@ CREATE TABLE IF NOT EXISTS ref.cash_settlement (
 CREATE INDEX IF NOT EXISTS idx_cash_settlement_pr ON ref.cash_settlement(purchase_request_id);
 
 -- =====================================================================
+--  SPRINT 4.1 — Réception de biens et services
+--
+--  La table procurement.goods_receipt et goods_receipt_line existent depuis
+--  le sprint 0. On enrichit ici :
+--    - cold_chain_required : flag biomédical (réactifs, vaccins)
+--    - rejected_reason     : motif si livraison refusée par le magasinier
+--    - cancellation_*      : annulation d'un GR draft
+--    - 'cancelled' ajouté à l'enum gr_status
+--    - quantity >= 0 sur goods_receipt_line (pour init à 0 lors createFromPo)
+-- =====================================================================
+
+-- Enum : ajout de 'cancelled' (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        WHERE t.typname = 'gr_status' AND e.enumlabel = 'cancelled'
+    ) THEN
+        ALTER TYPE procurement.gr_status ADD VALUE 'cancelled';
+    END IF;
+END$$;
+
+-- Colonnes additionnelles sur goods_receipt
+ALTER TABLE procurement.goods_receipt
+    ADD COLUMN IF NOT EXISTS cold_chain_required BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS rejected_reason     TEXT,
+    ADD COLUMN IF NOT EXISTS rejected_at         TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS rejected_by         UUID REFERENCES auth.app_user(id),
+    ADD COLUMN IF NOT EXISTS cancelled_at        TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS cancelled_reason    TEXT,
+    ADD COLUMN IF NOT EXISTS cancelled_by        UUID REFERENCES auth.app_user(id),
+    ADD COLUMN IF NOT EXISTS completed_at        TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS completed_by        UUID REFERENCES auth.app_user(id),
+    ADD COLUMN IF NOT EXISTS updated_at          TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE INDEX IF NOT EXISTS idx_gr_po     ON procurement.goods_receipt(po_id);
+CREATE INDEX IF NOT EXISTS idx_gr_status ON procurement.goods_receipt(status);
+
+-- goods_receipt_line : relâcher quantity > 0 en quantity >= 0
+DO $$
+DECLARE
+    cname TEXT;
+BEGIN
+    SELECT conname INTO cname
+    FROM pg_constraint
+    WHERE conrelid = 'procurement.goods_receipt_line'::regclass
+      AND contype  = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%quantity%>%0%';
+    IF cname IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE procurement.goods_receipt_line DROP CONSTRAINT %I', cname);
+    END IF;
+END$$;
+
+ALTER TABLE procurement.goods_receipt_line
+    DROP CONSTRAINT IF EXISTS goods_receipt_line_quantity_check;
+
+ALTER TABLE procurement.goods_receipt_line
+    ADD CONSTRAINT goods_receipt_line_quantity_nonneg
+    CHECK (quantity >= 0);
+
+-- =====================================================================
 --  FIN DU SCRIPT — Vérifications rapides
 -- =====================================================================
 -- SELECT COUNT(*) AS nb_tables FROM information_schema.tables
