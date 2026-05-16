@@ -201,12 +201,127 @@ curl http://localhost:4000/api/v1/purchase-requests/$PR_ID/approval-history \
   modifier puis re-soumettre. Une nouvelle approval_step #N+1 sera créée
   à la prochaine submit (l'historique est cumulatif).
 
-## 7. Hors scope (renvoyé aux sprints suivants)
+## 7. Workflows cash (Sprint 2.3)
 
-- Sprint 2.3 — workflow petty_cash / cash_advance (champs DDL déjà posés).
+Voir aussi [`cash-management.md`](./cash-management.md) pour le contexte
+métier (régie d'avance SYSCEBNL, rôle CAISSIER vs TRESORIER).
+
+### 7.1 Récapitulatif des 3 workflows
+
+| `request_type` | Étapes | Plafond/req | Plafond/jour/user | grant.allowsCashPayment | Settle |
+|---|---|---|---|---|---|
+| `standard`     | PI → CG → DAF (par seuil) | n/a | n/a | n/a | non |
+| `petty_cash`   | CAISSIER (1 étape) | ≤ `cash_box.per_request_max` | ≤ `cash_box.per_day_user_max` | doit être `true` | non |
+| `cash_advance` | PI → CAISSIER | ≤ `cash_box.per_request_max` | aucun | doit être `true` | obligatoire |
+
+### 7.2 Règles métier cash (vérifiées à la création)
+
+À la création d'une DA `petty_cash` ou `cash_advance`, le service exige :
+1. `cashBoxId` (sinon **400 `BUSINESS.CASH_BOX_REQUIRED`**).
+2. La caisse existe et `isActive=true` (sinon **404** ou **409 `BUSINESS.CASH_BOX_INACTIVE`**).
+3. `grant.allowsCashPayment = true` (sinon **409 `BUSINESS.CASH_PAYMENT_NOT_ALLOWED`**).
+4. `total ≤ cash_box.per_request_max` (sinon **409 `BUSINESS.CASH_LIMIT_PER_REQUEST_EXCEEDED`**).
+5. *(petty_cash uniquement)* somme du jour pour ce demandeur sur cette caisse
+   `+ total ≤ cash_box.per_day_user_max` (sinon **409 `BUSINESS.CASH_LIMIT_PER_DAY_EXCEEDED`**).
+
+À l'approbation finale (étape qui clôt le workflow), la caisse est décrémentée
+de `pr.totalAmount`. Si la balance ne suffit pas → **409 `BUSINESS.CASH_BOX_INSUFFICIENT_FUNDS`**
+(aucune décrémentation effectuée).
+
+### 7.3 petty_cash — workflow simplifié 1 étape
+
+```
+draft ──submit──► pending_caissier ──approve──► approved (balance débitée)
+                          │
+                          └── reject ──► rejected (motif obligatoire)
+```
+
+Pas de `return-for-changes` sur petty_cash (DA urgente — accepter ou refuser).
+
+```bash
+# 1. Créer une petty_cash
+curl -X POST http://localhost:4000/api/v1/purchase-requests \
+  -H "Authorization: Bearer $TOKEN_DEM" -H "Content-Type: application/json" \
+  -d '{
+    "description": "Taxi laboratoire",
+    "projectId": "...", "grantId": "...", "currency": "XOF",
+    "requestType": "petty_cash",
+    "cashBoxId": "...",
+    "lines": [{ "description": "Taxi", "quantity": 1, "unit": "course",
+                 "unitPrice": 12000, "budgetLineId": "..." }]
+  }'
+
+# 2. Submit (le caissier reçoit la DA dans pending-my-approval)
+curl -X POST http://localhost:4000/api/v1/purchase-requests/$PR_ID/submit \
+  -H "Authorization: Bearer $TOKEN_DEM"
+
+# 3. Caissier approuve → sortie de caisse immédiate
+curl -X POST http://localhost:4000/api/v1/purchase-requests/$PR_ID/approve \
+  -H "Authorization: Bearer $TOKEN_CAS" \
+  -d '{"comment":"Justificatif OK"}'
+# → 201 { "status":"approved", "nextStepRole":null }
+```
+
+### 7.4 cash_advance — workflow 2 étapes + régularisation
+
+```
+draft ──submit──► pending_pi ──approve──► pending_caissier ──approve──► approved
+                       │                          │                        │
+                       │ reject                   │ reject                  │ settle
+                       ▼                          ▼                        ▼
+                   rejected                   rejected                  settled
+```
+
+Endpoint additionnel `POST /:id/settle` (rôles : `CAISSIER`, `DAF`,
+`SUPER_ADMIN`). Calcule la variance :
+
+- `actualSpent < total` (variance négative) : reliquat retourné en caisse
+  (caisse créditée du delta).
+- `actualSpent > total` (variance positive) : delta à rembourser au demandeur
+  via flux séparé (paie, virement). La caisse n'est PAS re-débitée.
+- `actualSpent == total` : aucun mouvement.
+
+```bash
+# 1. cash_advance → PI → CAISSIER → approved
+curl -X POST http://localhost:4000/api/v1/purchase-requests \
+  -H "Authorization: Bearer $TOKEN_DEM" -H "Content-Type: application/json" \
+  -d '{ "description":"Mission terrain Kaolack", "requestType":"cash_advance",
+        "projectId":"...","grantId":"...","cashBoxId":"...",
+        "lines":[{"description":"Frais mission","quantity":1,"unit":"forfait",
+                  "unitPrice":80000,"budgetLineId":"..."}] }'
+
+# (submit + PI approve + CAISSIER approve → status:"approved")
+
+# 2. Régularisation après mission
+curl -X POST http://localhost:4000/api/v1/purchase-requests/$PR_ID/settle \
+  -H "Authorization: Bearer $TOKEN_CAS" -H "Content-Type: application/json" \
+  -d '{"actualSpent":62000,"justifications":"Factures hôtel + carburant"}'
+# → 201 { "status":"settled",
+#         "settlement":{ "actualSpent":62000, "variance":-18000, ... } }
+# → Caisse créditée de 18 000 XOF
+```
+
+### 7.5 Codes d'erreur cash
+
+| Code | HTTP | Sens |
+|---|---|---|
+| `BUSINESS.CASH_BOX_REQUIRED` | 400 | requestType ∈ {petty_cash, cash_advance} sans cashBoxId |
+| `BUSINESS.CASH_PAYMENT_NOT_ALLOWED` | 409 | grant.allowsCashPayment = false |
+| `BUSINESS.CASH_BOX_INACTIVE` | 409 | caisse désactivée |
+| `BUSINESS.CASH_LIMIT_PER_REQUEST_EXCEEDED` | 409 | total > cash_box.per_request_max |
+| `BUSINESS.CASH_LIMIT_PER_DAY_EXCEEDED` | 409 | total + déjà_du_jour > per_day_user_max |
+| `BUSINESS.CASH_BOX_INSUFFICIENT_FUNDS` | 409 | balance < total à l'approbation finale |
+| `BUSINESS.PR_TYPE_MISMATCH` | 409 | settle sur DA non cash_advance ; return-for-changes sur petty_cash |
+| `BUSINESS.PR_NOT_APPROVED_FOR_SETTLE` | 409 | settle sur DA non encore approved |
+| `BUSINESS.PR_ALREADY_SETTLED` | 409 | settle déjà enregistré (UNIQUE en DB) |
+
+## 8. Hors scope (renvoyé aux sprints suivants)
+
 - Sprint 2.4+ — création d'un Bon de Commande à partir d'une DA approuvée,
   réception (GR — Goods Receipt) et matching 3-way (PR↔BC↔facture).
+- Réapprovisionnement caisse (`POST /cash-boxes/:id/replenish`) — pour
+  l'instant la balance se gère manuellement via PATCH/PUT.
 
 ---
 
-_Dernière mise à jour : 16/05/2026 — Sprint 2.2._
+_Dernière mise à jour : 16/05/2026 — Sprint 2.3._
