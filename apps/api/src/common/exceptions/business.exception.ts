@@ -756,3 +756,151 @@ export class ImmutableFixedRateException extends BusinessException {
     );
   }
 }
+
+// ===== Sprint 3 — Bons de Commande =====
+
+/** 409 — édition du PO interdite (≠ draft). */
+export class PoNotEditableException extends BusinessException {
+  constructor(poId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PO_NOT_EDITABLE,
+      HttpStatus.CONFLICT,
+      `Purchase order status "${status}" forbids editing (only draft allowed)`,
+      { poId, status },
+    );
+  }
+}
+
+/** 409 — envoi du PO interdit (≠ draft). */
+export class PoNotSendableException extends BusinessException {
+  constructor(poId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PO_NOT_SENDABLE,
+      HttpStatus.CONFLICT,
+      `Purchase order status "${status}" forbids sending (only draft allowed)`,
+      { poId, status },
+    );
+  }
+}
+
+/** 409 — annulation du PO impossible (déjà reçu/facturé/clos). */
+export class PoNotCancellableException extends BusinessException {
+  constructor(poId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PO_NOT_CANCELLABLE,
+      HttpStatus.CONFLICT,
+      `Purchase order status "${status}" forbids cancellation`,
+      { poId, status },
+    );
+  }
+}
+
+/** 409 — acknowledge sur un PO qui n'est pas en statut `sent`. */
+export class PoNotAcknowledgeableException extends BusinessException {
+  constructor(poId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PO_NOT_ACKNOWLEDGEABLE,
+      HttpStatus.CONFLICT,
+      `Purchase order status "${status}" cannot be acknowledged (must be "sent")`,
+      { poId, status },
+    );
+  }
+}
+
+/** 404 — tentative de télécharger le PDF d'un PO non encore généré. */
+export class PoNoPdfException extends BusinessException {
+  constructor(poId: string) {
+    super(
+      ErrorCode.BUSINESS.PO_NO_PDF,
+      HttpStatus.NOT_FOUND,
+      `Purchase order has no PDF (not yet sent)`,
+      { poId },
+    );
+  }
+}
+
+/** 409 — création de PO sur DA non approuvée. */
+export class PrNotApprovedException extends BusinessException {
+  constructor(prId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PR_NOT_APPROVED,
+      HttpStatus.CONFLICT,
+      `Purchase request status "${status}" forbids PO creation (must be "approved")`,
+      { prId, status },
+    );
+  }
+}
+
+/** 409 — DA déjà rattachée à un PO actif. */
+export class PrAlreadyHasPoException extends BusinessException {
+  constructor(prId: string, poId: string) {
+    super(
+      ErrorCode.BUSINESS.PR_ALREADY_HAS_PO,
+      HttpStatus.CONFLICT,
+      `Purchase request already linked to an active purchase order`,
+      { prId, poId },
+    );
+  }
+}
+
+/** 409 — un PO ne peut pas être créé à partir d'une DA petty_cash (paiement caisse). */
+export class PrTypePettyCashNoPoException extends BusinessException {
+  constructor(prId: string) {
+    super(
+      ErrorCode.BUSINESS.PR_TYPE_PETTY_CASH_NO_PO,
+      HttpStatus.CONFLICT,
+      `Petty cash purchase requests are paid in cash, no PO is issued`,
+      { prId },
+    );
+  }
+}
+
+/** 409 — fournisseur inactif. */
+export class SupplierInactiveException extends BusinessException {
+  constructor(supplierId: string) {
+    super(
+      ErrorCode.BUSINESS.SUPPLIER_INACTIVE,
+      HttpStatus.CONFLICT,
+      `Supplier is inactive`,
+      { supplierId },
+    );
+  }
+}
+
+/** 400 — liste de DAs vide pour la consolidation. */
+export class PrListEmptyException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.PR_LIST_EMPTY,
+      HttpStatus.BAD_REQUEST,
+      `At least one purchase request is required`,
+    );
+  }
+}
+
+/** 409 — devises hétérogènes entre les DAs consolidées. */
+export class PoCurrencyMismatchException extends BusinessException {
+  constructor(currencies: string[]) {
+    super(
+      ErrorCode.BUSINESS.PO_CURRENCY_MISMATCH,
+      HttpStatus.CONFLICT,
+      `Purchase requests have heterogeneous currencies — consolidation requires the same currency`,
+      { currencies },
+    );
+  }
+}
+
+/**
+ * 409 — aucune période fiscale ouverte ne couvre la date d'écriture
+ * (typiquement la date du jour). Empêche de poster un engagement.
+ */
+export class NoOpenFiscalPeriodException extends BusinessException {
+  constructor(date: string) {
+    super(
+      ErrorCode.BUSINESS.NO_OPEN_FISCAL_PERIOD,
+      HttpStatus.CONFLICT,
+      `No open fiscal period covers ${date}`,
+      { date },
+    );
+  }
+}

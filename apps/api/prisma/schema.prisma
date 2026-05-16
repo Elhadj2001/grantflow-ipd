@@ -605,6 +605,7 @@ model PurchaseRequest {
   cashSettlement CashSettlement?
   lines          PurchaseRequestLine[]
   purchaseOrders PurchaseOrder[]
+  poLinks        PurchaseOrderPr[]
 
   @@index([status], map: "idx_pr_status")
   @@index([requestedBy], map: "idx_pr_requested_by")
@@ -655,22 +656,29 @@ model ApprovalStep {
 }
 
 model PurchaseOrder {
-  id              String    @id @default(uuid()) @db.Uuid
-  poNumber        String    @unique @map("po_number")
-  prId            String?   @map("pr_id") @db.Uuid
-  supplierId      String    @map("supplier_id") @db.Uuid
-  orderDate       DateTime  @default(now()) @map("order_date") @db.Date
-  expectedDate    DateTime? @map("expected_date") @db.Date
-  status          PoStatus  @default(draft)
-  totalHt         Decimal   @default(0) @map("total_ht") @db.Decimal(18, 2)
-  totalVat        Decimal   @default(0) @map("total_vat") @db.Decimal(18, 2)
-  totalTtc        Decimal   @default(0) @map("total_ttc") @db.Decimal(18, 2)
-  currency        String    @default("XOF") @db.Char(3)
-  incoterm        String?
-  deliveryAddress String?   @map("delivery_address")
-  buyerId         String?   @map("buyer_id") @db.Uuid
-  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  String    @id @default(uuid()) @db.Uuid
+  poNumber            String    @unique @map("po_number")
+  prId                String?   @map("pr_id") @db.Uuid
+  supplierId          String    @map("supplier_id") @db.Uuid
+  orderDate           DateTime  @default(now()) @map("order_date") @db.Date
+  expectedDate        DateTime? @map("expected_date") @db.Date
+  status              PoStatus  @default(draft)
+  totalHt             Decimal   @default(0) @map("total_ht") @db.Decimal(18, 2)
+  totalVat            Decimal   @default(0) @map("total_vat") @db.Decimal(18, 2)
+  totalTtc            Decimal   @default(0) @map("total_ttc") @db.Decimal(18, 2)
+  currency            String    @default("XOF") @db.Char(3)
+  incoterm            String?
+  deliveryAddress     String?   @map("delivery_address")
+  buyerId             String?   @map("buyer_id") @db.Uuid
+  sentAt              DateTime? @map("sent_at") @db.Timestamptz(6)
+  acknowledgedAt      DateTime? @map("acknowledged_at") @db.Timestamptz(6)
+  acknowledgedBy      String?   @map("acknowledged_by")
+  cancelledAt         DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancellationReason  String?   @map("cancellation_reason")
+  pdfObjectKey        String?   @map("pdf_object_key")
+  emailSentAt         DateTime? @map("email_sent_at") @db.Timestamptz(6)
+  emailSentTo         String?   @map("email_sent_to")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   pr            PurchaseRequest?    @relation(fields: [prId], references: [id])
   supplier      Supplier            @relation(fields: [supplierId], references: [id])
@@ -678,10 +686,26 @@ model PurchaseOrder {
   lines         PurchaseOrderLine[]
   goodsReceipts GoodsReceipt[]
   invoices      Invoice[]
+  prLinks       PurchaseOrderPr[]
 
   @@index([supplierId], map: "idx_po_supplier")
   @@index([status], map: "idx_po_status")
   @@map("purchase_order")
+  @@schema("procurement")
+}
+
+/// Liaison N-N entre BC et DA (un BC peut consolider plusieurs DAs).
+/// Voir DDL §SPRINT 3.
+model PurchaseOrderPr {
+  poId String @map("po_id") @db.Uuid
+  prId String @map("pr_id") @db.Uuid
+
+  po PurchaseOrder   @relation(fields: [poId], references: [id], onDelete: Cascade)
+  pr PurchaseRequest @relation(fields: [prId], references: [id])
+
+  @@id([poId, prId])
+  @@index([prId], map: "idx_po_pr_pr")
+  @@map("purchase_order_pr")
   @@schema("procurement")
 }
 
