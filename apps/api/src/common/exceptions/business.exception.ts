@@ -904,3 +904,149 @@ export class NoOpenFiscalPeriodException extends BusinessException {
     );
   }
 }
+
+// ===== Sprint 4.1 — Réception de biens (Goods Receipt) =====
+
+/**
+ * 409 — réception impossible sur un PO qui n'est pas dans un statut
+ * "receivable" (sent / acknowledged / partially_received).
+ */
+export class PoNotReceivableException extends BusinessException {
+  constructor(poId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PO_NOT_RECEIVABLE,
+      HttpStatus.CONFLICT,
+      `Purchase order status "${status}" forbids creating a goods receipt`,
+      { poId, status },
+    );
+  }
+}
+
+/** 409 — édition d'un GR interdite (≠ draft). */
+export class GrNotEditableException extends BusinessException {
+  constructor(grId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.GR_NOT_EDITABLE,
+      HttpStatus.CONFLICT,
+      `Goods receipt status "${status}" forbids editing (only draft allowed)`,
+      { grId, status },
+    );
+  }
+}
+
+/** 409 — complete refusé : aucune ligne avec quantity > 0. */
+export class GrEmptyLinesException extends BusinessException {
+  constructor(grId: string) {
+    super(
+      ErrorCode.BUSINESS.GR_EMPTY_LINES,
+      HttpStatus.CONFLICT,
+      `Goods receipt has no line with quantity > 0 — nothing to complete`,
+      { grId },
+    );
+  }
+}
+
+/**
+ * 409 — quantity reçue cumulée > quantity commandée pour au moins une ligne.
+ * `details.lines` détaille pour chaque ligne en débordement les valeurs vues.
+ */
+export class GrQtyExceedsOrderException extends BusinessException {
+  constructor(grId: string, lines: Array<Record<string, unknown>>) {
+    super(
+      ErrorCode.BUSINESS.GR_QTY_EXCEEDS_ORDER,
+      HttpStatus.CONFLICT,
+      `Received quantity exceeds ordered quantity on ${lines.length} line(s)`,
+      { grId, lines },
+    );
+  }
+}
+
+/**
+ * 409 — chaîne du froid rompue (cold_chain_required = true mais
+ * cold_chain_ok ≠ true sur au moins une ligne reçue). Alerte forte :
+ * réactifs biomédicaux potentiellement compromis.
+ */
+export class ColdChainBrokenException extends BusinessException {
+  constructor(grId: string, brokenLines: Array<Record<string, unknown>>) {
+    super(
+      ErrorCode.BUSINESS.COLD_CHAIN_BROKEN,
+      HttpStatus.CONFLICT,
+      `Cold chain broken on ${brokenLines.length} line(s) — biomedical alert`,
+      { grId, brokenLines },
+    );
+  }
+}
+
+/**
+ * 409 — lot / péremption manquant alors que cold_chain_required = true.
+ * Conformité réglementaire (traçabilité produit biomédical).
+ */
+export class BatchInfoRequiredException extends BusinessException {
+  constructor(grId: string, missing: Array<Record<string, unknown>>) {
+    super(
+      ErrorCode.BUSINESS.BATCH_INFO_REQUIRED,
+      HttpStatus.CONFLICT,
+      `Batch number and expiry date are required for cold-chain lines`,
+      { grId, missing },
+    );
+  }
+}
+
+/** 409 — second complete sur un GR déjà 'complete'. */
+export class GrAlreadyCompleteException extends BusinessException {
+  constructor(grId: string) {
+    super(
+      ErrorCode.BUSINESS.GR_ALREADY_COMPLETE,
+      HttpStatus.CONFLICT,
+      `Goods receipt is already complete`,
+      { grId },
+    );
+  }
+}
+
+/** 409 — annulation d'un GR ≠ draft. */
+export class GrNotCancellableException extends BusinessException {
+  constructor(grId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.GR_NOT_CANCELLABLE,
+      HttpStatus.CONFLICT,
+      `Goods receipt status "${status}" forbids cancellation (only draft)`,
+      { grId, status },
+    );
+  }
+}
+
+/** 409 — reject sur un GR ≠ draft. */
+export class GrNotRejectableException extends BusinessException {
+  constructor(grId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.GR_NOT_REJECTABLE,
+      HttpStatus.CONFLICT,
+      `Goods receipt status "${status}" forbids rejection (only draft)`,
+      { grId, status },
+    );
+  }
+}
+
+/** 404 — ligne de GR introuvable lors d'un patch. */
+export class GrLineNotFoundException extends BusinessException {
+  constructor(grId: string, lineId: string) {
+    super(
+      ErrorCode.BUSINESS.GR_LINE_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `Goods receipt line not found`,
+      { grId, lineId },
+    );
+  }
+}
+
+/** 400 — rejet sans motif. */
+export class RejectionReasonMissingException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.REJECTION_REASON_MISSING,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty rejection reason is required`,
+    );
+  }
+}
