@@ -39,6 +39,10 @@ import {
   ReturnForChangesDto,
 } from './dto/approval-decision.dto';
 import {
+  SettleCashAdvanceDto,
+  SettleCashAdvanceResponseDto,
+} from './dto/cash-settle.dto';
+import {
   PurchaseRequestDetailResponseDto,
   PurchaseRequestListResponseDto,
   PurchaseRequestResponseDto,
@@ -60,7 +64,7 @@ export class PurchaseRequestController {
   // ------------------------------------------------------------------
 
   @Get('pending-my-approval')
-  @Roles('PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @Roles('PI', 'CONTROLEUR', 'DAF', 'CAISSIER', 'SUPER_ADMIN')
   @ApiOperation({
     summary: 'Liste des DA en attente de MA décision (filtrée par rôle de l\'acteur)',
     description:
@@ -186,7 +190,7 @@ export class PurchaseRequestController {
   // ------------------------------------------------------------------
 
   @Post(':id/approve')
-  @Roles('PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @Roles('PI', 'CONTROLEUR', 'DAF', 'CAISSIER', 'SUPER_ADMIN')
   @ApiOperation({
     summary: "Approuver l'étape pending de la DA — fait avancer vers la suivante",
     description:
@@ -213,7 +217,7 @@ export class PurchaseRequestController {
   }
 
   @Post(':id/reject')
-  @Roles('PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @Roles('PI', 'CONTROLEUR', 'DAF', 'CAISSIER', 'SUPER_ADMIN')
   @ApiOperation({ summary: "Refuser l'étape pending (motif obligatoire, min 5 chars)" })
   @ApiOkResponse({ type: PurchaseRequestResponseDto })
   @ApiNotFoundResponse({ description: 'PR not found' })
@@ -262,5 +266,49 @@ export class PurchaseRequestController {
       decidedAt: s.decidedAt ? s.decidedAt.toISOString() : null,
       decisionNotes: s.decisionNotes,
     }));
+  }
+
+  // ------------------------------------------------------------------
+  // Cash settlement (cash_advance régularisation)
+  // ------------------------------------------------------------------
+
+  @Post(':id/settle')
+  @Roles('CAISSIER', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Régulariser une avance de mission (cash_advance APPROVED)',
+    description:
+      "Calcule la variance entre actualSpent et l'engagement initial. " +
+      'Si variance < 0 : reliquat retourné en caisse. ' +
+      'Si variance > 0 : delta à rembourser au demandeur (hors flux caisse). ' +
+      'La DA passe en statut `settled` (terminal).',
+  })
+  @ApiOkResponse({ type: SettleCashAdvanceResponseDto })
+  @ApiNotFoundResponse({ description: 'PR not found' })
+  @ApiConflictResponse({
+    description:
+      'PR_TYPE_MISMATCH (≠cash_advance) / PR_NOT_APPROVED_FOR_SETTLE / PR_ALREADY_SETTLED',
+  })
+  async settle(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SettleCashAdvanceDto,
+  ): Promise<SettleCashAdvanceResponseDto> {
+    const { pr, settlement } = await this.workflow.settleCashAdvance(user, id, {
+      actualSpent: dto.actualSpent,
+      justifications: dto.justifications,
+    });
+    return {
+      prId: pr.id,
+      status: pr.status,
+      settlement: {
+        id: settlement.id,
+        purchaseRequestId: settlement.purchaseRequestId,
+        actualSpent: Number(settlement.actualSpent),
+        variance: Number(settlement.variance),
+        justifications: settlement.justifications,
+        settledBy: settlement.settledBy,
+        settledAt: settlement.settledAt.toISOString(),
+      },
+    };
   }
 }

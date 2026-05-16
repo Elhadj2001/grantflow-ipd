@@ -6,6 +6,11 @@ import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import type { Role } from '../auth/types/roles';
 import {
   BudgetLineNotInGrantException,
+  CashBoxInactiveException,
+  CashBoxRequiredException,
+  CashLimitPerDayExceededException,
+  CashLimitPerRequestExceededException,
+  CashPaymentNotAllowedException,
   EntityNotFoundException,
   GrantNotActiveException,
   InsufficientBudgetException,
@@ -60,6 +65,7 @@ const DRAFT_STATUS = 'draft';
  * 1ère étape (`pending_pi` pour les DA standard).
  */
 const PENDING_PI_STATUS = 'pending_pi';
+const PENDING_CAISSIER_STATUS = 'pending_caissier';
 const CANCELLED_STATUS = 'cancelled';
 
 export interface PaginatedPrs {
@@ -146,8 +152,20 @@ export class PurchaseRequestService {
       0,
     );
 
-    const prNumber = await this.generatePrNumber();
     const appUserId = await this.resolveAppUserId(actor);
+
+    // Vérifications spécifiques cash (petty_cash / cash_advance).
+    if (dto.requestType === 'petty_cash' || dto.requestType === 'cash_advance') {
+      await this.assertCashInvariants({
+        requestType: dto.requestType,
+        cashBoxId: dto.cashBoxId,
+        grant: { id: grant.id, allowsCashPayment: grant.allowsCashPayment },
+        requesterId: appUserId,
+        totalAmount,
+      });
+    }
+
+    const prNumber = await this.generatePrNumber();
 
     const pr = await this.prisma.$transaction(async (tx) => {
       const created = await tx.purchaseRequest.create({
@@ -164,6 +182,7 @@ export class PurchaseRequestService {
           currency: dto.currency,
           description: dto.description,
           requestType: dto.requestType,
+          cashBoxId: dto.cashBoxId ?? null,
           lines: {
             create: dto.lines.map((line, i) => ({
               lineNumber: i + 1,
@@ -181,10 +200,86 @@ export class PurchaseRequestService {
     });
 
     this.logger.log(
-      { prId: pr.id, prNumber, actorId: actor.id, total: totalAmount, currency: dto.currency },
+      {
+        prId: pr.id,
+        prNumber,
+        actorId: actor.id,
+        total: totalAmount,
+        currency: dto.currency,
+        requestType: dto.requestType,
+      },
       'purchase request created',
     );
     return pr;
+  }
+
+  /**
+   * Invariants métier cash :
+   *   1. cashBoxId présent (DTO le force déjà via superRefine, on revérifie ici)
+   *   2. cashBox.isActive=true
+   *   3. grant.allowsCashPayment=true
+   *   4. total ≤ cashBox.perRequestMax
+   *   5. (petty_cash uniquement) somme du jour pour ce demandeur sur cette
+   *       caisse ≤ cashBox.perDayUserMax
+   *
+   * cash_advance n'a PAS de plafond/jour (les avances sont moins fréquentes
+   * et plus volumineuses, gérées différemment).
+   */
+  private async assertCashInvariants(args: {
+    requestType: 'petty_cash' | 'cash_advance';
+    cashBoxId?: string;
+    grant: { id: string; allowsCashPayment: boolean };
+    requesterId: string;
+    totalAmount: number;
+  }): Promise<void> {
+    if (!args.cashBoxId) throw new CashBoxRequiredException(args.requestType);
+
+    const cashBox = await this.prisma.cashBox.findUnique({ where: { id: args.cashBoxId } });
+    if (!cashBox) throw new EntityNotFoundException('CashBox', { id: args.cashBoxId });
+    if (!cashBox.isActive) throw new CashBoxInactiveException(cashBox.id);
+
+    if (!args.grant.allowsCashPayment) {
+      throw new CashPaymentNotAllowedException(args.grant.id);
+    }
+
+    const perReqMax = Number(cashBox.perRequestMax);
+    if (args.totalAmount > perReqMax) {
+      throw new CashLimitPerRequestExceededException(cashBox.id, args.totalAmount, perReqMax);
+    }
+
+    if (args.requestType === 'petty_cash') {
+      const start = new Date();
+      start.setUTCHours(0, 0, 0, 0);
+      const end = new Date();
+      end.setUTCHours(23, 59, 59, 999);
+
+      const agg = await this.prisma.purchaseRequest.aggregate({
+        _sum: { totalAmount: true },
+        where: {
+          cashBoxId: cashBox.id,
+          requestType: 'petty_cash',
+          requestedBy: args.requesterId,
+          status: {
+            in: [
+              PrStatus.draft,
+              PrStatus.pending_caissier,
+              PrStatus.approved,
+            ],
+          },
+          requestedAt: { gte: start, lte: end },
+        },
+      });
+      const todaySpent = Number(agg._sum?.totalAmount ?? 0);
+      const perDayMax = Number(cashBox.perDayUserMax);
+      if (todaySpent + args.totalAmount > perDayMax) {
+        throw new CashLimitPerDayExceededException(
+          cashBox.id,
+          todaySpent,
+          args.totalAmount,
+          perDayMax,
+        );
+      }
+    }
   }
 
   // ------------------------------------------------------------------
@@ -367,18 +462,25 @@ export class PurchaseRequestService {
       );
     }
 
+    // Routage selon `requestType` :
+    //   - standard      → PI (workflow PI/CG/DAF, sprint 2.2)
+    //   - petty_cash    → CAISSIER direct (workflow simplifié, sprint 2.3)
+    //   - cash_advance  → PI puis CAISSIER (workflow 2 étapes, sprint 2.3)
+    const isPetty = pr.requestType === 'petty_cash';
+    const firstRole: 'PI' | 'CAISSIER' = isPetty ? 'CAISSIER' : 'PI';
+    const nextStatus = isPetty ? PENDING_CAISSIER_STATUS : PENDING_PI_STATUS;
+
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.purchaseRequest.update({
         where: { id: prId },
-        data: { status: PENDING_PI_STATUS, updatedAt: new Date() },
+        data: { status: nextStatus, updatedAt: new Date() },
       });
-      // Approval step initiale — le moteur d'approbation viendra au sprint 2.2.
       await tx.approvalStep.create({
         data: {
           entityType: 'purchase_request',
           entityId: prId,
           stepOrder: 1,
-          approverRole: 'PI',
+          approverRole: firstRole,
           status: 'pending',
         },
       });

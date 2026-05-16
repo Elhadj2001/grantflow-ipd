@@ -8,11 +8,11 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import {
-  CashWorkflowNotYetImplementedException,
   PiNotOwnerOfProjectException,
   PrAlreadyDecidedException,
   PrNotAwaitingYouException,
   PrNotInApprovalException,
+  PrTypeMismatchException,
   RejectionReasonRequiredException,
 } from '../../common/exceptions/business.exception';
 
@@ -32,6 +32,8 @@ describe('ApprovalWorkflowService', () => {
     };
     project: { findUnique: jest.Mock };
     appUser: { findUnique: jest.Mock; create: jest.Mock };
+    cashBox: { findUnique: jest.Mock; update: jest.Mock };
+    cashSettlement: { findUnique: jest.Mock; create: jest.Mock };
     $transaction: jest.Mock;
   };
   let svc: ApprovalWorkflowService;
@@ -107,10 +109,22 @@ describe('ApprovalWorkflowService', () => {
       appUser: {
         findUnique: jest.fn(({ where }: { where: { email: string } }) => {
           const map: Record<string, string> = {
-            'pi@x': piId, 'cg@x': cgId, 'daf@x': dafId, 'sa@x': 'sa-app', 'dem@x': 'dem-app',
+            'pi@x': piId, 'cg@x': cgId, 'daf@x': dafId, 'sa@x': 'sa-app',
+            'dem@x': 'dem-app', 'cas@x': 'cas-app',
           };
           return Promise.resolve(map[where.email] ? { id: map[where.email] } : null);
         }),
+        create: jest.fn(),
+      },
+      cashBox: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'cb-1',
+          currentBalance: new Prisma.Decimal('500000'),
+        }),
+        update: jest.fn(),
+      },
+      cashSettlement: {
+        findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn(),
       },
       $transaction: jest.fn(async (cb: unknown) => {
@@ -235,19 +249,9 @@ describe('ApprovalWorkflowService', () => {
       );
     });
 
-    it('rejects requestType=petty_cash → 501 CASH_WORKFLOW_NOT_YET_IMPLEMENTED', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ requestType: 'petty_cash' }));
-      await expect(svc.approveCurrentStep(pi, prId)).rejects.toBeInstanceOf(
-        CashWorkflowNotYetImplementedException,
-      );
-    });
-
-    it('rejects requestType=cash_advance → 501', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ requestType: 'cash_advance' }));
-      await expect(svc.approveCurrentStep(pi, prId)).rejects.toBeInstanceOf(
-        CashWorkflowNotYetImplementedException,
-      );
-    });
+    // Sprint 2.3 : les workflows cash sont implémentés. Les tests dédiés
+    // (petty_cash → CAISSIER, cash_advance → PI puis CAISSIER) sont dans
+    // les blocs `describe('cash workflows', ...)` plus bas.
   });
 
   // ------------------------------------------------------------------
@@ -284,11 +288,19 @@ describe('ApprovalWorkflowService', () => {
       );
     });
 
-    it('blocks petty_cash on reject too', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ requestType: 'petty_cash' }));
-      await expect(svc.rejectCurrentStep(pi, prId, 'reason here')).rejects.toBeInstanceOf(
-        CashWorkflowNotYetImplementedException,
+    it('allows reject on petty_cash (cash workflow operational since sprint 2.3)', async () => {
+      const caissier: AuthenticatedUser = {
+        id: 'cas-sub', email: 'cas@x', fullName: 'CAS', roles: ['CAISSIER'],
+      };
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({ requestType: 'petty_cash', status: PrStatus.pending_caissier }),
       );
+      prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CAISSIER' }));
+      prisma.purchaseRequest.update.mockResolvedValue(
+        makePr({ status: PrStatus.rejected, rejectionReason: 'Pas assez justifié' }),
+      );
+      const res = await svc.rejectCurrentStep(caissier, prId, 'Pas assez justifié');
+      expect(res.status).toBe(PrStatus.rejected);
     });
   });
 
@@ -313,11 +325,24 @@ describe('ApprovalWorkflowService', () => {
       );
     });
 
-    it('blocks petty_cash', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ requestType: 'petty_cash' }));
-      await expect(svc.returnForChanges(pi, prId, 'changement nécessaire')).rejects.toBeInstanceOf(
-        CashWorkflowNotYetImplementedException,
+    it('blocks petty_cash (urgent — return-for-changes is not allowed)', async () => {
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({ requestType: 'petty_cash', status: PrStatus.pending_caissier }),
       );
+      await expect(svc.returnForChanges(pi, prId, 'changement nécessaire')).rejects.toBeInstanceOf(
+        PrTypeMismatchException,
+      );
+    });
+
+    it('allows cash_advance return (less urgent — workflow includes PI step)', async () => {
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({ requestType: 'cash_advance' }),
+      );
+      prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'PI' }));
+      prisma.project.findUnique.mockResolvedValue({ piUserId: piId });
+      prisma.purchaseRequest.update.mockResolvedValue(makePr({ status: PrStatus.draft }));
+      const res = await svc.returnForChanges(pi, prId, 'Préciser la mission');
+      expect(res.status).toBe(PrStatus.draft);
     });
   });
 
@@ -329,7 +354,9 @@ describe('ApprovalWorkflowService', () => {
       await svc.getMyPendingApprovals(pi, { page: 1, pageSize: 20 });
       const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
       expect(args.where.status.in).toContain(PrStatus.pending_pi);
-      expect(args.where.requestType).toBe('standard');
+      // sprint 2.3 : on n'exclut plus les DA cash de la liste pending
+      // (le PI peut être 1ʳᵉ étape sur cash_advance).
+      expect(args.where.requestType).toBeUndefined();
       expect(args.where.project).toEqual({ piUserId: piId });
     });
 
@@ -414,6 +441,225 @@ describe('ApprovalWorkflowService', () => {
       await expect(svc.approveCurrentStep(dem, prId)).rejects.toBeInstanceOf(
         PrNotAwaitingYouException,
       );
+    });
+  });
+
+  // ====================================================================
+  //  CASH WORKFLOWS (sprint 2.3)
+  // ====================================================================
+  describe('cash workflows', () => {
+    const caissier: AuthenticatedUser = {
+      id: 'cas-sub', email: 'cas@x', fullName: 'CAS', roles: ['CAISSIER'],
+    };
+
+    describe('petty_cash : 1 étape (CAISSIER seule)', () => {
+      it('caissier approve → APPROVED direct + balance décrémentée', async () => {
+        const pr = makePr({
+          requestType: 'petty_cash',
+          status: PrStatus.pending_caissier,
+          cashBoxId: 'cb-1',
+          totalAmount: new Prisma.Decimal('45000'),
+        });
+        prisma.purchaseRequest.findUnique.mockResolvedValue(pr);
+        prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CAISSIER' }));
+        prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: PrStatus.approved });
+
+        const res = await svc.approveCurrentStep(caissier, prId);
+        expect(res.pr.status).toBe(PrStatus.approved);
+        expect(res.nextStepRole).toBeNull();
+        expect(prisma.cashBox.update).toHaveBeenCalledWith({
+          where: { id: 'cb-1' },
+          data: { currentBalance: { decrement: 45000 } },
+        });
+      });
+
+      it('DAF cannot approve a petty_cash → 403 PR_NOT_AWAITING_YOU', async () => {
+        prisma.purchaseRequest.findUnique.mockResolvedValue(
+          makePr({ requestType: 'petty_cash', status: PrStatus.pending_caissier }),
+        );
+        prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CAISSIER' }));
+        await expect(svc.approveCurrentStep(daf, prId)).rejects.toBeInstanceOf(
+          PrNotAwaitingYouException,
+        );
+      });
+
+      it('caissier reject → REJECTED with reason', async () => {
+        const pr = makePr({ requestType: 'petty_cash', status: PrStatus.pending_caissier });
+        prisma.purchaseRequest.findUnique.mockResolvedValue(pr);
+        prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CAISSIER' }));
+        prisma.purchaseRequest.update.mockResolvedValue({
+          ...pr,
+          status: PrStatus.rejected,
+          rejectionReason: 'Justificatif manquant',
+        });
+        const res = await svc.rejectCurrentStep(caissier, prId, 'Justificatif manquant');
+        expect(res.status).toBe(PrStatus.rejected);
+      });
+
+      it('insufficient funds → CASH_BOX_INSUFFICIENT_FUNDS (no decrement)', async () => {
+        const pr = makePr({
+          requestType: 'petty_cash',
+          status: PrStatus.pending_caissier,
+          cashBoxId: 'cb-1',
+          totalAmount: new Prisma.Decimal('600000'),
+        });
+        prisma.purchaseRequest.findUnique.mockResolvedValue(pr);
+        prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CAISSIER' }));
+        prisma.cashBox.findUnique.mockResolvedValue({
+          id: 'cb-1',
+          currentBalance: new Prisma.Decimal('50000'),
+        });
+        const { CashBoxInsufficientFundsException } = await import(
+          '../../common/exceptions/business.exception'
+        );
+        await expect(svc.approveCurrentStep(caissier, prId)).rejects.toBeInstanceOf(
+          CashBoxInsufficientFundsException,
+        );
+        expect(prisma.cashBox.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('cash_advance : 2 étapes (PI → CAISSIER)', () => {
+      it('PI approve → next step = CAISSIER, status = pending_caissier', async () => {
+        const pr = makePr({
+          requestType: 'cash_advance',
+          status: PrStatus.pending_pi,
+          totalAmount: new Prisma.Decimal('80000'),
+          cashBoxId: 'cb-1',
+        });
+        prisma.purchaseRequest.findUnique.mockResolvedValue(pr);
+        prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'PI' }));
+        prisma.project.findUnique.mockResolvedValue({ piUserId: piId });
+        prisma.purchaseRequest.update.mockResolvedValue({
+          ...pr,
+          status: PrStatus.pending_caissier,
+        });
+
+        const res = await svc.approveCurrentStep(pi, prId);
+        expect(res.nextStepRole).toBe('CAISSIER');
+        expect(res.pr.status).toBe(PrStatus.pending_caissier);
+        expect(prisma.approvalStep.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ approverRole: 'CAISSIER', status: 'pending' }),
+        });
+      });
+
+      it('CAISSIER approve (after PI) → APPROVED + balance décrémentée', async () => {
+        const pr = makePr({
+          requestType: 'cash_advance',
+          status: PrStatus.pending_caissier,
+          totalAmount: new Prisma.Decimal('80000'),
+          cashBoxId: 'cb-1',
+        });
+        prisma.purchaseRequest.findUnique.mockResolvedValue(pr);
+        prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CAISSIER', stepOrder: 2 }));
+        prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: PrStatus.approved });
+        const res = await svc.approveCurrentStep(caissier, prId);
+        expect(res.nextStepRole).toBeNull();
+        expect(prisma.cashBox.update).toHaveBeenCalledWith({
+          where: { id: 'cb-1' },
+          data: { currentBalance: { decrement: 80000 } },
+        });
+      });
+    });
+
+    describe('settleCashAdvance', () => {
+      const settledFakePr = makePr({
+        requestType: 'cash_advance',
+        status: PrStatus.approved,
+        totalAmount: new Prisma.Decimal('100000'),
+        cashBoxId: 'cb-1',
+      });
+
+      it('variance négative (reliquat) crédite la caisse', async () => {
+        prisma.purchaseRequest.findUnique.mockResolvedValue(settledFakePr);
+        prisma.cashSettlement.findUnique.mockResolvedValue(null);
+        prisma.cashSettlement.create.mockResolvedValue({
+          id: 'st-1',
+          purchaseRequestId: prId,
+          actualSpent: new Prisma.Decimal('80000'),
+          variance: new Prisma.Decimal('-20000'),
+          justifications: 'Hôtel moins cher',
+          settledBy: 'cas-app',
+          settledAt: new Date('2026-05-16T12:00:00Z'),
+        });
+        prisma.purchaseRequest.update.mockResolvedValue({
+          ...settledFakePr,
+          status: PrStatus.settled,
+        });
+
+        const res = await svc.settleCashAdvance(caissier, prId, {
+          actualSpent: 80000,
+          justifications: 'Hôtel moins cher',
+        });
+        expect(res.pr.status).toBe(PrStatus.settled);
+        expect(prisma.cashBox.update).toHaveBeenCalledWith({
+          where: { id: 'cb-1' },
+          data: { currentBalance: { increment: 20000 } },
+        });
+      });
+
+      it('variance positive ne re-décrémente PAS la caisse', async () => {
+        prisma.purchaseRequest.findUnique.mockResolvedValue(settledFakePr);
+        prisma.cashSettlement.findUnique.mockResolvedValue(null);
+        prisma.cashSettlement.create.mockResolvedValue({
+          id: 'st-2',
+          purchaseRequestId: prId,
+          actualSpent: new Prisma.Decimal('120000'),
+          variance: new Prisma.Decimal('20000'),
+          justifications: null,
+          settledBy: 'cas-app',
+          settledAt: new Date(),
+        });
+        prisma.purchaseRequest.update.mockResolvedValue({
+          ...settledFakePr,
+          status: PrStatus.settled,
+        });
+        await svc.settleCashAdvance(caissier, prId, { actualSpent: 120000 });
+        expect(prisma.cashBox.update).not.toHaveBeenCalled();
+      });
+
+      it('refuse si DA standard → PR_TYPE_MISMATCH', async () => {
+        prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ requestType: 'standard' }));
+        const { PrTypeMismatchException } = await import(
+          '../../common/exceptions/business.exception'
+        );
+        await expect(
+          svc.settleCashAdvance(caissier, prId, { actualSpent: 100 }),
+        ).rejects.toBeInstanceOf(PrTypeMismatchException);
+      });
+
+      it('refuse si statut ≠ approved → PR_NOT_APPROVED_FOR_SETTLE', async () => {
+        prisma.purchaseRequest.findUnique.mockResolvedValue(
+          makePr({ requestType: 'cash_advance', status: PrStatus.pending_pi }),
+        );
+        const { PrNotApprovedForSettleException } = await import(
+          '../../common/exceptions/business.exception'
+        );
+        await expect(
+          svc.settleCashAdvance(caissier, prId, { actualSpent: 100 }),
+        ).rejects.toBeInstanceOf(PrNotApprovedForSettleException);
+      });
+
+      it('refuse settle déjà existant → PR_ALREADY_SETTLED', async () => {
+        prisma.purchaseRequest.findUnique.mockResolvedValue(settledFakePr);
+        prisma.cashSettlement.findUnique.mockResolvedValue({ id: 'st-existing' });
+        const { PrAlreadySettledException } = await import(
+          '../../common/exceptions/business.exception'
+        );
+        await expect(
+          svc.settleCashAdvance(caissier, prId, { actualSpent: 100 }),
+        ).rejects.toBeInstanceOf(PrAlreadySettledException);
+      });
+    });
+
+    describe('pending-my-approval (CAISSIER)', () => {
+      it('CAISSIER sees pending_caissier only', async () => {
+        prisma.purchaseRequest.findMany.mockResolvedValue([]);
+        prisma.purchaseRequest.count.mockResolvedValue(0);
+        await svc.getMyPendingApprovals(caissier, { page: 1, pageSize: 20 });
+        const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
+        expect(args.where.status.in).toEqual([PrStatus.pending_caissier]);
+      });
     });
   });
 });

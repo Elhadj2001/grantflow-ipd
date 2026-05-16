@@ -10,7 +10,10 @@
  *  - Double approbation → 409 PR_ALREADY_DECIDED (no pending step)
  *  - GET pending-my-approval filtré par rôle
  *  - GET approval-history retourne historique complet
- *  - DA petty_cash → 501 CASH_WORKFLOW_NOT_YET_IMPLEMENTED
+ *  - Création petty_cash sans cashBoxId → 400 (validation Zod superRefine)
+ *
+ * Cash workflows complets (petty_cash, cash_advance, settle) : voir
+ * `cash-workflow.e2e-spec.ts`.
  */
 import { Test, type TestingModule } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -53,7 +56,6 @@ async function getToken(username: string, password: string): Promise<string> {
   let smallPrId = '';
   let mediumPrId = '';
   let largePrId = '';
-  let pettyCashPrId = '';
 
   beforeAll(async () => {
     [tokenDem, tokenPi, tokenCg, tokenDaf, _tokenSa] = await Promise.all([
@@ -98,7 +100,7 @@ async function getToken(username: string, password: string): Promise<string> {
 
   afterAll(async () => {
     if (prisma) {
-      const ids = [smallPrId, mediumPrId, largePrId, pettyCashPrId].filter(Boolean);
+      const ids = [smallPrId, mediumPrId, largePrId].filter(Boolean);
       if (ids.length) {
         await prisma.approvalStep.deleteMany({ where: { entityId: { in: ids } } });
         await prisma.purchaseRequestLine.deleteMany({ where: { prId: { in: ids } } });
@@ -121,12 +123,10 @@ async function getToken(username: string, password: string): Promise<string> {
       });
     if (create.status !== 201) throw new Error(`create failed: ${create.status} ${JSON.stringify(create.body)}`);
     const id = create.body.id;
-    if (requestType === 'standard') {
-      const submit = await request(app.getHttpServer())
-        .post(`/api/v1/purchase-requests/${id}/submit`)
-        .set('Authorization', `Bearer ${tokenDem}`);
-      if (submit.status !== 201) throw new Error(`submit failed: ${submit.status} ${JSON.stringify(submit.body)}`);
-    }
+    const submit = await request(app.getHttpServer())
+      .post(`/api/v1/purchase-requests/${id}/submit`)
+      .set('Authorization', `Bearer ${tokenDem}`);
+    if (submit.status !== 201) throw new Error(`submit failed: ${submit.status} ${JSON.stringify(submit.body)}`);
     return id;
   }
 
@@ -237,10 +237,8 @@ async function getToken(username: string, password: string): Promise<string> {
       await prisma.purchaseRequest.deleteMany({ where: { id } });
     });
 
-    it('petty_cash → 501 CASH_WORKFLOW_NOT_YET_IMPLEMENTED', async () => {
-      // We create but don't submit — petty_cash submit() would still set
-      // pending_pi but approve would 501.
-      const create = await request(app.getHttpServer())
+    it('petty_cash without cashBoxId → 400 (Zod superRefine)', async () => {
+      const res = await request(app.getHttpServer())
         .post('/api/v1/purchase-requests')
         .set('Authorization', `Bearer ${tokenDem}`)
         .send({
@@ -248,29 +246,7 @@ async function getToken(username: string, password: string): Promise<string> {
           projectId, grantId, currency: 'XOF', requestType: 'petty_cash',
           lines: [{ description: 'taxi', quantity: 1, unit: 'unit', unitPrice: 5000, budgetLineId: blId }],
         });
-      expect(create.status).toBe(201);
-      pettyCashPrId = create.body.id;
-      // Forcer pending_pi en DB pour atteindre la garde 501.
-      await prisma.purchaseRequest.update({
-        where: { id: pettyCashPrId },
-        data: { status: 'pending_pi' },
-      });
-      await prisma.approvalStep.create({
-        data: {
-          entityType: 'purchase_request',
-          entityId: pettyCashPrId,
-          stepOrder: 1,
-          approverRole: 'PI',
-          status: 'pending',
-        },
-      });
-
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/purchase-requests/${pettyCashPrId}/approve`)
-        .set('Authorization', `Bearer ${tokenPi}`)
-        .send({});
-      expect(res.status).toBe(501);
-      expect(res.body.code).toBe(ErrorCode.BUSINESS.CASH_WORKFLOW_NOT_YET_IMPLEMENTED);
+      expect(res.status).toBe(400);
     });
   });
 

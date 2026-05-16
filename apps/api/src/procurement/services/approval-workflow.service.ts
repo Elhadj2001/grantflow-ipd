@@ -1,16 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrStatus } from '@prisma/client';
-import type { ApprovalStep, PurchaseRequest } from '@prisma/client';
+import type { ApprovalStep, CashSettlement, PurchaseRequest } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import type { Role } from '../../auth/types/roles';
 import {
-  CashWorkflowNotYetImplementedException,
+  CashBoxInsufficientFundsException,
   EntityNotFoundException,
   PiNotOwnerOfProjectException,
   PrAlreadyDecidedException,
+  PrAlreadySettledException,
+  PrNotApprovedForSettleException,
   PrNotAwaitingYouException,
   PrNotInApprovalException,
+  PrTypeMismatchException,
   RejectionReasonRequiredException,
 } from '../../common/exceptions/business.exception';
 
@@ -35,11 +38,12 @@ const STEP_APPROVED = 'approved';
 const STEP_REJECTED = 'rejected';
 const STEP_RETURNED = 'returned';
 
-/** Statuts de DA considérés "en cours de validation". */
+/** Statuts de DA considérés "en cours de validation" (standard + cash). */
 const IN_APPROVAL_STATUSES: PrStatus[] = [
   PrStatus.pending_pi,
   PrStatus.pending_cg,
   PrStatus.pending_daf,
+  PrStatus.pending_caissier,
 ];
 
 /** Statuts considérés "active" pour la détection de fractionnement. */
@@ -47,6 +51,7 @@ const ACTIVE_FOR_SPLITTING: PrStatus[] = [
   PrStatus.pending_pi,
   PrStatus.pending_cg,
   PrStatus.pending_daf,
+  PrStatus.pending_caissier,
   PrStatus.approved,
 ];
 
@@ -87,7 +92,6 @@ export class ApprovalWorkflowService {
     comment?: string,
   ): Promise<ApprovalResult> {
     const pr = await this.loadPrForDecision(prId);
-    this.assertStandardWorkflow(pr);
 
     const pendingStep = await this.findPendingStep(prId);
     this.assertRoleMatches(actor, pendingStep.approverRole, pr.id);
@@ -96,9 +100,32 @@ export class ApprovalWorkflowService {
     }
 
     const appUserId = await this.resolveAppUserId(actor);
-    const nextRole = this.computeNextStepRole(pendingStep.approverRole, Number(pr.totalAmount));
+    const nextRole = this.computeNextStepRole(
+      pendingStep.approverRole,
+      Number(pr.totalAmount),
+      pr.requestType,
+    );
 
     const splittingWarning = await this.detectSplitting(pr);
+    const closing = nextRole === null;
+    const decrementCashBox = closing && pr.cashBoxId !== null && pr.requestType !== 'standard';
+
+    // Pré-check du solde caisse — on lève AVANT d'engager la transaction
+    // pour produire le bon code d'erreur. Le décrément atomique se fait
+    // dans la transaction.
+    if (decrementCashBox && pr.cashBoxId) {
+      const cb = await this.prisma.cashBox.findUnique({
+        where: { id: pr.cashBoxId },
+        select: { id: true, currentBalance: true },
+      });
+      if (cb && Number(cb.currentBalance) < Number(pr.totalAmount)) {
+        throw new CashBoxInsufficientFundsException(
+          cb.id,
+          Number(cb.currentBalance),
+          Number(pr.totalAmount),
+        );
+      }
+    }
 
     const updatedPr = await this.prisma.$transaction(async (tx) => {
       await tx.approvalStep.update({
@@ -127,6 +154,16 @@ export class ApprovalWorkflowService {
         });
       }
 
+      // Dernière étape : décrément immédiat du solde caisse pour les
+      // DA cash. La sortie physique des espèces matérialise l'engagement.
+      // Pour cash_advance, le settle régularise plus tard.
+      if (decrementCashBox && pr.cashBoxId) {
+        await tx.cashBox.update({
+          where: { id: pr.cashBoxId },
+          data: { currentBalance: { decrement: Number(pr.totalAmount) } },
+        });
+      }
+
       return tx.purchaseRequest.update({
         where: { id: pr.id },
         data: { status: PrStatus.approved, updatedAt: new Date() },
@@ -152,7 +189,6 @@ export class ApprovalWorkflowService {
       throw new RejectionReasonRequiredException();
     }
     const pr = await this.loadPrForDecision(prId);
-    this.assertStandardWorkflow(pr);
 
     const pendingStep = await this.findPendingStep(prId);
     this.assertRoleMatches(actor, pendingStep.approverRole, pr.id);
@@ -189,7 +225,11 @@ export class ApprovalWorkflowService {
       throw new RejectionReasonRequiredException();
     }
     const pr = await this.loadPrForDecision(prId);
-    this.assertStandardWorkflow(pr);
+    // return-for-changes n'a pas de sens pour petty_cash (workflow urgent).
+    // On force le caissier à approuver ou refuser.
+    if (pr.requestType === 'petty_cash') {
+      throw new PrTypeMismatchException(pr.id, 'standard|cash_advance', pr.requestType);
+    }
 
     const pendingStep = await this.findPendingStep(prId);
     this.assertRoleMatches(actor, pendingStep.approverRole, pr.id);
@@ -231,6 +271,7 @@ export class ApprovalWorkflowService {
     const isPI = actor.roles.includes('PI');
     const isCG = actor.roles.includes('CONTROLEUR');
     const isDAF = actor.roles.includes('DAF');
+    const isCaissier = actor.roles.includes('CAISSIER');
     const isSA = actor.roles.includes('SUPER_ADMIN');
 
     const statusFilters: PrStatus[] = [];
@@ -238,6 +279,7 @@ export class ApprovalWorkflowService {
     if (isPI) statusFilters.push(PrStatus.pending_pi);
     if (isCG) statusFilters.push(PrStatus.pending_cg);
     if (isDAF) statusFilters.push(PrStatus.pending_daf);
+    if (isCaissier) statusFilters.push(PrStatus.pending_caissier);
 
     if (statusFilters.length === 0) {
       return { data: [], total: 0, page: filters.page, pageSize: filters.pageSize };
@@ -258,14 +300,13 @@ export class ApprovalWorkflowService {
 
     const baseWhere = {
       status: { in: Array.from(new Set(statusFilters)) },
-      requestType: 'standard' as const,
       ...(projectIdFilter ? { projectId: projectIdFilter } : {}),
       ...(filters.fromDate ? { requestedAt: { gte: new Date(filters.fromDate) } } : {}),
       ...(filters.toDate ? { requestedAt: { lte: new Date(filters.toDate) } } : {}),
       ...(filters.urgent === true
         ? { neededBy: { lte: isUrgentCutoff, not: null } }
         : {}),
-      ...(isPI && !isSA && !isCG && !isDAF
+      ...(isPI && !isSA && !isCG && !isDAF && !isCaissier
         ? { project: { piUserId: appUserId } }
         : {}),
     };
@@ -328,12 +369,6 @@ export class ApprovalWorkflowService {
     return pr;
   }
 
-  private assertStandardWorkflow(pr: PurchaseRequest): void {
-    if (pr.requestType !== 'standard') {
-      throw new CashWorkflowNotYetImplementedException(pr.id, pr.requestType);
-    }
-  }
-
   private async findPendingStep(prId: string): Promise<ApprovalStep> {
     // Plusieurs steps peuvent être 'pending' sur des entités différentes —
     // ici on scope par entité + status.
@@ -376,10 +411,27 @@ export class ApprovalWorkflowService {
   }
 
   /**
-   * Routage par seuil. À partir du rôle de l'étape qu'on vient d'approuver,
-   * détermine le rôle de la suivante (ou `null` si on a fini).
+   * Routage par seuil + type de DA.
+   *
+   *   standard      : PI → (≥500k) CG → (≥5M) DAF
+   *   petty_cash    : CAISSIER → fin (workflow simplifié, 1 étape)
+   *   cash_advance  : PI → CAISSIER → fin
    */
-  private computeNextStepRole(currentRole: string | null, totalAmount: number): Role | null {
+  private computeNextStepRole(
+    currentRole: string | null,
+    totalAmount: number,
+    requestType: PurchaseRequest['requestType'],
+  ): Role | null {
+    if (requestType === 'petty_cash') {
+      // Une seule étape : après le caissier, on a terminé.
+      return null;
+    }
+    if (requestType === 'cash_advance') {
+      if (currentRole === 'PI') return 'CAISSIER';
+      // Après le caissier, on est en `approved`, le settle viendra plus tard.
+      return null;
+    }
+    // Workflow standard
     if (currentRole === 'PI') {
       if (totalAmount < APPROVAL_THRESHOLD_CG) return null;
       return 'CONTROLEUR';
@@ -389,7 +441,6 @@ export class ApprovalWorkflowService {
       return 'DAF';
     }
     if (currentRole === 'DAF') return null;
-    // Rôle inconnu : on ferme prudemment.
     return null;
   }
 
@@ -397,6 +448,7 @@ export class ApprovalWorkflowService {
     switch (role) {
       case 'CONTROLEUR': return PrStatus.pending_cg;
       case 'DAF':        return PrStatus.pending_daf;
+      case 'CAISSIER':   return PrStatus.pending_caissier;
       case 'PI':         return PrStatus.pending_pi;
       default:           return PrStatus.pending_pi;
     }
@@ -423,6 +475,79 @@ export class ApprovalWorkflowService {
       return { recentCount: count + 1, projectId: pr.projectId };
     }
     return null;
+  }
+
+  // ------------------------------------------------------------------
+  // Cash settlement (cash_advance régularisation)
+  // ------------------------------------------------------------------
+
+  /**
+   * Régularisation d'une avance de mission. Calcule la variance
+   * `actualSpent - totalEngagé` :
+   *   - variance > 0 : le demandeur a dépensé plus que prévu, à rembourser
+   *     (par paiement séparé ou prochaine paie — hors scope ici, on note)
+   *   - variance < 0 : reliquat à rendre, la caisse est créditée du delta
+   *   - variance = 0 : pile poil
+   *
+   * Préconditions :
+   *   - DA en statut `approved`
+   *   - request_type = 'cash_advance'
+   *   - pas de settle existant pour cette DA (UNIQUE en DB)
+   *
+   * À la fin : DA `settled` (statut final).
+   */
+  async settleCashAdvance(
+    actor: AuthenticatedUser,
+    prId: string,
+    args: { actualSpent: number; justifications?: string },
+  ): Promise<{ pr: PurchaseRequest; settlement: CashSettlement }> {
+    const pr = await this.prisma.purchaseRequest.findUnique({ where: { id: prId } });
+    if (!pr) throw new EntityNotFoundException(ENTITY_NAME, { id: prId });
+
+    if (pr.requestType !== 'cash_advance') {
+      throw new PrTypeMismatchException(pr.id, 'cash_advance', pr.requestType);
+    }
+    if (pr.status !== PrStatus.approved) {
+      throw new PrNotApprovedForSettleException(pr.id, pr.status);
+    }
+    const existing = await this.prisma.cashSettlement.findUnique({
+      where: { purchaseRequestId: prId },
+    });
+    if (existing) throw new PrAlreadySettledException(prId);
+
+    const engaged = Number(pr.totalAmount);
+    const variance = args.actualSpent - engaged;
+    const appUserId = await this.resolveAppUserId(actor);
+
+    return this.prisma.$transaction(async (tx) => {
+      const settlement = await tx.cashSettlement.create({
+        data: {
+          purchaseRequestId: prId,
+          actualSpent: args.actualSpent,
+          variance,
+          justifications: args.justifications ?? null,
+          settledBy: appUserId,
+        },
+      });
+
+      // Si dépense effective < engagement : le reliquat retourne en caisse.
+      if (variance < 0 && pr.cashBoxId) {
+        await tx.cashBox.update({
+          where: { id: pr.cashBoxId },
+          data: { currentBalance: { increment: -variance } },
+        });
+      }
+      // Si variance > 0 : la caisse a déjà sorti `engaged`. Le delta doit
+      // être réglé hors flux caisse (paie / remboursement séparé). On ne
+      // re-décrémente PAS la caisse — ce serait incohérent.
+
+      const updatedPr = await tx.purchaseRequest.update({
+        where: { id: prId },
+        data: { status: PrStatus.settled, updatedAt: new Date() },
+      });
+
+      return { pr: updatedPr, settlement };
+    });
   }
 
   /**
