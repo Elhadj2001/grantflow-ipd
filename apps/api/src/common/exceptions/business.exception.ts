@@ -1050,3 +1050,120 @@ export class RejectionReasonMissingException extends BusinessException {
     );
   }
 }
+
+// ===== Sprint 4.2a — Factures + OCR + Matching 3-way =====
+
+/**
+ * 409 — submit du matching impossible : la facture n'est pas en statut
+ * 'captured' (déjà matchée, rejetée, payée, etc.).
+ */
+export class InvoiceNotCapturableException extends BusinessException {
+  constructor(invoiceId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_NOT_CAPTURABLE,
+      HttpStatus.CONFLICT,
+      `Invoice status "${status}" cannot be submitted to matching (only captured allowed)`,
+      { invoiceId, status },
+    );
+  }
+}
+
+/**
+ * 409 — édition impossible : la facture est figée (matched, posted,
+ * paid, archived). Pour corriger, il faut passer par reject + nouvelle
+ * facture, ou demander à un DAF d'utiliser force-match.
+ */
+export class InvoiceNotEditableException extends BusinessException {
+  constructor(invoiceId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_NOT_EDITABLE,
+      HttpStatus.CONFLICT,
+      `Invoice status "${status}" forbids editing`,
+      { invoiceId, status },
+    );
+  }
+}
+
+/** 409 — submit sans po_id renseigné (matching impossible sans BC). */
+export class InvoiceNoPoLinkedException extends BusinessException {
+  constructor(invoiceId: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_NO_PO_LINKED,
+      HttpStatus.CONFLICT,
+      `Invoice is not linked to a purchase order — link a PO before submitting to matching`,
+      { invoiceId },
+    );
+  }
+}
+
+/**
+ * 409 — couple (supplier_id, invoice_number) déjà présent. Garantie
+ * d'unicité métier : un fournisseur ne peut pas émettre deux factures
+ * avec le même numéro.
+ */
+export class InvoiceDuplicateNumberException extends BusinessException {
+  constructor(supplierId: string, invoiceNumber: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_DUPLICATE_NUMBER,
+      HttpStatus.CONFLICT,
+      `Invoice number "${invoiceNumber}" already exists for this supplier`,
+      { supplierId, invoiceNumber },
+    );
+  }
+}
+
+/**
+ * 500 — l'extraction OCR (pdf-parse) a échoué : PDF corrompu, fichier
+ * non-PDF, ou erreur interne. Détails techniques masqués en prod.
+ */
+export class OcrExtractionFailedException extends BusinessException {
+  constructor(reason: string) {
+    super(
+      ErrorCode.BUSINESS.OCR_EXTRACTION_FAILED,
+      HttpStatus.INTERNAL_SERVER_ERROR,
+      `OCR extraction failed`,
+      { reason },
+    );
+  }
+}
+
+/**
+ * 409 — submit du matching alors qu'aucun GR n'est en statut 'complete'
+ * pour le PO référencé. Sans réception validée, le 3-way est impossible.
+ */
+export class MatchingNoReceiptException extends BusinessException {
+  constructor(invoiceId: string, poId: string) {
+    super(
+      ErrorCode.BUSINESS.MATCHING_NO_RECEIPT,
+      HttpStatus.CONFLICT,
+      `No complete goods receipt found for the linked purchase order`,
+      { invoiceId, poId },
+    );
+  }
+}
+
+/**
+ * 400 — force-match sans motif. Le DAF/SUPER_ADMIN doit toujours
+ * justifier un override d'exception (traçabilité audit).
+ */
+export class MatchingForceReasonRequiredException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.MATCHING_FORCE_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty reason is required to force-match an invoice with exceptions`,
+    );
+  }
+}
+
+/** 409 — reject sur facture déjà payée ou archivée. */
+export class InvoiceNotRejectableException extends BusinessException {
+  constructor(invoiceId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_NOT_REJECTABLE,
+      HttpStatus.CONFLICT,
+      `Invoice status "${status}" forbids rejection (paid or archived invoices are immutable)`,
+      { invoiceId, status },
+    );
+  }
+}
