@@ -1167,3 +1167,111 @@ export class InvoiceNotRejectableException extends BusinessException {
     );
   }
 }
+
+// ===== Sprint 4.2b — Comptabilisation facture + extournement classe 8 =====
+
+/**
+ * 409 — post impossible : la facture n'est pas en statut `matched`.
+ * Seuls `matched` (matching naturel ou force-match DAF) sont éligibles
+ * à la comptabilisation.
+ */
+export class InvoiceNotPostableException extends BusinessException {
+  constructor(invoiceId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_NOT_POSTABLE,
+      HttpStatus.CONFLICT,
+      `Invoice status "${status}" forbids posting (must be matched)`,
+      { invoiceId, status },
+    );
+  }
+}
+
+/** 409 — double-post sur la même facture. */
+export class InvoiceAlreadyPostedException extends BusinessException {
+  constructor(invoiceId: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_ALREADY_POSTED,
+      HttpStatus.CONFLICT,
+      `Invoice has already been posted`,
+      { invoiceId },
+    );
+  }
+}
+
+/**
+ * 409 — tentative de comptabilisation dans une période fiscale close.
+ * Plus précis que NO_OPEN_FISCAL_PERIOD : la période EXISTE mais a été
+ * fermée par le DAF (compta mensuelle/trimestrielle/annuelle clôturée).
+ */
+export class PeriodClosedException extends BusinessException {
+  constructor(date: string, periodCode?: string) {
+    super(
+      ErrorCode.BUSINESS.PERIOD_CLOSED,
+      HttpStatus.CONFLICT,
+      `Fiscal period covering ${date} is closed${periodCode ? ` (${periodCode})` : ''}`,
+      { date, periodCode: periodCode ?? null },
+    );
+  }
+}
+
+/**
+ * 409 — facture multidevises sans taux de change disponible à
+ * `invoice_date`. Le contrôleur de gestion doit charger un taux BCEAO
+ * ou un fixed rate via /exchange-rates avant de relancer.
+ */
+export class ExchangeRateMissingException extends BusinessException {
+  constructor(from: string, to: string, date: string) {
+    super(
+      ErrorCode.BUSINESS.EXCHANGE_RATE_MISSING,
+      HttpStatus.CONFLICT,
+      `No exchange rate found for ${from}→${to} on or before ${date}`,
+      { from, to, date },
+    );
+  }
+}
+
+/**
+ * 409 — au moins une ligne de facture ne résout pas de compte de
+ * charge (6xx). Le service tente, dans l'ordre : invoice_line.gl_account,
+ * budget_line.default_account, fallback "605". Si même ce fallback n'est
+ * pas présent dans ref.gl_account, on lève cette erreur.
+ *
+ * `details.lines` détaille les lignes en défaut.
+ */
+export class GlAccountNotFoundException extends BusinessException {
+  constructor(missing: Array<Record<string, unknown>>) {
+    super(
+      ErrorCode.BUSINESS.GL_ACCOUNT_NOT_FOUND,
+      HttpStatus.CONFLICT,
+      `Could not resolve a valid GL account for ${missing.length} invoice line(s)`,
+      { lines: missing },
+    );
+  }
+}
+
+/**
+ * 409 — annulation de la comptabilisation impossible : la facture porte
+ * déjà un paiement (status ∈ partially_paid / paid / archived). Pour
+ * extourner après paiement il faut d'abord annuler le paiement (sprint 5).
+ */
+export class PostingHasPaymentException extends BusinessException {
+  constructor(invoiceId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.POSTING_HAS_PAYMENT,
+      HttpStatus.CONFLICT,
+      `Invoice has a payment — cancel the payment first before reverting the posting`,
+      { invoiceId, status },
+    );
+  }
+}
+
+/** 400 — cancel-posting sans motif. */
+export class PostingCancelReasonRequiredException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.POSTING_CANCEL_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty reason is required to cancel an invoice posting`,
+    );
+  }
+}
