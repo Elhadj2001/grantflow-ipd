@@ -242,3 +242,101 @@ export class InvalidGlAccountException extends BusinessException {
     );
   }
 }
+
+/**
+ * 409 — désactivation d'un fournisseur encore engagé sur un BC ouvert.
+ * Le contrat avec le fournisseur doit être soldé avant déactivation
+ * (status PO ∈ {closed, cancelled}).
+ */
+export class SupplierHasActivePosException extends BusinessException {
+  constructor(supplierId: string, openPoCount: number) {
+    super(
+      ErrorCode.BUSINESS.SUPPLIER_HAS_ACTIVE_POS,
+      HttpStatus.CONFLICT,
+      `Supplier has ${openPoCount} active purchase order(s) — close them first`,
+      { supplierId, openPoCount },
+    );
+  }
+}
+
+/**
+ * 409 — suppression d'un axe analytique référencé par DA/BC/écriture.
+ * Sinon les imputations existantes perdraient leur axe (le moteur SYSCEBNL
+ * exige une imputation complète sur chaque pièce comptable).
+ */
+export class AxisHasUsageException extends BusinessException {
+  constructor(axisId: string, details: Record<string, number>) {
+    super(
+      ErrorCode.BUSINESS.AXIS_HAS_USAGE,
+      HttpStatus.CONFLICT,
+      `Analytical axis is referenced by procurement or accounting lines`,
+      { axisId, ...details },
+    );
+  }
+}
+
+/** 409 — suppression d'un axe parent qui a encore des enfants actifs. */
+export class AxisHasChildrenException extends BusinessException {
+  constructor(axisId: string, childCount: number) {
+    super(
+      ErrorCode.BUSINESS.AXIS_HAS_CHILDREN,
+      HttpStatus.CONFLICT,
+      `Analytical axis has ${childCount} active child(ren) — deactivate them first`,
+      { axisId, childCount },
+    );
+  }
+}
+
+/**
+ * 409 — création/modification d'un axe qui produirait un cycle dans la
+ * hiérarchie (auto-référence ou parent qui descend de l'axe lui-même).
+ */
+export class AxisCycleException extends BusinessException {
+  constructor(axisId: string, parentId: string) {
+    super(
+      ErrorCode.BUSINESS.AXIS_CYCLE,
+      HttpStatus.CONFLICT,
+      `Setting parent would create a cycle in the analytical hierarchy`,
+      { axisId, parentId },
+    );
+  }
+}
+
+/**
+ * 409 — parent.type ≠ axis.type. La hiérarchie d'axes doit rester
+ * mono-typée pour que les agrégats analytiques restent cohérents.
+ */
+export class AxisParentWrongTypeException extends BusinessException {
+  constructor(axisType: string, parentType: string) {
+    super(
+      ErrorCode.BUSINESS.AXIS_PARENT_WRONG_TYPE,
+      HttpStatus.CONFLICT,
+      `Parent axis type "${parentType}" differs from child type "${axisType}"`,
+      { axisType, parentType },
+    );
+  }
+}
+
+/** 400 — IBAN ne passe pas le contrôle ISO 13616 (longueur + checksum mod 97). */
+export class InvalidIbanException extends BusinessException {
+  constructor(iban: string) {
+    super(
+      ErrorCode.BUSINESS.INVALID_IBAN,
+      HttpStatus.BAD_REQUEST,
+      `IBAN is not valid (ISO 13616 checksum failed)`,
+      { iban },
+    );
+  }
+}
+
+/** 400 — BIC ne respecte pas la regex ISO 9362 (8 ou 11 caractères). */
+export class InvalidBicException extends BusinessException {
+  constructor(bic: string) {
+    super(
+      ErrorCode.BUSINESS.INVALID_BIC,
+      HttpStatus.BAD_REQUEST,
+      `BIC must match ISO 9362 (8 or 11 uppercase alphanum)`,
+      { bic },
+    );
+  }
+}
