@@ -14,6 +14,9 @@ import { GrantModule } from './referential/grant/grant.module';
 import { BudgetLineModule } from './referential/budget-line/budget-line.module';
 import { SupplierModule } from './referential/supplier/supplier.module';
 import { AnalyticalAxisModule } from './referential/analytical-axis/analytical-axis.module';
+import { TaxCodeModule } from './referential/tax-code/tax-code.module';
+import { ExchangeRateModule } from './referential/exchange-rate/exchange-rate.module';
+import { GlAccountModule } from './referential/gl-account/gl-account.module';
 
 const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -70,7 +73,9 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     BudgetLineModule,
     SupplierModule,
     AnalyticalAxisModule,
-    // TODO Sprint 1.4+ : TaxCodeModule, ExchangeRateModule, GlAccountModule.
+    TaxCodeModule,
+    ExchangeRateModule,
+    GlAccountModule,
     // À ajouter au fil des sprints :
     // ApModule,
     // GlModule,
