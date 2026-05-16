@@ -181,19 +181,19 @@ enum FundMovement {
 
 model EventLog {
   id            String   @id @default(uuid()) @db.Uuid
-  occurredAt    DateTime @default(now()) @db.Timestamptz(6) @map("occurred_at")
-  actorId       String?  @db.Uuid @map("actor_id")
-  actorEmail    String?  @db.Citext @map("actor_email")
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  actorId       String?  @map("actor_id") @db.Uuid
+  actorEmail    String?  @map("actor_email") @db.Citext
   action        String
   entityType    String   @map("entity_type")
-  entityId      String?  @db.Uuid @map("entity_id")
-  payloadBefore Json?    @db.JsonB @map("payload_before")
-  payloadAfter  Json?    @db.JsonB @map("payload_after")
-  ipAddress     String?  @db.Inet @map("ip_address")
+  entityId      String?  @map("entity_id") @db.Uuid
+  payloadBefore Json?    @map("payload_before") @db.JsonB
+  payloadAfter  Json?    @map("payload_after") @db.JsonB
+  ipAddress     String?  @map("ip_address") @db.Inet
   userAgent     String?  @map("user_agent")
   result        String   @default("success")
   errorCode     String?  @map("error_code")
-  requestId     String?  @db.Uuid @map("request_id")
+  requestId     String?  @map("request_id") @db.Uuid
   hashChain     String?  @map("hash_chain")
 
   @@index([entityType, entityId], map: "idx_audit_event_log_entity")
@@ -212,7 +212,7 @@ model Role {
   code        String   @unique
   label       String
   description String?
-  createdAt   DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   users       UserRole[]
   permissions RolePermission[]
@@ -234,8 +234,8 @@ model Permission {
 }
 
 model RolePermission {
-  roleId       String @db.Uuid @map("role_id")
-  permissionId String @db.Uuid @map("permission_id")
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
 
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
@@ -253,23 +253,23 @@ model AppUser {
   department   String?
   status       UserStatus @default(active)
   mfaEnabled   Boolean    @default(false) @map("mfa_enabled")
-  lastLoginAt  DateTime?  @db.Timestamptz(6) @map("last_login_at")
-  createdAt    DateTime   @default(now()) @db.Timestamptz(6) @map("created_at")
-  updatedAt    DateTime   @default(now()) @db.Timestamptz(6) @map("updated_at")
+  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  roles                  UserRole[]
-  delegationsGiven       Delegation[]      @relation("DelegationDelegator")
-  delegationsReceived    Delegation[]      @relation("DelegationDelegate")
-  projectsAsPi           Project[]
-  prsRequested           PurchaseRequest[]
-  approvalSteps          ApprovalStep[]
-  purchaseOrdersAsBuyer  PurchaseOrder[]
-  goodsReceiptsReceived  GoodsReceipt[]
-  paymentRunsPrepared    PaymentRun[]      @relation("PaymentRunPreparer")
-  paymentRunsApproved    PaymentRun[]      @relation("PaymentRunApprover")
-  fiscalPeriodsClosed    FiscalPeriod[]
-  journalEntriesPosted   JournalEntry[]
-  reportRunsGenerated    ReportRun[]
+  roles                 UserRole[]
+  delegationsGiven      Delegation[]      @relation("DelegationDelegator")
+  delegationsReceived   Delegation[]      @relation("DelegationDelegate")
+  projectsAsPi          Project[]
+  prsRequested          PurchaseRequest[]
+  approvalSteps         ApprovalStep[]
+  purchaseOrdersAsBuyer PurchaseOrder[]
+  goodsReceiptsReceived GoodsReceipt[]
+  paymentRunsPrepared   PaymentRun[]      @relation("PaymentRunPreparer")
+  paymentRunsApproved   PaymentRun[]      @relation("PaymentRunApprover")
+  fiscalPeriodsClosed   FiscalPeriod[]
+  journalEntriesPosted  JournalEntry[]
+  reportRunsGenerated   ReportRun[]
 
   @@index([status], map: "idx_user_status")
   @@map("app_user")
@@ -277,9 +277,9 @@ model AppUser {
 }
 
 model UserRole {
-  userId     String   @db.Uuid @map("user_id")
-  roleId     String   @db.Uuid @map("role_id")
-  assignedAt DateTime @default(now()) @db.Timestamptz(6) @map("assigned_at")
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
 
   user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
   role Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
@@ -291,11 +291,11 @@ model UserRole {
 
 model Delegation {
   id          String   @id @default(uuid()) @db.Uuid
-  delegatorId String   @db.Uuid @map("delegator_id")
-  delegateId  String   @db.Uuid @map("delegate_id")
+  delegatorId String   @map("delegator_id") @db.Uuid
+  delegateId  String   @map("delegate_id") @db.Uuid
   scope       Json     @db.JsonB
-  validFrom   DateTime @db.Date @map("valid_from")
-  validTo     DateTime @db.Date @map("valid_to")
+  validFrom   DateTime @map("valid_from") @db.Date
+  validTo     DateTime @map("valid_to") @db.Date
 
   delegator AppUser @relation("DelegationDelegator", fields: [delegatorId], references: [id])
   delegate  AppUser @relation("DelegationDelegate", fields: [delegateId], references: [id])
@@ -319,12 +319,12 @@ model GlAccount {
   syscebnlSpecific Boolean @default(false) @map("syscebnl_specific")
   description      String?
 
-  budgetLinesAsDefault      BudgetLine[]
-  prLinesAsDefault          PurchaseRequestLine[]
-  invoiceLines              InvoiceLine[]
-  taxCodes                  TaxCode[]
-  allocationRulesAsSource   AllocationRule[]
-  journalLines              JournalLine[]
+  budgetLinesAsDefault    BudgetLine[]
+  prLinesAsDefault        PurchaseRequestLine[]
+  invoiceLines            InvoiceLine[]
+  taxCodes                TaxCode[]
+  allocationRulesAsSource AllocationRule[]
+  journalLines            JournalLine[]
 
   @@index([class], map: "idx_gl_account_class")
   @@map("gl_account")
@@ -336,17 +336,17 @@ model AnalyticalAxis {
   type     AxisType
   code     String
   label    String
-  parentId String?  @db.Uuid @map("parent_id")
+  parentId String?  @map("parent_id") @db.Uuid
   isActive Boolean  @default(true) @map("is_active")
   metadata Json?    @default("{}") @db.JsonB
 
-  parent             AnalyticalAxis?    @relation("AxisHierarchy", fields: [parentId], references: [id])
-  children           AnalyticalAxis[]   @relation("AxisHierarchy")
-  prsAsCostCenter    PurchaseRequest[]  @relation("PrCostCenter")
-  prsAsActivity      PurchaseRequest[]  @relation("PrActivity")
-  jlAsCostCenter     JournalLine[]      @relation("JlCostCenter")
-  jlAsActivity       JournalLine[]      @relation("JlActivity")
-  allocationTargets  AllocationTarget[]
+  parent            AnalyticalAxis?    @relation("AxisHierarchy", fields: [parentId], references: [id])
+  children          AnalyticalAxis[]   @relation("AxisHierarchy")
+  prsAsCostCenter   PurchaseRequest[]  @relation("PrCostCenter")
+  prsAsActivity     PurchaseRequest[]  @relation("PrActivity")
+  jlAsCostCenter    JournalLine[]      @relation("JlCostCenter")
+  jlAsActivity      JournalLine[]      @relation("JlActivity")
+  allocationTargets AllocationTarget[]
 
   @@unique([type, code])
   @@index([type], map: "idx_axis_type")
@@ -359,7 +359,7 @@ model Program {
   code        String   @unique
   label       String
   description String?
-  createdAt   DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   projects Project[]
 
@@ -371,19 +371,19 @@ model Project {
   id          String    @id @default(uuid()) @db.Uuid
   code        String    @unique
   title       String
-  programId   String?   @db.Uuid @map("program_id")
-  piUserId    String?   @db.Uuid @map("pi_user_id")
-  startDate   DateTime  @db.Date @map("start_date")
-  endDate     DateTime? @db.Date @map("end_date")
+  programId   String?   @map("program_id") @db.Uuid
+  piUserId    String?   @map("pi_user_id") @db.Uuid
+  startDate   DateTime  @map("start_date") @db.Date
+  endDate     DateTime? @map("end_date") @db.Date
   status      String    @default("active")
   description String?
-  createdAt   DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  program          Program?           @relation(fields: [programId], references: [id])
-  pi               AppUser?           @relation(fields: [piUserId], references: [id])
-  grants           GrantAgreement[]
-  purchaseRequests PurchaseRequest[]
-  journalLines     JournalLine[]
+  program           Program?           @relation(fields: [programId], references: [id])
+  pi                AppUser?           @relation(fields: [piUserId], references: [id])
+  grants            GrantAgreement[]
+  purchaseRequests  PurchaseRequest[]
+  journalLines      JournalLine[]
   allocationTargets AllocationTarget[]
 
   @@index([piUserId], map: "idx_project_pi")
@@ -397,14 +397,14 @@ model Donor {
   label               String
   type                DonorType
   country             String?
-  contactEmail        String?   @db.Citext @map("contact_email")
-  reportingTemplateId String?   @db.Uuid @map("reporting_template_id")
+  contactEmail        String?   @map("contact_email") @db.Citext
+  reportingTemplateId String?   @map("reporting_template_id") @db.Uuid
   isActive            Boolean   @default(true) @map("is_active")
-  createdAt           DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
-  updatedAt           DateTime  @default(now()) @updatedAt @db.Timestamptz(6) @map("updated_at")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  grants           GrantAgreement[]
-  reportTemplates  ReportTemplate[]
+  grants          GrantAgreement[]
+  reportTemplates ReportTemplate[]
 
   @@map("donor")
   @@schema("ref")
@@ -413,20 +413,20 @@ model Donor {
 model GrantAgreement {
   id           String      @id @default(uuid()) @db.Uuid
   reference    String      @unique
-  donorId      String      @db.Uuid @map("donor_id")
-  projectId    String      @db.Uuid @map("project_id")
+  donorId      String      @map("donor_id") @db.Uuid
+  projectId    String      @map("project_id") @db.Uuid
   amount       Decimal     @db.Decimal(18, 2)
   currency     String      @db.Char(3)
-  overheadRate Decimal     @default(0) @db.Decimal(6, 4) @map("overhead_rate")
-  startDate    DateTime    @db.Date @map("start_date")
-  endDate      DateTime    @db.Date @map("end_date")
+  overheadRate Decimal     @default(0) @map("overhead_rate") @db.Decimal(6, 4)
+  startDate    DateTime    @map("start_date") @db.Date
+  endDate      DateTime    @map("end_date") @db.Date
   status       GrantStatus @default(draft)
-  signedAt     DateTime?   @db.Date @map("signed_at")
+  signedAt     DateTime?   @map("signed_at") @db.Date
   notes        String?
-  createdAt    DateTime    @default(now()) @db.Timestamptz(6) @map("created_at")
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  donor             Donor                  @relation(fields: [donorId], references: [id])
-  project           Project                @relation(fields: [projectId], references: [id])
+  donor             Donor                   @relation(fields: [donorId], references: [id])
+  project           Project                 @relation(fields: [projectId], references: [id])
   budgetLines       BudgetLine[]
   purchaseRequests  PurchaseRequest[]
   journalLines      JournalLine[]
@@ -443,12 +443,13 @@ model GrantAgreement {
 
 model BudgetLine {
   id                 String  @id @default(uuid()) @db.Uuid
-  grantId            String  @db.Uuid @map("grant_id")
+  grantId            String  @map("grant_id") @db.Uuid
   code               String
   label              String
-  budgetedAmount     Decimal @db.Decimal(18, 2) @map("budgeted_amount")
+  budgetedAmount     Decimal @map("budgeted_amount") @db.Decimal(18, 2)
   defaultAccount     String? @map("default_account")
   isOverheadEligible Boolean @default(true) @map("is_overhead_eligible")
+  isActive           Boolean @default(true) @map("is_active")
 
   grant                GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: Cascade)
   defaultAccountRef    GlAccount?            @relation(fields: [defaultAccount], references: [code])
@@ -462,20 +463,20 @@ model BudgetLine {
 }
 
 model Supplier {
-  id                String   @id @default(uuid()) @db.Uuid
-  code              String   @unique
-  name              String
-  vatNumber         String?  @map("vat_number")
-  address           String?
-  country           String?
-  iban              String?
-  bic               String?
-  bankName          String?  @map("bank_name")
-  paymentTermsDays  Int      @default(30) @map("payment_terms_days")
-  currencyDefault   String   @default("XOF") @db.Char(3) @map("currency_default")
-  riskScore         Int?     @default(0) @map("risk_score")
-  isActive          Boolean  @default(true) @map("is_active")
-  createdAt         DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  id               String   @id @default(uuid()) @db.Uuid
+  code             String   @unique
+  name             String
+  vatNumber        String?  @map("vat_number")
+  address          String?
+  country          String?
+  iban             String?
+  bic              String?
+  bankName         String?  @map("bank_name")
+  paymentTermsDays Int      @default(30) @map("payment_terms_days")
+  currencyDefault  String   @default("XOF") @map("currency_default") @db.Char(3)
+  riskScore        Int?     @default(0) @map("risk_score")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   purchaseOrders PurchaseOrder[]
   invoices       Invoice[]
@@ -486,10 +487,10 @@ model Supplier {
 
 model ExchangeRate {
   id           String   @id @default(uuid()) @db.Uuid
-  fromCurrency String   @db.Char(3) @map("from_currency")
-  toCurrency   String   @db.Char(3) @map("to_currency")
+  fromCurrency String   @map("from_currency") @db.Char(3)
+  toCurrency   String   @map("to_currency") @db.Char(3)
   rate         Decimal  @db.Decimal(18, 8)
-  rateDate     DateTime @db.Date @map("rate_date")
+  rateDate     DateTime @map("rate_date") @db.Date
   source       String?
 
   @@unique([fromCurrency, toCurrency, rateDate])
@@ -521,19 +522,19 @@ model TaxCode {
 model PurchaseRequest {
   id              String    @id @default(uuid()) @db.Uuid
   prNumber        String    @unique @map("pr_number")
-  requestedBy     String    @db.Uuid @map("requested_by")
-  requestedAt     DateTime  @default(now()) @db.Timestamptz(6) @map("requested_at")
-  neededBy        DateTime? @db.Date @map("needed_by")
+  requestedBy     String    @map("requested_by") @db.Uuid
+  requestedAt     DateTime  @default(now()) @map("requested_at") @db.Timestamptz(6)
+  neededBy        DateTime? @map("needed_by") @db.Date
   status          PrStatus  @default(draft)
-  projectId       String    @db.Uuid @map("project_id")
-  grantId         String    @db.Uuid @map("grant_id")
-  costCenterId    String?   @db.Uuid @map("cost_center_id")
-  activityId      String?   @db.Uuid @map("activity_id")
-  totalAmount     Decimal   @default(0) @db.Decimal(18, 2) @map("total_amount")
+  projectId       String    @map("project_id") @db.Uuid
+  grantId         String    @map("grant_id") @db.Uuid
+  costCenterId    String?   @map("cost_center_id") @db.Uuid
+  activityId      String?   @map("activity_id") @db.Uuid
+  totalAmount     Decimal   @default(0) @map("total_amount") @db.Decimal(18, 2)
   currency        String    @default("XOF") @db.Char(3)
   description     String?
   rejectionReason String?   @map("rejection_reason")
-  updatedAt       DateTime  @default(now()) @db.Timestamptz(6) @map("updated_at")
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   requester      AppUser               @relation(fields: [requestedBy], references: [id])
   project        Project               @relation(fields: [projectId], references: [id])
@@ -552,20 +553,20 @@ model PurchaseRequest {
 
 model PurchaseRequestLine {
   id             String  @id @default(uuid()) @db.Uuid
-  prId           String  @db.Uuid @map("pr_id")
+  prId           String  @map("pr_id") @db.Uuid
   lineNumber     Int     @map("line_number")
   description    String
   quantity       Decimal @db.Decimal(18, 4)
   unit           String  @default("unit")
-  unitPrice      Decimal @db.Decimal(18, 4) @map("unit_price")
+  unitPrice      Decimal @map("unit_price") @db.Decimal(18, 4)
   // GENERATED ALWAYS AS (quantity * unit_price) STORED — PostgreSQL le calcule, NE PAS écrire (cf. CLAUDE.md §9).
-  lineTotal      Decimal @default(dbgenerated()) @db.Decimal(18, 2) @map("line_total")
-  budgetLineId   String  @db.Uuid @map("budget_line_id")
+  lineTotal      Decimal @default(dbgenerated()) @map("line_total") @db.Decimal(18, 2)
+  budgetLineId   String  @map("budget_line_id") @db.Uuid
   defaultAccount String? @map("default_account")
 
-  pr                PurchaseRequest     @relation(fields: [prId], references: [id], onDelete: Cascade)
-  budgetLine        BudgetLine          @relation(fields: [budgetLineId], references: [id])
-  defaultAccountRef GlAccount?          @relation(fields: [defaultAccount], references: [code])
+  pr                 PurchaseRequest     @relation(fields: [prId], references: [id], onDelete: Cascade)
+  budgetLine         BudgetLine          @relation(fields: [budgetLineId], references: [id])
+  defaultAccountRef  GlAccount?          @relation(fields: [defaultAccount], references: [code])
   purchaseOrderLines PurchaseOrderLine[]
 
   @@unique([prId, lineNumber])
@@ -576,12 +577,12 @@ model PurchaseRequestLine {
 model ApprovalStep {
   id            String    @id @default(uuid()) @db.Uuid
   entityType    String    @map("entity_type")
-  entityId      String    @db.Uuid @map("entity_id")
+  entityId      String    @map("entity_id") @db.Uuid
   stepOrder     Int       @map("step_order")
-  approverId    String?   @db.Uuid @map("approver_id")
+  approverId    String?   @map("approver_id") @db.Uuid
   approverRole  String?   @map("approver_role")
   status        String    @default("pending")
-  decidedAt     DateTime? @db.Timestamptz(6) @map("decided_at")
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(6)
   decisionNotes String?   @map("decision_notes")
 
   approver AppUser? @relation(fields: [approverId], references: [id])
@@ -594,20 +595,20 @@ model ApprovalStep {
 model PurchaseOrder {
   id              String    @id @default(uuid()) @db.Uuid
   poNumber        String    @unique @map("po_number")
-  prId            String?   @db.Uuid @map("pr_id")
-  supplierId      String    @db.Uuid @map("supplier_id")
-  orderDate       DateTime  @default(now()) @db.Date @map("order_date")
-  expectedDate    DateTime? @db.Date @map("expected_date")
+  prId            String?   @map("pr_id") @db.Uuid
+  supplierId      String    @map("supplier_id") @db.Uuid
+  orderDate       DateTime  @default(now()) @map("order_date") @db.Date
+  expectedDate    DateTime? @map("expected_date") @db.Date
   status          PoStatus  @default(draft)
-  totalHt         Decimal   @default(0) @db.Decimal(18, 2) @map("total_ht")
-  totalVat        Decimal   @default(0) @db.Decimal(18, 2) @map("total_vat")
-  totalTtc        Decimal   @default(0) @db.Decimal(18, 2) @map("total_ttc")
+  totalHt         Decimal   @default(0) @map("total_ht") @db.Decimal(18, 2)
+  totalVat        Decimal   @default(0) @map("total_vat") @db.Decimal(18, 2)
+  totalTtc        Decimal   @default(0) @map("total_ttc") @db.Decimal(18, 2)
   currency        String    @default("XOF") @db.Char(3)
   incoterm        String?
   deliveryAddress String?   @map("delivery_address")
-  buyerId         String?   @db.Uuid @map("buyer_id")
-  sentAt          DateTime? @db.Timestamptz(6) @map("sent_at")
-  createdAt       DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  buyerId         String?   @map("buyer_id") @db.Uuid
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   pr            PurchaseRequest?    @relation(fields: [prId], references: [id])
   supplier      Supplier            @relation(fields: [supplierId], references: [id])
@@ -624,19 +625,19 @@ model PurchaseOrder {
 
 model PurchaseOrderLine {
   id               String  @id @default(uuid()) @db.Uuid
-  poId             String  @db.Uuid @map("po_id")
-  prLineId         String? @db.Uuid @map("pr_line_id")
+  poId             String  @map("po_id") @db.Uuid
+  prLineId         String? @map("pr_line_id") @db.Uuid
   lineNumber       Int     @map("line_number")
   description      String
   quantity         Decimal @db.Decimal(18, 4)
-  quantityReceived Decimal @default(0) @db.Decimal(18, 4) @map("quantity_received")
-  quantityInvoiced Decimal @default(0) @db.Decimal(18, 4) @map("quantity_invoiced")
+  quantityReceived Decimal @default(0) @map("quantity_received") @db.Decimal(18, 4)
+  quantityInvoiced Decimal @default(0) @map("quantity_invoiced") @db.Decimal(18, 4)
   unit             String
-  unitPrice        Decimal @db.Decimal(18, 4) @map("unit_price")
-  taxCodeId        String? @db.Uuid @map("tax_code_id")
+  unitPrice        Decimal @map("unit_price") @db.Decimal(18, 4)
+  taxCodeId        String? @map("tax_code_id") @db.Uuid
   // GENERATED ALWAYS AS (quantity * unit_price) STORED — PostgreSQL le calcule, NE PAS écrire (cf. CLAUDE.md §9).
-  lineTotal        Decimal @default(dbgenerated()) @db.Decimal(18, 2) @map("line_total")
-  budgetLineId     String  @db.Uuid @map("budget_line_id")
+  lineTotal        Decimal @default(dbgenerated()) @map("line_total") @db.Decimal(18, 2)
+  budgetLineId     String  @map("budget_line_id") @db.Uuid
 
   po                PurchaseOrder        @relation(fields: [poId], references: [id], onDelete: Cascade)
   prLine            PurchaseRequestLine? @relation(fields: [prLineId], references: [id])
@@ -654,13 +655,13 @@ model PurchaseOrderLine {
 model GoodsReceipt {
   id              String   @id @default(uuid()) @db.Uuid
   grNumber        String   @unique @map("gr_number")
-  poId            String   @db.Uuid @map("po_id")
-  receiptDate     DateTime @default(now()) @db.Date @map("receipt_date")
-  receivedBy      String   @db.Uuid @map("received_by")
+  poId            String   @map("po_id") @db.Uuid
+  receiptDate     DateTime @default(now()) @map("receipt_date") @db.Date
+  receivedBy      String   @map("received_by") @db.Uuid
   status          GrStatus @default(draft)
   deliveryNoteRef String?  @map("delivery_note_ref")
   notes           String?
-  createdAt       DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   po       PurchaseOrder      @relation(fields: [poId], references: [id])
   receiver AppUser            @relation(fields: [receivedBy], references: [id])
@@ -672,11 +673,11 @@ model GoodsReceipt {
 
 model GoodsReceiptLine {
   id            String    @id @default(uuid()) @db.Uuid
-  grId          String    @db.Uuid @map("gr_id")
-  poLineId      String    @db.Uuid @map("po_line_id")
+  grId          String    @map("gr_id") @db.Uuid
+  poLineId      String    @map("po_line_id") @db.Uuid
   quantity      Decimal   @db.Decimal(18, 4)
   batchNumber   String?   @map("batch_number")
-  expiryDate    DateTime? @db.Date @map("expiry_date")
+  expiryDate    DateTime? @map("expiry_date") @db.Date
   serialNumbers String[]  @map("serial_numbers")
   qualityCheck  String?   @map("quality_check")
   coldChainOk   Boolean?  @map("cold_chain_ok")
@@ -697,23 +698,23 @@ model GoodsReceiptLine {
 model Invoice {
   id              String        @id @default(uuid()) @db.Uuid
   invoiceNumber   String        @map("invoice_number")
-  supplierId      String        @db.Uuid @map("supplier_id")
-  invoiceDate     DateTime      @db.Date @map("invoice_date")
-  dueDate         DateTime      @db.Date @map("due_date")
-  receivedAt      DateTime      @default(now()) @db.Timestamptz(6) @map("received_at")
+  supplierId      String        @map("supplier_id") @db.Uuid
+  invoiceDate     DateTime      @map("invoice_date") @db.Date
+  dueDate         DateTime      @map("due_date") @db.Date
+  receivedAt      DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
   status          InvoiceStatus @default(captured)
-  totalHt         Decimal       @db.Decimal(18, 2) @map("total_ht")
-  totalVat        Decimal       @default(0) @db.Decimal(18, 2) @map("total_vat")
-  totalTtc        Decimal       @db.Decimal(18, 2) @map("total_ttc")
+  totalHt         Decimal       @map("total_ht") @db.Decimal(18, 2)
+  totalVat        Decimal       @default(0) @map("total_vat") @db.Decimal(18, 2)
+  totalTtc        Decimal       @map("total_ttc") @db.Decimal(18, 2)
   currency        String        @default("XOF") @db.Char(3)
-  exchangeRate    Decimal?      @db.Decimal(18, 8) @map("exchange_rate")
-  poId            String?       @db.Uuid @map("po_id")
-  ocrConfidence   Decimal?      @db.Decimal(5, 2) @map("ocr_confidence")
+  exchangeRate    Decimal?      @map("exchange_rate") @db.Decimal(18, 8)
+  poId            String?       @map("po_id") @db.Uuid
+  ocrConfidence   Decimal?      @map("ocr_confidence") @db.Decimal(5, 2)
   pdfObjectKey    String?       @map("pdf_object_key")
-  capturedPayload Json?         @db.JsonB @map("captured_payload")
+  capturedPayload Json?         @map("captured_payload") @db.JsonB
   rejectionReason String?       @map("rejection_reason")
-  postedAt        DateTime?     @db.Timestamptz(6) @map("posted_at")
-  createdAt       DateTime      @default(now()) @db.Timestamptz(6) @map("created_at")
+  postedAt        DateTime?     @map("posted_at") @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   supplier Supplier       @relation(fields: [supplierId], references: [id])
   po       PurchaseOrder? @relation(fields: [poId], references: [id])
@@ -730,14 +731,14 @@ model Invoice {
 
 model InvoiceLine {
   id          String   @id @default(uuid()) @db.Uuid
-  invoiceId   String   @db.Uuid @map("invoice_id")
+  invoiceId   String   @map("invoice_id") @db.Uuid
   lineNumber  Int      @map("line_number")
   description String
   quantity    Decimal? @db.Decimal(18, 4)
-  unitPrice   Decimal? @db.Decimal(18, 4) @map("unit_price")
-  lineTotal   Decimal  @db.Decimal(18, 2) @map("line_total")
-  taxCodeId   String?  @db.Uuid @map("tax_code_id")
-  poLineId    String?  @db.Uuid @map("po_line_id")
+  unitPrice   Decimal? @map("unit_price") @db.Decimal(18, 4)
+  lineTotal   Decimal  @map("line_total") @db.Decimal(18, 2)
+  taxCodeId   String?  @map("tax_code_id") @db.Uuid
+  poLineId    String?  @map("po_line_id") @db.Uuid
   glAccount   String?  @map("gl_account")
 
   invoice        Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
@@ -752,15 +753,15 @@ model InvoiceLine {
 }
 
 model InvoiceMatch {
-  id             String   @id @default(uuid()) @db.Uuid
-  invoiceLineId  String   @db.Uuid @map("invoice_line_id")
-  poLineId       String   @db.Uuid @map("po_line_id")
-  grLineId       String?  @db.Uuid @map("gr_line_id")
-  qtyMatched     Decimal  @db.Decimal(18, 4) @map("qty_matched")
-  priceVariance  Decimal? @default(0) @db.Decimal(18, 2) @map("price_variance")
-  qtyVariance    Decimal? @default(0) @db.Decimal(18, 4) @map("qty_variance")
-  matchResult    String   @map("match_result")
-  matchedAt      DateTime @default(now()) @db.Timestamptz(6) @map("matched_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  invoiceLineId String   @map("invoice_line_id") @db.Uuid
+  poLineId      String   @map("po_line_id") @db.Uuid
+  grLineId      String?  @map("gr_line_id") @db.Uuid
+  qtyMatched    Decimal  @map("qty_matched") @db.Decimal(18, 4)
+  priceVariance Decimal? @default(0) @map("price_variance") @db.Decimal(18, 2)
+  qtyVariance   Decimal? @default(0) @map("qty_variance") @db.Decimal(18, 4)
+  matchResult   String   @map("match_result")
+  matchedAt     DateTime @default(now()) @map("matched_at") @db.Timestamptz(6)
 
   invoiceLine InvoiceLine       @relation(fields: [invoiceLineId], references: [id])
   poLine      PurchaseOrderLine @relation(fields: [poLineId], references: [id])
@@ -771,17 +772,17 @@ model InvoiceMatch {
 }
 
 model PaymentRun {
-  id           String   @id @default(uuid()) @db.Uuid
-  runNumber    String   @unique @map("run_number")
-  runDate      DateTime @default(now()) @db.Date @map("run_date")
-  currency     String   @default("XOF") @db.Char(3)
-  bankAccount  String?  @map("bank_account")
-  preparedBy   String?  @db.Uuid @map("prepared_by")
-  approvedBy   String?  @db.Uuid @map("approved_by")
-  totalAmount  Decimal  @default(0) @db.Decimal(18, 2) @map("total_amount")
-  status       String   @default("draft")
-  sepaFileKey  String?  @map("sepa_file_key")
-  createdAt    DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+  id          String   @id @default(uuid()) @db.Uuid
+  runNumber   String   @unique @map("run_number")
+  runDate     DateTime @default(now()) @map("run_date") @db.Date
+  currency    String   @default("XOF") @db.Char(3)
+  bankAccount String?  @map("bank_account")
+  preparedBy  String?  @map("prepared_by") @db.Uuid
+  approvedBy  String?  @map("approved_by") @db.Uuid
+  totalAmount Decimal  @default(0) @map("total_amount") @db.Decimal(18, 2)
+  status      String   @default("draft")
+  sepaFileKey String?  @map("sepa_file_key")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   preparer AppUser?  @relation("PaymentRunPreparer", fields: [preparedBy], references: [id])
   approver AppUser?  @relation("PaymentRunApprover", fields: [approvedBy], references: [id])
@@ -793,16 +794,16 @@ model PaymentRun {
 
 model Payment {
   id            String        @id @default(uuid()) @db.Uuid
-  paymentRunId  String?       @db.Uuid @map("payment_run_id")
-  invoiceId     String        @db.Uuid @map("invoice_id")
+  paymentRunId  String?       @map("payment_run_id") @db.Uuid
+  invoiceId     String        @map("invoice_id") @db.Uuid
   amount        Decimal       @db.Decimal(18, 2)
   currency      String        @db.Char(3)
   method        PaymentMethod
-  paymentDate   DateTime      @db.Date @map("payment_date")
+  paymentDate   DateTime      @map("payment_date") @db.Date
   status        PaymentStatus @default(queued)
   bankReference String?       @map("bank_reference")
-  fxGainLoss    Decimal?      @default(0) @db.Decimal(18, 2) @map("fx_gain_loss")
-  createdAt     DateTime      @default(now()) @db.Timestamptz(6) @map("created_at")
+  fxGainLoss    Decimal?      @default(0) @map("fx_gain_loss") @db.Decimal(18, 2)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   paymentRun PaymentRun? @relation(fields: [paymentRunId], references: [id])
   invoice    Invoice     @relation(fields: [invoiceId], references: [id])
@@ -820,44 +821,44 @@ model FiscalPeriod {
   id         String    @id @default(uuid()) @db.Uuid
   code       String    @unique
   periodType String    @map("period_type")
-  startDate  DateTime  @db.Date @map("start_date")
-  endDate    DateTime  @db.Date @map("end_date")
+  startDate  DateTime  @map("start_date") @db.Date
+  endDate    DateTime  @map("end_date") @db.Date
   isClosed   Boolean   @default(false) @map("is_closed")
-  closedAt   DateTime? @db.Timestamptz(6) @map("closed_at")
-  closedBy   String?   @db.Uuid @map("closed_by")
+  closedAt   DateTime? @map("closed_at") @db.Timestamptz(6)
+  closedBy   String?   @map("closed_by") @db.Uuid
 
-  closer            AppUser?                @relation(fields: [closedBy], references: [id])
-  journalEntries    JournalEntry[]
-  dedicatedFunds    DedicatedFundMovement[]
-  overheadCalcs     OverheadCalculation[]
-  reportRuns        ReportRun[]
+  closer         AppUser?                @relation(fields: [closedBy], references: [id])
+  journalEntries JournalEntry[]
+  dedicatedFunds DedicatedFundMovement[]
+  overheadCalcs  OverheadCalculation[]
+  reportRuns     ReportRun[]
 
   @@map("fiscal_period")
   @@schema("gl")
 }
 
 model JournalEntry {
-  id            String      @id @default(uuid()) @db.Uuid
-  entryNumber   String      @unique @map("entry_number")
-  journal       JournalType
-  entryDate     DateTime    @db.Date @map("entry_date")
-  periodId      String      @db.Uuid @map("period_id")
-  label         String
-  sourceType    String?     @map("source_type")
-  sourceId      String?     @db.Uuid @map("source_id")
-  status        EntryStatus @default(draft)
-  postedAt      DateTime?   @db.Timestamptz(6) @map("posted_at")
-  postedBy      String?     @db.Uuid @map("posted_by")
-  reversedById  String?     @db.Uuid @map("reversed_by_id")
-  createdAt     DateTime    @default(now()) @db.Timestamptz(6) @map("created_at")
+  id           String      @id @default(uuid()) @db.Uuid
+  entryNumber  String      @unique @map("entry_number")
+  journal      JournalType
+  entryDate    DateTime    @map("entry_date") @db.Date
+  periodId     String      @map("period_id") @db.Uuid
+  label        String
+  sourceType   String?     @map("source_type")
+  sourceId     String?     @map("source_id") @db.Uuid
+  status       EntryStatus @default(draft)
+  postedAt     DateTime?   @map("posted_at") @db.Timestamptz(6)
+  postedBy     String?     @map("posted_by") @db.Uuid
+  reversedById String?     @map("reversed_by_id") @db.Uuid
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  period          FiscalPeriod            @relation(fields: [periodId], references: [id])
-  poster          AppUser?                @relation(fields: [postedBy], references: [id])
-  reversedBy      JournalEntry?           @relation("EntryReversal", fields: [reversedById], references: [id])
-  reversals       JournalEntry[]          @relation("EntryReversal")
-  lines           JournalLine[]
-  dedicatedFunds  DedicatedFundMovement[]
-  overheadCalcs   OverheadCalculation[]
+  period         FiscalPeriod            @relation(fields: [periodId], references: [id])
+  poster         AppUser?                @relation(fields: [postedBy], references: [id])
+  reversedBy     JournalEntry?           @relation("EntryReversal", fields: [reversedById], references: [id])
+  reversals      JournalEntry[]          @relation("EntryReversal")
+  lines          JournalLine[]
+  dedicatedFunds DedicatedFundMovement[]
+  overheadCalcs  OverheadCalculation[]
 
   @@index([periodId], map: "idx_je_period")
   @@index([status], map: "idx_je_status")
@@ -867,22 +868,22 @@ model JournalEntry {
 }
 
 model JournalLine {
-  id             String  @id @default(uuid()) @db.Uuid
-  entryId        String  @db.Uuid @map("entry_id")
-  lineNumber     Int     @map("line_number")
-  accountCode    String  @map("account_code")
-  auxiliaryCode  String? @map("auxiliary_code")
+  id             String   @id @default(uuid()) @db.Uuid
+  entryId        String   @map("entry_id") @db.Uuid
+  lineNumber     Int      @map("line_number")
+  accountCode    String   @map("account_code")
+  auxiliaryCode  String?  @map("auxiliary_code")
   label          String?
-  debit          Decimal @default(0) @db.Decimal(18, 2)
-  credit         Decimal @default(0) @db.Decimal(18, 2)
-  currency       String  @default("XOF") @db.Char(3)
-  debitCurrency  Decimal? @default(0) @db.Decimal(18, 2) @map("debit_currency")
-  creditCurrency Decimal? @default(0) @db.Decimal(18, 2) @map("credit_currency")
-  projectId      String?  @db.Uuid @map("project_id")
-  grantId        String?  @db.Uuid @map("grant_id")
-  budgetLineId   String?  @db.Uuid @map("budget_line_id")
-  costCenterId   String?  @db.Uuid @map("cost_center_id")
-  activityId     String?  @db.Uuid @map("activity_id")
+  debit          Decimal  @default(0) @db.Decimal(18, 2)
+  credit         Decimal  @default(0) @db.Decimal(18, 2)
+  currency       String   @default("XOF") @db.Char(3)
+  debitCurrency  Decimal? @default(0) @map("debit_currency") @db.Decimal(18, 2)
+  creditCurrency Decimal? @default(0) @map("credit_currency") @db.Decimal(18, 2)
+  projectId      String?  @map("project_id") @db.Uuid
+  grantId        String?  @map("grant_id") @db.Uuid
+  budgetLineId   String?  @map("budget_line_id") @db.Uuid
+  costCenterId   String?  @map("cost_center_id") @db.Uuid
+  activityId     String?  @map("activity_id") @db.Uuid
 
   entry      JournalEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
   account    GlAccount       @relation(fields: [accountCode], references: [code])
@@ -906,14 +907,14 @@ model JournalLine {
 
 model DedicatedFundMovement {
   id             String       @id @default(uuid()) @db.Uuid
-  grantId        String       @db.Uuid @map("grant_id")
-  periodId       String       @db.Uuid @map("period_id")
+  grantId        String       @map("grant_id") @db.Uuid
+  periodId       String       @map("period_id") @db.Uuid
   movementType   FundMovement @map("movement_type")
   amount         Decimal      @db.Decimal(18, 2)
   currency       String       @default("XOF") @db.Char(3)
-  journalEntryId String?      @db.Uuid @map("journal_entry_id")
+  journalEntryId String?      @map("journal_entry_id") @db.Uuid
   rationale      String?
-  computedAt     DateTime     @default(now()) @db.Timestamptz(6) @map("computed_at")
+  computedAt     DateTime     @default(now()) @map("computed_at") @db.Timestamptz(6)
 
   grant        GrantAgreement @relation(fields: [grantId], references: [id])
   period       FiscalPeriod   @relation(fields: [periodId], references: [id])
@@ -926,14 +927,14 @@ model DedicatedFundMovement {
 
 model OverheadCalculation {
   id             String   @id @default(uuid()) @db.Uuid
-  grantId        String   @db.Uuid @map("grant_id")
-  periodId       String   @db.Uuid @map("period_id")
-  eligibleBase   Decimal  @db.Decimal(18, 2) @map("eligible_base")
-  overheadRate   Decimal  @db.Decimal(6, 4) @map("overhead_rate")
+  grantId        String   @map("grant_id") @db.Uuid
+  periodId       String   @map("period_id") @db.Uuid
+  eligibleBase   Decimal  @map("eligible_base") @db.Decimal(18, 2)
+  overheadRate   Decimal  @map("overhead_rate") @db.Decimal(6, 4)
   // GENERATED ALWAYS AS (eligible_base * overhead_rate) STORED — calculée par PostgreSQL (cf. CLAUDE.md §9).
-  overheadAmount Decimal  @default(dbgenerated()) @db.Decimal(18, 2) @map("overhead_amount")
-  journalEntryId String?  @db.Uuid @map("journal_entry_id")
-  computedAt     DateTime @default(now()) @db.Timestamptz(6) @map("computed_at")
+  overheadAmount Decimal  @default(dbgenerated()) @map("overhead_amount") @db.Decimal(18, 2)
+  journalEntryId String?  @map("journal_entry_id") @db.Uuid
+  computedAt     DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
 
   grant        GrantAgreement @relation(fields: [grantId], references: [id])
   period       FiscalPeriod   @relation(fields: [periodId], references: [id])
@@ -961,10 +962,10 @@ model AllocationRule {
 
 model AllocationTarget {
   id           String  @id @default(uuid()) @db.Uuid
-  ruleId       String  @db.Uuid @map("rule_id")
-  projectId    String? @db.Uuid @map("project_id")
-  grantId      String? @db.Uuid @map("grant_id")
-  costCenterId String? @db.Uuid @map("cost_center_id")
+  ruleId       String  @map("rule_id") @db.Uuid
+  projectId    String? @map("project_id") @db.Uuid
+  grantId      String? @map("grant_id") @db.Uuid
+  costCenterId String? @map("cost_center_id") @db.Uuid
   weight       Decimal @db.Decimal(8, 4)
 
   rule       AllocationRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
@@ -981,12 +982,12 @@ model AllocationTarget {
 // =====================================================================
 
 model ReportTemplate {
-  id              String @id @default(uuid()) @db.Uuid
-  code            String @unique
+  id              String  @id @default(uuid()) @db.Uuid
+  code            String  @unique
   label           String
-  donorId         String? @db.Uuid @map("donor_id")
-  outputFormat    String @default("pdf") @map("output_format")
-  templatePayload Json   @default("{}") @db.JsonB @map("template_payload")
+  donorId         String? @map("donor_id") @db.Uuid
+  outputFormat    String  @default("pdf") @map("output_format")
+  templatePayload Json    @default("{}") @map("template_payload") @db.JsonB
 
   donor Donor?      @relation(fields: [donorId], references: [id])
   runs  ReportRun[]
@@ -997,13 +998,13 @@ model ReportTemplate {
 
 model ReportRun {
   id              String   @id @default(uuid()) @db.Uuid
-  templateId      String   @db.Uuid @map("template_id")
-  periodId        String   @db.Uuid @map("period_id")
-  grantId         String?  @db.Uuid @map("grant_id")
-  generatedBy     String   @db.Uuid @map("generated_by")
-  generatedAt     DateTime @default(now()) @db.Timestamptz(6) @map("generated_at")
+  templateId      String   @map("template_id") @db.Uuid
+  periodId        String   @map("period_id") @db.Uuid
+  grantId         String?  @map("grant_id") @db.Uuid
+  generatedBy     String   @map("generated_by") @db.Uuid
+  generatedAt     DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
   fileObjectKey   String?  @map("file_object_key")
-  payloadSnapshot Json?    @db.JsonB @map("payload_snapshot")
+  payloadSnapshot Json?    @map("payload_snapshot") @db.JsonB
 
   template  ReportTemplate  @relation(fields: [templateId], references: [id])
   period    FiscalPeriod    @relation(fields: [periodId], references: [id])
