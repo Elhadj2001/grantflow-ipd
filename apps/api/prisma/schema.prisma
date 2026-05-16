@@ -111,6 +111,7 @@ enum GrStatus {
   partial
   complete
   rejected
+  cancelled
 
   @@map("gr_status")
   @@schema("procurement")
@@ -275,7 +276,10 @@ model AppUser {
   prsRequested          PurchaseRequest[]
   approvalSteps         ApprovalStep[]
   purchaseOrdersAsBuyer PurchaseOrder[]
-  goodsReceiptsReceived GoodsReceipt[]
+  goodsReceiptsReceived  GoodsReceipt[] @relation("GrReceivedBy")
+  goodsReceiptsRejected  GoodsReceipt[] @relation("GrRejectedBy")
+  goodsReceiptsCancelled GoodsReceipt[] @relation("GrCancelledBy")
+  goodsReceiptsCompleted GoodsReceipt[] @relation("GrCompletedBy")
   paymentRunsPrepared   PaymentRun[]      @relation("PaymentRunPreparer")
   paymentRunsApproved   PaymentRun[]      @relation("PaymentRunApprover")
   fiscalPeriodsClosed   FiscalPeriod[]
@@ -739,20 +743,35 @@ model PurchaseOrderLine {
 }
 
 model GoodsReceipt {
-  id              String   @id @default(uuid()) @db.Uuid
-  grNumber        String   @unique @map("gr_number")
-  poId            String   @map("po_id") @db.Uuid
-  receiptDate     DateTime @default(now()) @map("receipt_date") @db.Date
-  receivedBy      String   @map("received_by") @db.Uuid
-  status          GrStatus @default(draft)
-  deliveryNoteRef String?  @map("delivery_note_ref")
-  notes           String?
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                String    @id @default(uuid()) @db.Uuid
+  grNumber          String    @unique @map("gr_number")
+  poId              String    @map("po_id") @db.Uuid
+  receiptDate       DateTime  @default(now()) @map("receipt_date") @db.Date
+  receivedBy        String    @map("received_by") @db.Uuid
+  status            GrStatus  @default(draft)
+  deliveryNoteRef   String?   @map("delivery_note_ref")
+  notes             String?
+  coldChainRequired Boolean   @default(false) @map("cold_chain_required")
+  rejectedReason    String?   @map("rejected_reason")
+  rejectedAt        DateTime? @map("rejected_at") @db.Timestamptz(6)
+  rejectedBy        String?   @map("rejected_by") @db.Uuid
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancelledReason   String?   @map("cancelled_reason")
+  cancelledBy       String?   @map("cancelled_by") @db.Uuid
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+  completedBy       String?   @map("completed_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  po       PurchaseOrder      @relation(fields: [poId], references: [id])
-  receiver AppUser            @relation(fields: [receivedBy], references: [id])
-  lines    GoodsReceiptLine[]
+  po          PurchaseOrder      @relation(fields: [poId], references: [id])
+  receiver    AppUser            @relation("GrReceivedBy", fields: [receivedBy], references: [id])
+  rejecter    AppUser?           @relation("GrRejectedBy", fields: [rejectedBy], references: [id])
+  canceller   AppUser?           @relation("GrCancelledBy", fields: [cancelledBy], references: [id])
+  completer   AppUser?           @relation("GrCompletedBy", fields: [completedBy], references: [id])
+  lines       GoodsReceiptLine[]
 
+  @@index([poId], map: "idx_gr_po")
+  @@index([status], map: "idx_gr_status")
   @@map("goods_receipt")
   @@schema("procurement")
 }
