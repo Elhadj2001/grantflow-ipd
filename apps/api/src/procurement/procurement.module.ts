@@ -5,18 +5,21 @@ import { ApprovalWorkflowService } from './services/approval-workflow.service';
 import { PurchaseOrderController } from './purchase-order.controller';
 import { PurchaseOrderService } from './services/purchase-order.service';
 import { PoPdfService } from './services/po-pdf.service';
+import { GoodsReceiptController } from './goods-receipt.controller';
+import { GoodsReceiptService } from './services/goods-receipt.service';
 import { MailService } from '../common/services/mail.service';
 import { StorageService } from '../common/services/storage.service';
 import { AccountingModule } from '../accounting/accounting.module';
 
 @Module({
   imports: [AccountingModule],
-  controllers: [PurchaseRequestController, PurchaseOrderController],
+  controllers: [PurchaseRequestController, PurchaseOrderController, GoodsReceiptController],
   providers: [
     PurchaseRequestService,
     ApprovalWorkflowService,
     PurchaseOrderService,
     PoPdfService,
+    GoodsReceiptService,
     MailService,
     StorageService,
   ],
@@ -24,6 +27,7 @@ import { AccountingModule } from '../accounting/accounting.module';
     PurchaseRequestService,
     ApprovalWorkflowService,
     PurchaseOrderService,
+    GoodsReceiptService,
   ],
 })
 export class ProcurementModule {}
