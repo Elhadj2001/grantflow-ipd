@@ -32,6 +32,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { InvoiceService } from './services/invoice.service';
 import {
+  CancelPostingDto,
   CreateInvoiceManualDto,
   ForceMatchDto,
   InvoiceQueryDto,
@@ -233,5 +234,66 @@ export class InvoiceController {
     @Body() dto: RejectInvoiceDto,
   ) {
     return this.svc.reject(user, id, dto);
+  }
+
+  // ------------------------------------------------------------------
+  // Posting (sprint 4.2b)
+  // ------------------------------------------------------------------
+
+  @Post('invoices/:id/post')
+  @Roles('COMPTABLE', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Comptabiliser la facture (matched → posted)',
+    description:
+      'Crée une écriture AC (Achats) avec débit 6xx (charge) + débit 445 (TVA déductible) + ' +
+      'crédit 401 (Fournisseurs au TTC, auxiliary_code=supplier.code) + imputation analytique ' +
+      'héritée de la PR. Extourne en parallèle l\'engagement classe 8 du BC (801/802) ' +
+      'pour la fraction facturée. Multidevises : lookup de exchange_rate à invoice_date ' +
+      'et stockage des montants XOF + valeurs originales.',
+  })
+  @ApiOkResponse({ description: 'AC entry + reversal + exchangeRate + totalTtcXof' })
+  @ApiConflictResponse({
+    description:
+      'INVOICE_NOT_POSTABLE / INVOICE_ALREADY_POSTED / PERIOD_CLOSED / ' +
+      'EXCHANGE_RATE_MISSING / GL_ACCOUNT_NOT_FOUND',
+  })
+  post(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.svc.post(user, id);
+  }
+
+  @Post('invoices/:id/cancel-posting')
+  @Roles('DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Annuler la comptabilisation (posted → matched)',
+    description:
+      'Réservé DAF / SUPER_ADMIN. Crée une AC inverse qui solde l\'écriture d\'origine, ' +
+      're-crée l\'engagement classe 8 extourné lors du post. Refusé si paiement déjà émis. ' +
+      'Motif obligatoire (audit trail).',
+  })
+  @ApiConflictResponse({
+    description: 'INVOICE_NOT_POSTABLE (si pas posted) / POSTING_HAS_PAYMENT',
+  })
+  cancelPosting(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CancelPostingDto,
+  ) {
+    return this.svc.cancelPosting(user, id, dto.reason);
+  }
+
+  @Get('invoices/:id/journal-entries')
+  @ApiOperation({
+    summary: 'Écritures comptables liées à la facture (AC + extournes classe 8)',
+    description:
+      'Retourne { acEntries: [AC + ses lignes], class8Reversals: [OD + ses lignes] }.',
+  })
+  journalEntries(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.svc.listJournalEntries(user, id);
   }
 }

@@ -26,6 +26,7 @@ import type {
 } from '../dto/invoice.dto';
 import { OcrService, type OcrResult } from './ocr.service';
 import { MatchingService, type MatchOutcome } from './matching.service';
+import { PostingService, type CancelPostingResult, type PostInvoiceResult } from '../../accounting/services/posting.service';
 
 const ENTITY_NAME = 'Invoice';
 const INVOICE_BUCKET = 'grantflow-invoices';
@@ -84,6 +85,7 @@ export class InvoiceService {
     private readonly storage: StorageService,
     private readonly ocr: OcrService,
     private readonly matching: MatchingService,
+    private readonly posting: PostingService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -412,6 +414,86 @@ export class InvoiceService {
       'FORCED_MATCH applied to invoice',
     );
     return updated;
+  }
+
+  // ------------------------------------------------------------------
+  // Posting (sprint 4.2b)
+  // ------------------------------------------------------------------
+
+  /**
+   * Comptabilise la facture (post → status='posted'). Délègue à
+   * `PostingService.postInvoice` après contrôle d'accès.
+   *
+   * Pré-conditions effectives (vérifiées dans PostingService) :
+   *  - invoice.status === 'matched'
+   *  - invoice.poId renseigné
+   *  - Période fiscale ouverte à invoice_date
+   *  - Tous les comptes 6xx résolvables
+   *  - Taux de change disponible si multidevise
+   */
+  async post(actor: AuthenticatedUser, invoiceId: string): Promise<PostInvoiceResult> {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: { lines: { orderBy: { lineNumber: 'asc' } } },
+    });
+    if (!invoice) throw new EntityNotFoundException(ENTITY_NAME, { id: invoiceId });
+    await this.assertCanRead(actor, invoice);
+    const appUserId = await this.resolveAppUserId(actor);
+    return this.posting.postInvoice(invoice, {
+      id: appUserId,
+      email: actor.email,
+      fullName: actor.fullName,
+    });
+  }
+
+  /**
+   * Annule la comptabilisation (status='posted' → 'matched'). Délègue à
+   * `PostingService.cancelPosting`. Réservé DAF/SUPER_ADMIN (vérifié par
+   * le contrôleur via @Roles).
+   */
+  async cancelPosting(
+    actor: AuthenticatedUser,
+    invoiceId: string,
+    reason: string,
+  ): Promise<CancelPostingResult> {
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) throw new EntityNotFoundException(ENTITY_NAME, { id: invoiceId });
+    await this.assertCanRead(actor, invoice);
+    const appUserId = await this.resolveAppUserId(actor);
+    return this.posting.cancelPosting(invoiceId, {
+      id: appUserId,
+      email: actor.email,
+      fullName: actor.fullName,
+    }, reason);
+  }
+
+  /**
+   * Liste toutes les écritures liées à la facture :
+   *  - écriture(s) AC (achats)
+   *  - écriture(s) OD d'extournement classe 8 référencées dans
+   *    match_summary.commitmentReversedEntries
+   */
+  async listJournalEntries(actor: AuthenticatedUser, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) throw new EntityNotFoundException(ENTITY_NAME, { id: invoiceId });
+    await this.assertCanRead(actor, invoice);
+
+    const acEntries = await this.posting.listEntriesForInvoice(invoiceId);
+    const summary = (invoice.matchSummary ?? {}) as Record<string, unknown>;
+    const reversalIds = Array.isArray(summary.commitmentReversedEntries)
+      ? (summary.commitmentReversedEntries as Array<Record<string, unknown>>)
+          .map((e) => e.entryId as string | undefined)
+          .filter((id): id is string => !!id)
+      : [];
+    const reversals =
+      reversalIds.length > 0
+        ? await this.prisma.journalEntry.findMany({
+            where: { id: { in: reversalIds } },
+            include: { lines: { orderBy: { lineNumber: 'asc' } } },
+            orderBy: { createdAt: 'asc' },
+          })
+        : [];
+    return { acEntries, class8Reversals: reversals };
   }
 
   // ------------------------------------------------------------------

@@ -144,11 +144,17 @@ describe('InvoiceService', () => {
         summary: { totalLinesMatched: 1, totalLinesException: 0, priceVarianceMax: 0, qtyVarianceMax: 0, priceTolerancePct: 2, qtyTolerancePct: 5, details: [] },
       }),
     };
+    const posting = {
+      postInvoice: jest.fn(),
+      cancelPosting: jest.fn(),
+      listEntriesForInvoice: jest.fn().mockResolvedValue([]),
+    };
     svc = new InvoiceService(
       prisma as unknown as PrismaService,
       storage as never,
       ocr as never,
       matching as never,
+      posting as never,
     );
   });
 
