@@ -60,6 +60,7 @@ CREATE TYPE ref.axis_type        AS ENUM ('project','donor','grant','program','c
 CREATE TYPE ref.donor_type       AS ENUM ('public_intl','private_foundation','bilateral','multilateral','government','own_funds');
 CREATE TYPE ref.grant_status     AS ENUM ('draft','active','suspended','closed');
 CREATE TYPE procurement.pr_status AS ENUM ('draft','submitted','pending_pi','pending_cg','pending_daf','approved','rejected','cancelled','closed');
+CREATE TYPE procurement.pr_type AS ENUM ('standard','petty_cash','cash_advance');
 CREATE TYPE procurement.po_status AS ENUM ('draft','sent','acknowledged','partially_received','received','invoiced','closed','cancelled');
 CREATE TYPE procurement.gr_status AS ENUM ('draft','partial','complete','rejected');
 CREATE TYPE ap.invoice_status     AS ENUM ('captured','matching','exception_price','exception_qty','matched','pending_validation','posted','partially_paid','paid','rejected','archived');
@@ -269,6 +270,7 @@ CREATE TABLE ref.grant_agreement (
     status          ref.grant_status NOT NULL DEFAULT 'draft',
     signed_at       DATE,
     notes           TEXT,
+    allows_cash_payment BOOLEAN NOT NULL DEFAULT true,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (end_date >= start_date)
 );
@@ -347,12 +349,14 @@ CREATE TABLE procurement.purchase_request (
     total_amount    NUMERIC(18,2) NOT NULL DEFAULT 0,
     currency        CHAR(3) NOT NULL DEFAULT 'XOF',
     description     TEXT,
+    request_type    procurement.pr_type NOT NULL DEFAULT 'standard',
     rejection_reason TEXT,
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_pr_status     ON procurement.purchase_request(status);
 CREATE INDEX idx_pr_requested_by ON procurement.purchase_request(requested_by);
 CREATE INDEX idx_pr_project    ON procurement.purchase_request(project_id);
+CREATE INDEX idx_pr_request_type ON procurement.purchase_request(request_type);
 
 CREATE TABLE procurement.purchase_request_line (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
