@@ -102,11 +102,13 @@ Vous devriez voir : `✅ Tous les contrôles ont passé (14/14).`
 | Rôle | E-mail | Mot de passe |
 |---|---|---|
 | Super admin | admin@pasteur.sn | Admin#2026 |
-| DAF | daf@pasteur.sn | Daf#2026 |
+| DAF | daf@pasteur.sn | Daf#2026-IPD |
 | Comptable | compta@pasteur.sn | Compta#2026 |
-| Trésorier | tres@pasteur.sn | Tres#2026 |
-| PI | pi@pasteur.sn | Pi#2026 |
+| Trésorier | tres@pasteur.sn | Tres#2026-IPD |
+| PI | pi@pasteur.sn | Pi#2026-IPD |
 | Demandeur (vous) | amadou@pasteur.sn | Demandeur#2026 |
+| Contrôleur de gestion | cg@pasteur.sn | Cg#2026-IPD |
+| Caissier | caissier@pasteur.sn | Caisse#2026-IPD |
 
 Admin Keycloak : http://localhost:8080 — login `admin` / mdp `admin`.
 

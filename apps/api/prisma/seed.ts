@@ -169,11 +169,14 @@ async function seedFiscalPeriods() {
 
 async function seedUsers() {
   const users = [
-    { email: 'admin@pasteur.sn',  fullName: 'Admin IPD',           roleCode: 'SUPER_ADMIN' },
-    { email: 'daf@pasteur.sn',    fullName: 'Mme DIOP (DAF)',      roleCode: 'DAF' },
-    { email: 'compta@pasteur.sn', fullName: 'M. SECK (Compta)',    roleCode: 'COMPTABLE' },
-    { email: 'pi@pasteur.sn',     fullName: 'Dr. SARR (PI)',       roleCode: 'PI' },
-    { email: 'amadou@pasteur.sn', fullName: 'A. NIANG (stagiaire)', roleCode: 'DEMANDEUR' },
+    { email: 'admin@pasteur.sn',    fullName: 'Admin IPD',             roleCode: 'SUPER_ADMIN' },
+    { email: 'daf@pasteur.sn',      fullName: 'Mme DIOP (DAF)',        roleCode: 'DAF' },
+    { email: 'compta@pasteur.sn',   fullName: 'M. SECK (Compta)',      roleCode: 'COMPTABLE' },
+    { email: 'tres@pasteur.sn',     fullName: 'Mme FALL (Trésorier)',  roleCode: 'TRESORIER' },
+    { email: 'pi@pasteur.sn',       fullName: 'Dr. SARR (PI)',         roleCode: 'PI' },
+    { email: 'amadou@pasteur.sn',   fullName: 'A. NIANG (stagiaire)',  roleCode: 'DEMANDEUR' },
+    { email: 'cg@pasteur.sn',       fullName: 'Mme KANE (CG)',         roleCode: 'CONTROLEUR' },
+    { email: 'caissier@pasteur.sn', fullName: 'M. NDIAYE (Caissier)',  roleCode: 'CAISSIER' },
   ];
   for (const u of users) {
     const role = await prisma.role.findUniqueOrThrow({ where: { code: u.roleCode } });
@@ -189,6 +192,33 @@ async function seedUsers() {
     });
   }
   console.log(`✅ ${users.length} utilisateurs démo créés`);
+}
+
+/**
+ * Caisse en espèces par défaut (CAISSE-PRINCIPALE). Plafonds raisonnables
+ * pour un usage labo : 100k par DA, 200k par jour/utilisateur, 500k de
+ * solde maxi. Custodian = caissier@pasteur.sn.
+ */
+async function seedDefaultCashBox() {
+  const custodian = await prisma.appUser.findUnique({
+    where: { email: 'caissier@pasteur.sn' },
+    select: { id: true },
+  });
+  await prisma.cashBox.upsert({
+    where: { code: 'CAISSE-PRINCIPALE' },
+    update: {},
+    create: {
+      code: 'CAISSE-PRINCIPALE',
+      label: 'Caisse principale IPD (XOF)',
+      custodianUserId: custodian?.id,
+      currency: 'XOF',
+      currentBalance: 500_000,
+      ceiling: 500_000,
+      perRequestMax: 100_000,
+      perDayUserMax: 200_000,
+    },
+  });
+  console.log('✅ Caisse principale chargée');
 }
 
 async function seedDemoProjects() {
@@ -260,6 +290,7 @@ async function main() {
   await seedFixedExchangeRates();
   await seedFiscalPeriods();
   await seedUsers();
+  await seedDefaultCashBox();
   await seedDemoProjects();
   console.log('🎉 Seed terminé avec succès.');
 }

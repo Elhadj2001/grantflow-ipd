@@ -52,7 +52,8 @@
       { "name": "MAGASINIER",  "description": "Magasinier / Réception" },
       { "name": "PI",          "description": "Principal Investigator" },
       { "name": "DEMANDEUR",   "description": "Demandeur" },
-      { "name": "BAILLEUR",    "description": "Bailleur / Auditeur (lecture seule)" }
+      { "name": "BAILLEUR",    "description": "Bailleur / Auditeur (lecture seule)" },
+      { "name": "CAISSIER",    "description": "Caissier — gestion espèces, valide les DA petty_cash" }
     ]
   },
 
@@ -186,6 +187,26 @@
       "emailVerified": true,
       "credentials": [{ "type": "password", "value": "Demandeur#2026", "temporary": false }],
       "realmRoles": ["DEMANDEUR"]
+    },
+    {
+      "username": "cg@pasteur.sn",
+      "email": "cg@pasteur.sn",
+      "firstName": "Mariama",
+      "lastName": "KANE",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Cg#2026-IPD", "temporary": false }],
+      "realmRoles": ["CONTROLEUR"]
+    },
+    {
+      "username": "caissier@pasteur.sn",
+      "email": "caissier@pasteur.sn",
+      "firstName": "Babacar",
+      "lastName": "NDIAYE",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Caisse#2026-IPD", "temporary": false }],
+      "realmRoles": ["CAISSIER"]
     }
   ]
 }
