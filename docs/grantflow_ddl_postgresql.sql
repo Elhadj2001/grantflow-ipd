@@ -283,6 +283,7 @@ CREATE TABLE ref.budget_line (
     budgeted_amount   NUMERIC(18,2) NOT NULL CHECK (budgeted_amount >= 0),
     default_account   TEXT REFERENCES ref.gl_account(code),
     is_overhead_eligible BOOLEAN NOT NULL DEFAULT true,
+    is_active         BOOLEAN NOT NULL DEFAULT true,
     UNIQUE (grant_id, code)
 );
 

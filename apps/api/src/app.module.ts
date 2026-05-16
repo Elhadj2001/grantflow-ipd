@@ -9,6 +9,9 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { DonorModule } from './referential/donor/donor.module';
+import { ProjectModule } from './referential/project/project.module';
+import { GrantModule } from './referential/grant/grant.module';
+import { BudgetLineModule } from './referential/budget-line/budget-line.module';
 
 const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -60,8 +63,10 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     ProcurementModule,
     // Référentiels — un sous-module par entité (M1).
     DonorModule,
-    // TODO Sprint 1.2+ : ProjectModule, GrantModule, BudgetLineModule,
-    //                    SupplierModule, AnalyticalAxisModule, TaxCodeModule.
+    ProjectModule,
+    GrantModule,
+    BudgetLineModule,
+    // TODO Sprint 1.3+ : SupplierModule, AnalyticalAxisModule, TaxCodeModule.
     // À ajouter au fil des sprints :
     // ApModule,
     // GlModule,
