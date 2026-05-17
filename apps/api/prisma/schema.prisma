@@ -269,28 +269,32 @@ model AppUser {
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  roles                 UserRole[]
-  delegationsGiven      Delegation[]      @relation("DelegationDelegator")
-  delegationsReceived   Delegation[]      @relation("DelegationDelegate")
-  projectsAsPi          Project[]
-  prsRequested          PurchaseRequest[]
-  approvalSteps         ApprovalStep[]
-  purchaseOrdersAsBuyer PurchaseOrder[]
-  goodsReceiptsReceived  GoodsReceipt[] @relation("GrReceivedBy")
-  goodsReceiptsRejected  GoodsReceipt[] @relation("GrRejectedBy")
-  goodsReceiptsCancelled GoodsReceipt[] @relation("GrCancelledBy")
-  goodsReceiptsCompleted GoodsReceipt[] @relation("GrCompletedBy")
-  paymentRunsPrepared   PaymentRun[]      @relation("PaymentRunPreparer")
-  paymentRunsApproved   PaymentRun[]      @relation("PaymentRunApprover")
-  fiscalPeriodsClosed   FiscalPeriod[]
-  journalEntriesPosted  JournalEntry[]
-  reportRunsGenerated   ReportRun[]
-  cashBoxesCustodian    CashBox[]
-  cashSettlementsDone   CashSettlement[]
-  invoicesMatched       Invoice[]        @relation("InvoiceMatchedBy")
-  donorReportsGenerated DonorReport[]    @relation("DonorReportGeneratedBy")
-  donorReportsLocked    DonorReport[]    @relation("DonorReportLockedBy")
-  donorReportsSent      DonorReport[]    @relation("DonorReportSentBy")
+  roles                        UserRole[]
+  delegationsGiven             Delegation[]         @relation("DelegationDelegator")
+  delegationsReceived          Delegation[]         @relation("DelegationDelegate")
+  projectsAsPi                 Project[]
+  prsRequested                 PurchaseRequest[]
+  approvalSteps                ApprovalStep[]
+  purchaseOrdersAsBuyer        PurchaseOrder[]
+  goodsReceiptsReceived        GoodsReceipt[]       @relation("GrReceivedBy")
+  goodsReceiptsRejected        GoodsReceipt[]       @relation("GrRejectedBy")
+  goodsReceiptsCancelled       GoodsReceipt[]       @relation("GrCancelledBy")
+  goodsReceiptsCompleted       GoodsReceipt[]       @relation("GrCompletedBy")
+  paymentRunsPrepared          PaymentRun[]         @relation("PaymentRunPreparer")
+  paymentRunsApproved          PaymentRun[]         @relation("PaymentRunApprover")
+  fiscalPeriodsClosed          FiscalPeriod[]       @relation("FiscalPeriodClosedBy")
+  fiscalPeriodsReopened        FiscalPeriod[]       @relation("FiscalPeriodReopenedBy")
+  journalEntriesPosted         JournalEntry[]
+  reportRunsGenerated          ReportRun[]
+  cashBoxesCustodian           CashBox[]
+  cashSettlementsDone          CashSettlement[]
+  invoicesMatched              Invoice[]            @relation("InvoiceMatchedBy")
+  donorReportsGenerated        DonorReport[]        @relation("DonorReportGeneratedBy")
+  donorReportsLocked           DonorReport[]        @relation("DonorReportLockedBy")
+  donorReportsSent             DonorReport[]        @relation("DonorReportSentBy")
+  periodCloseEvents            PeriodCloseEvent[]   @relation("PeriodCloseEventUser")
+  financialStatementsGenerated FinancialStatement[] @relation("FinancialStatementGeneratedBy")
+  financialStatementsLocked    FinancialStatement[] @relation("FinancialStatementLockedBy")
 
   @@index([status], map: "idx_user_status")
   @@map("app_user")
@@ -355,17 +359,17 @@ model GlAccount {
 }
 
 model BankAccount {
-  id             String   @id @default(uuid()) @db.Uuid
-  code           String   @unique
-  label          String
-  accountNumber  String   @map("account_number")
-  bic            String?
-  bankName       String   @map("bank_name")
-  currency       String   @default("XOF") @db.Char(3)
-  glAccountCode  String   @map("gl_account")
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  id            String   @id @default(uuid()) @db.Uuid
+  code          String   @unique
+  label         String
+  accountNumber String   @map("account_number")
+  bic           String?
+  bankName      String   @map("bank_name")
+  currency      String   @default("XOF") @db.Char(3)
+  glAccountCode String   @map("gl_account")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   glAccount   GlAccount    @relation(fields: [glAccountCode], references: [code])
   paymentRuns PaymentRun[]
@@ -456,20 +460,20 @@ model Donor {
 }
 
 model GrantAgreement {
-  id           String      @id @default(uuid()) @db.Uuid
-  reference    String      @unique
-  donorId      String      @map("donor_id") @db.Uuid
-  projectId    String      @map("project_id") @db.Uuid
-  amount       Decimal     @db.Decimal(18, 2)
-  currency     String      @db.Char(3)
-  overheadRate Decimal     @default(0) @map("overhead_rate") @db.Decimal(6, 4)
-  startDate    DateTime    @map("start_date") @db.Date
-  endDate      DateTime    @map("end_date") @db.Date
-  status       GrantStatus @default(draft)
-  signedAt     DateTime?   @map("signed_at") @db.Date
-  notes        String?
-  allowsCashPayment Boolean @default(true) @map("allows_cash_payment")
-  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                String      @id @default(uuid()) @db.Uuid
+  reference         String      @unique
+  donorId           String      @map("donor_id") @db.Uuid
+  projectId         String      @map("project_id") @db.Uuid
+  amount            Decimal     @db.Decimal(18, 2)
+  currency          String      @db.Char(3)
+  overheadRate      Decimal     @default(0) @map("overhead_rate") @db.Decimal(6, 4)
+  startDate         DateTime    @map("start_date") @db.Date
+  endDate           DateTime    @map("end_date") @db.Date
+  status            GrantStatus @default(draft)
+  signedAt          DateTime?   @map("signed_at") @db.Date
+  notes             String?
+  allowsCashPayment Boolean     @default(true) @map("allows_cash_payment")
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
   donor             Donor                   @relation(fields: [donorId], references: [id])
   project           Project                 @relation(fields: [projectId], references: [id])
@@ -689,29 +693,29 @@ model ApprovalStep {
 }
 
 model PurchaseOrder {
-  id                  String    @id @default(uuid()) @db.Uuid
-  poNumber            String    @unique @map("po_number")
-  prId                String?   @map("pr_id") @db.Uuid
-  supplierId          String    @map("supplier_id") @db.Uuid
-  orderDate           DateTime  @default(now()) @map("order_date") @db.Date
-  expectedDate        DateTime? @map("expected_date") @db.Date
-  status              PoStatus  @default(draft)
-  totalHt             Decimal   @default(0) @map("total_ht") @db.Decimal(18, 2)
-  totalVat            Decimal   @default(0) @map("total_vat") @db.Decimal(18, 2)
-  totalTtc            Decimal   @default(0) @map("total_ttc") @db.Decimal(18, 2)
-  currency            String    @default("XOF") @db.Char(3)
-  incoterm            String?
-  deliveryAddress     String?   @map("delivery_address")
-  buyerId             String?   @map("buyer_id") @db.Uuid
-  sentAt              DateTime? @map("sent_at") @db.Timestamptz(6)
-  acknowledgedAt      DateTime? @map("acknowledged_at") @db.Timestamptz(6)
-  acknowledgedBy      String?   @map("acknowledged_by")
-  cancelledAt         DateTime? @map("cancelled_at") @db.Timestamptz(6)
-  cancellationReason  String?   @map("cancellation_reason")
-  pdfObjectKey        String?   @map("pdf_object_key")
-  emailSentAt         DateTime? @map("email_sent_at") @db.Timestamptz(6)
-  emailSentTo         String?   @map("email_sent_to")
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                 String    @id @default(uuid()) @db.Uuid
+  poNumber           String    @unique @map("po_number")
+  prId               String?   @map("pr_id") @db.Uuid
+  supplierId         String    @map("supplier_id") @db.Uuid
+  orderDate          DateTime  @default(now()) @map("order_date") @db.Date
+  expectedDate       DateTime? @map("expected_date") @db.Date
+  status             PoStatus  @default(draft)
+  totalHt            Decimal   @default(0) @map("total_ht") @db.Decimal(18, 2)
+  totalVat           Decimal   @default(0) @map("total_vat") @db.Decimal(18, 2)
+  totalTtc           Decimal   @default(0) @map("total_ttc") @db.Decimal(18, 2)
+  currency           String    @default("XOF") @db.Char(3)
+  incoterm           String?
+  deliveryAddress    String?   @map("delivery_address")
+  buyerId            String?   @map("buyer_id") @db.Uuid
+  sentAt             DateTime? @map("sent_at") @db.Timestamptz(6)
+  acknowledgedAt     DateTime? @map("acknowledged_at") @db.Timestamptz(6)
+  acknowledgedBy     String?   @map("acknowledged_by")
+  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancellationReason String?   @map("cancellation_reason")
+  pdfObjectKey       String?   @map("pdf_object_key")
+  emailSentAt        DateTime? @map("email_sent_at") @db.Timestamptz(6)
+  emailSentTo        String?   @map("email_sent_to")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   pr            PurchaseRequest?    @relation(fields: [prId], references: [id])
   supplier      Supplier            @relation(fields: [supplierId], references: [id])
@@ -792,12 +796,12 @@ model GoodsReceipt {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  po          PurchaseOrder      @relation(fields: [poId], references: [id])
-  receiver    AppUser            @relation("GrReceivedBy", fields: [receivedBy], references: [id])
-  rejecter    AppUser?           @relation("GrRejectedBy", fields: [rejectedBy], references: [id])
-  canceller   AppUser?           @relation("GrCancelledBy", fields: [cancelledBy], references: [id])
-  completer   AppUser?           @relation("GrCompletedBy", fields: [completedBy], references: [id])
-  lines       GoodsReceiptLine[]
+  po        PurchaseOrder      @relation(fields: [poId], references: [id])
+  receiver  AppUser            @relation("GrReceivedBy", fields: [receivedBy], references: [id])
+  rejecter  AppUser?           @relation("GrRejectedBy", fields: [rejectedBy], references: [id])
+  canceller AppUser?           @relation("GrCancelledBy", fields: [cancelledBy], references: [id])
+  completer AppUser?           @relation("GrCompletedBy", fields: [completedBy], references: [id])
+  lines     GoodsReceiptLine[]
 
   @@index([poId], map: "idx_gr_po")
   @@index([status], map: "idx_gr_status")
@@ -910,22 +914,22 @@ model InvoiceMatch {
 }
 
 model PaymentRun {
-  id                   String    @id @default(uuid()) @db.Uuid
-  runNumber            String    @unique @map("run_number")
-  runDate              DateTime  @default(now()) @map("run_date") @db.Date
-  currency             String    @default("XOF") @db.Char(3)
-  bankAccountLegacy    String?   @map("bank_account")
-  bankAccountId        String?   @map("bank_account_id") @db.Uuid
-  preparedBy           String?   @map("prepared_by") @db.Uuid
-  approvedBy           String?   @map("approved_by") @db.Uuid
-  totalAmount          Decimal   @default(0) @map("total_amount") @db.Decimal(18, 2)
-  status               String    @default("draft")
-  sepaFileKey          String?   @map("sepa_file_key")
-  preparationWarnings  Json?     @map("preparation_warnings") @db.JsonB
-  rejectionReason      String?   @map("rejection_reason")
-  approvedAt           DateTime? @map("approved_at") @db.Timestamptz(6)
-  executedAt           DateTime? @map("executed_at") @db.Timestamptz(6)
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  String    @id @default(uuid()) @db.Uuid
+  runNumber           String    @unique @map("run_number")
+  runDate             DateTime  @default(now()) @map("run_date") @db.Date
+  currency            String    @default("XOF") @db.Char(3)
+  bankAccountLegacy   String?   @map("bank_account")
+  bankAccountId       String?   @map("bank_account_id") @db.Uuid
+  preparedBy          String?   @map("prepared_by") @db.Uuid
+  approvedBy          String?   @map("approved_by") @db.Uuid
+  totalAmount         Decimal   @default(0) @map("total_amount") @db.Decimal(18, 2)
+  status              String    @default("draft")
+  sepaFileKey         String?   @map("sepa_file_key")
+  preparationWarnings Json?     @map("preparation_warnings") @db.JsonB
+  rejectionReason     String?   @map("rejection_reason")
+  approvedAt          DateTime? @map("approved_at") @db.Timestamptz(6)
+  executedAt          DateTime? @map("executed_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   preparer    AppUser?     @relation("PaymentRunPreparer", fields: [preparedBy], references: [id])
   approver    AppUser?     @relation("PaymentRunApprover", fields: [approvedBy], references: [id])
@@ -964,22 +968,63 @@ model Payment {
 // =====================================================================
 
 model FiscalPeriod {
-  id         String    @id @default(uuid()) @db.Uuid
-  code       String    @unique
-  periodType String    @map("period_type")
-  startDate  DateTime  @map("start_date") @db.Date
-  endDate    DateTime  @map("end_date") @db.Date
-  isClosed   Boolean   @default(false) @map("is_closed")
-  closedAt   DateTime? @map("closed_at") @db.Timestamptz(6)
-  closedBy   String?   @map("closed_by") @db.Uuid
+  id           String    @id @default(uuid()) @db.Uuid
+  code         String    @unique
+  periodType   String    @map("period_type")
+  startDate    DateTime  @map("start_date") @db.Date
+  endDate      DateTime  @map("end_date") @db.Date
+  isClosed     Boolean   @default(false) @map("is_closed")
+  closedAt     DateTime? @map("closed_at") @db.Timestamptz(6)
+  closedBy     String?   @map("closed_by") @db.Uuid
+  reopenedAt   DateTime? @map("reopened_at") @db.Timestamptz(6)
+  reopenedBy   String?   @map("reopened_by") @db.Uuid
+  reopenReason String?   @map("reopen_reason")
 
-  closer         AppUser?                @relation(fields: [closedBy], references: [id])
+  closer         AppUser?                @relation("FiscalPeriodClosedBy", fields: [closedBy], references: [id])
+  reopener       AppUser?                @relation("FiscalPeriodReopenedBy", fields: [reopenedBy], references: [id])
   journalEntries JournalEntry[]
   dedicatedFunds DedicatedFundMovement[]
   overheadCalcs  OverheadCalculation[]
   reportRuns     ReportRun[]
+  closeChecks    PeriodCloseCheck[]
+  closeEvents    PeriodCloseEvent[]
+  statements     FinancialStatement[]
 
   @@map("fiscal_period")
+  @@schema("gl")
+}
+
+model PeriodCloseCheck {
+  id         String   @id @default(uuid()) @db.Uuid
+  periodId   String   @map("period_id") @db.Uuid
+  checkCode  String   @map("check_code")
+  severity   String
+  message    String
+  payload    Json     @default("{}") @db.JsonB
+  detectedAt DateTime @default(now()) @map("detected_at") @db.Timestamptz(6)
+
+  period FiscalPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([periodId], map: "idx_period_close_check_period")
+  @@map("period_close_check")
+  @@schema("gl")
+}
+
+model PeriodCloseEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  periodId   String   @map("period_id") @db.Uuid
+  action     String
+  userId     String   @map("user_id") @db.Uuid
+  reason     String?
+  payload    Json     @default("{}") @db.JsonB
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  period FiscalPeriod @relation(fields: [periodId], references: [id])
+  user   AppUser      @relation("PeriodCloseEventUser", fields: [userId], references: [id])
+
+  @@index([periodId], map: "idx_period_close_event_period")
+  @@index([userId], map: "idx_period_close_event_user")
+  @@map("period_close_event")
   @@schema("gl")
 }
 
@@ -1176,7 +1221,7 @@ model DonorReportTemplate {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  donor      Donor?            @relation(fields: [donorId], references: [id])
+  donor      Donor?           @relation(fields: [donorId], references: [id])
   categories DonorCategory[]
   mappings   AccountMapping[]
   reports    DonorReport[]
@@ -1224,27 +1269,27 @@ model AccountMapping {
 }
 
 model DonorReport {
-  id              String    @id @default(uuid()) @db.Uuid
-  grantId         String    @map("grant_id") @db.Uuid
-  templateId      String    @map("template_id") @db.Uuid
-  periodStart     DateTime  @map("period_start") @db.Date
-  periodEnd       DateTime  @map("period_end") @db.Date
-  status          String    @default("draft")
-  currency        String    @db.Char(3)
-  fxRateUsed      Decimal?  @map("fx_rate_used") @db.Decimal(18, 8)
-  totalBudget     Decimal   @default(0) @map("total_budget") @db.Decimal(18, 2)
-  totalSpent      Decimal   @default(0) @map("total_spent") @db.Decimal(18, 2)
-  totalOverhead   Decimal   @default(0) @map("total_overhead") @db.Decimal(18, 2)
-  fundsCarried    Decimal   @default(0) @map("funds_carried") @db.Decimal(18, 2)
-  generatedBy     String    @map("generated_by") @db.Uuid
-  generatedAt     DateTime  @default(now()) @map("generated_at") @db.Timestamptz(6)
-  lockedBy        String?   @map("locked_by") @db.Uuid
-  lockedAt        DateTime? @map("locked_at") @db.Timestamptz(6)
-  sentBy          String?   @map("sent_by") @db.Uuid
-  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
-  pdfObjectKey    String?   @map("pdf_object_key")
-  excelObjectKey  String?   @map("excel_object_key")
-  notes           String?
+  id             String    @id @default(uuid()) @db.Uuid
+  grantId        String    @map("grant_id") @db.Uuid
+  templateId     String    @map("template_id") @db.Uuid
+  periodStart    DateTime  @map("period_start") @db.Date
+  periodEnd      DateTime  @map("period_end") @db.Date
+  status         String    @default("draft")
+  currency       String    @db.Char(3)
+  fxRateUsed     Decimal?  @map("fx_rate_used") @db.Decimal(18, 8)
+  totalBudget    Decimal   @default(0) @map("total_budget") @db.Decimal(18, 2)
+  totalSpent     Decimal   @default(0) @map("total_spent") @db.Decimal(18, 2)
+  totalOverhead  Decimal   @default(0) @map("total_overhead") @db.Decimal(18, 2)
+  fundsCarried   Decimal   @default(0) @map("funds_carried") @db.Decimal(18, 2)
+  generatedBy    String    @map("generated_by") @db.Uuid
+  generatedAt    DateTime  @default(now()) @map("generated_at") @db.Timestamptz(6)
+  lockedBy       String?   @map("locked_by") @db.Uuid
+  lockedAt       DateTime? @map("locked_at") @db.Timestamptz(6)
+  sentBy         String?   @map("sent_by") @db.Uuid
+  sentAt         DateTime? @map("sent_at") @db.Timestamptz(6)
+  pdfObjectKey   String?   @map("pdf_object_key")
+  excelObjectKey String?   @map("excel_object_key")
+  notes          String?
 
   grant     GrantAgreement      @relation(fields: [grantId], references: [id])
   template  DonorReportTemplate @relation(fields: [templateId], references: [id])
@@ -1276,5 +1321,51 @@ model DonorReportLine {
   @@unique([reportId, donorCategoryId])
   @@index([reportId], map: "idx_donor_report_line_report")
   @@map("donor_report_line")
+  @@schema("reporting")
+}
+
+// =====================================================================
+//  Sprint 6.2 — États financiers (TER, BILAN, RESULTAT)
+// =====================================================================
+
+model FinancialStatement {
+  id            String    @id @default(uuid()) @db.Uuid
+  periodId      String    @map("period_id") @db.Uuid
+  type          String
+  generatedAt   DateTime  @default(now()) @map("generated_at") @db.Timestamptz(6)
+  generatedBy   String    @map("generated_by") @db.Uuid
+  locked        Boolean   @default(false)
+  lockedAt      DateTime? @map("locked_at") @db.Timestamptz(6)
+  lockedBy      String?   @map("locked_by") @db.Uuid
+  pdfObjectKey  String?   @map("pdf_object_key")
+  xlsxObjectKey String?   @map("xlsx_object_key")
+  totals        Json      @default("{}") @db.JsonB
+
+  period    FiscalPeriod             @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  generator AppUser                  @relation("FinancialStatementGeneratedBy", fields: [generatedBy], references: [id])
+  locker    AppUser?                 @relation("FinancialStatementLockedBy", fields: [lockedBy], references: [id])
+  lines     FinancialStatementLine[]
+
+  @@unique([periodId, type])
+  @@index([periodId], map: "idx_financial_statement_period")
+  @@map("financial_statement")
+  @@schema("reporting")
+}
+
+model FinancialStatementLine {
+  id          String  @id @default(uuid()) @db.Uuid
+  statementId String  @map("statement_id") @db.Uuid
+  section     String
+  label       String
+  accountCode String? @map("account_code")
+  debit       Decimal @default(0) @db.Decimal(18, 2)
+  credit      Decimal @default(0) @db.Decimal(18, 2)
+  balance     Decimal @default(0) @db.Decimal(18, 2)
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  statement FinancialStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@index([statementId], map: "idx_financial_statement_line_statement")
+  @@map("financial_statement_line")
   @@schema("reporting")
 }
