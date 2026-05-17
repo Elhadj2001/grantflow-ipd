@@ -332,6 +332,25 @@ CREATE TABLE ref.tax_code (
     is_active    BOOLEAN NOT NULL DEFAULT true
 );
 
+-- Comptes bancaires IPD pour décaissements (sprint 5.1).
+-- gl_account contraint en classe 5 (banque/caisse) côté application,
+-- mais la FK reste libre pour autoriser 521/522/57.
+CREATE TABLE ref.bank_account (
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code           TEXT UNIQUE NOT NULL,
+    label          TEXT NOT NULL,
+    account_number TEXT NOT NULL,
+    bic            TEXT,
+    bank_name      TEXT NOT NULL,
+    currency       CHAR(3) NOT NULL DEFAULT 'XOF',
+    gl_account     TEXT NOT NULL REFERENCES ref.gl_account(code),
+    is_active      BOOLEAN NOT NULL DEFAULT true,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_bank_account_currency ON ref.bank_account(currency);
+COMMENT ON TABLE ref.bank_account IS 'Comptes bancaires IPD utilisés pour décaissements (PaymentRun)';
+
 -- =====================================================================
 --  PROCUREMENT : Demandes d'achat
 -- =====================================================================
@@ -530,18 +549,23 @@ CREATE TABLE ap.invoice_match (
 );
 
 CREATE TABLE ap.payment_run (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    run_number      TEXT UNIQUE NOT NULL,
-    run_date        DATE NOT NULL DEFAULT CURRENT_DATE,
-    currency        CHAR(3) NOT NULL DEFAULT 'XOF',
-    bank_account    TEXT,
-    prepared_by     UUID REFERENCES auth.app_user(id),
-    approved_by     UUID REFERENCES auth.app_user(id),
-    total_amount    NUMERIC(18,2) NOT NULL DEFAULT 0,
-    status          TEXT NOT NULL DEFAULT 'draft',
-    sepa_file_key   TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    run_number            TEXT UNIQUE NOT NULL,
+    run_date              DATE NOT NULL DEFAULT CURRENT_DATE,
+    currency              CHAR(3) NOT NULL DEFAULT 'XOF',
+    bank_account_id       UUID REFERENCES ref.bank_account(id),
+    prepared_by           UUID REFERENCES auth.app_user(id),
+    approved_by           UUID REFERENCES auth.app_user(id),
+    total_amount          NUMERIC(18,2) NOT NULL DEFAULT 0,
+    status                TEXT NOT NULL DEFAULT 'draft',
+    sepa_file_key         TEXT,
+    preparation_warnings  JSONB,
+    rejection_reason      TEXT,
+    approved_at           TIMESTAMPTZ,
+    executed_at           TIMESTAMPTZ,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX idx_payment_run_status ON ap.payment_run(status);
 
 CREATE TABLE ap.payment (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -557,6 +581,7 @@ CREATE TABLE ap.payment (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_payment_invoice ON ap.payment(invoice_id);
+CREATE INDEX idx_payment_status  ON ap.payment(status);
 
 -- =====================================================================
 --  GENERAL LEDGER : Écritures SYSCEBNL
@@ -871,6 +896,11 @@ INSERT INTO ref.tax_code (code, label, rate, account_code) VALUES
 ('TVA18',  'TVA collectée 18 %', 0.1800, '445'),
 ('TVA0',   'Exonéré recherche',   0.0000, '445'),
 ('RAS5',   'Retenue à la source 5 %', 0.0500, '445');
+
+-- Comptes bancaires IPD (sprint 5.1) — 2 comptes seed CBAO
+INSERT INTO ref.bank_account (code, label, account_number, bic, bank_name, currency, gl_account) VALUES
+('CBAO-XOF', 'Compte CBAO XOF Principal',  'SN012010100000123456789012', 'CBAOSNDA', 'CBAO Sénégal', 'XOF', '521'),
+('CBAO-EUR', 'Compte CBAO EUR Bailleurs',  'SN012010100000987654321098', 'CBAOSNDA', 'CBAO Sénégal', 'EUR', '522');
 
 -- Périodes fiscales 2026
 INSERT INTO gl.fiscal_period (code, period_type, start_date, end_date) VALUES

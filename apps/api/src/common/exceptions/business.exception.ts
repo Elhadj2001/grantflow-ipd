@@ -1275,3 +1275,193 @@ export class PostingCancelReasonRequiredException extends BusinessException {
     );
   }
 }
+
+// ===== Sprint 5.1 — PaymentRun + paiements classe 5 =====
+
+/** 409 — la facture n'est pas dans un statut payable (`posted` ou `partially_paid`). */
+export class InvoiceNotPayableException extends BusinessException {
+  constructor(invoiceId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_NOT_PAYABLE,
+      HttpStatus.CONFLICT,
+      `Invoice status "${status}" forbids payment (must be posted or partially_paid)`,
+      { invoiceId, status },
+    );
+  }
+}
+
+/** 409 — la facture est déjà rattachée à un PaymentRun actif (draft/prepared/executed). */
+export class InvoiceAlreadyInRunException extends BusinessException {
+  constructor(invoiceId: string, runId: string, runNumber: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_ALREADY_IN_RUN,
+      HttpStatus.CONFLICT,
+      `Invoice is already linked to active PaymentRun ${runNumber}`,
+      { invoiceId, runId, runNumber },
+    );
+  }
+}
+
+/**
+ * 409 — la devise de la facture ne correspond pas à celle du compte bancaire
+ * du run. Le multidevises est repoussé au sprint 5.2.
+ */
+export class PaymentCurrencyMismatchException extends BusinessException {
+  constructor(invoiceId: string, invoiceCurrency: string, runCurrency: string) {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_CURRENCY_MISMATCH,
+      HttpStatus.CONFLICT,
+      `Invoice currency ${invoiceCurrency} does not match run currency ${runCurrency}`,
+      { invoiceId, invoiceCurrency, runCurrency },
+    );
+  }
+}
+
+/** 409 — opération impossible : le PaymentRun n'est pas en `draft`. */
+export class PaymentRunNotEditableException extends BusinessException {
+  constructor(runId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_NOT_EDITABLE,
+      HttpStatus.CONFLICT,
+      `PaymentRun status "${status}" forbids editing (must be draft)`,
+      { runId, status },
+    );
+  }
+}
+
+/** 409 — `prepare` impossible : run pas en `draft`. */
+export class PaymentRunNotPreparableException extends BusinessException {
+  constructor(runId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_NOT_PREPARABLE,
+      HttpStatus.CONFLICT,
+      `PaymentRun status "${status}" forbids prepare (must be draft)`,
+      { runId, status },
+    );
+  }
+}
+
+/** 409 — `approve` impossible : run pas en `prepared`. */
+export class PaymentRunNotApprovableException extends BusinessException {
+  constructor(runId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_NOT_APPROVABLE,
+      HttpStatus.CONFLICT,
+      `PaymentRun status "${status}" forbids approve (must be prepared)`,
+      { runId, status },
+    );
+  }
+}
+
+/** 409 — `reject` impossible : run pas en `prepared`. */
+export class PaymentRunNotRejectableException extends BusinessException {
+  constructor(runId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_NOT_REJECTABLE,
+      HttpStatus.CONFLICT,
+      `PaymentRun status "${status}" forbids reject (must be prepared)`,
+      { runId, status },
+    );
+  }
+}
+
+/** 409 — `cancel` impossible : run pas en `draft`. */
+export class PaymentRunNotCancellableException extends BusinessException {
+  constructor(runId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_NOT_CANCELLABLE,
+      HttpStatus.CONFLICT,
+      `PaymentRun status "${status}" forbids cancel (must be draft)`,
+      { runId, status },
+    );
+  }
+}
+
+/** 409 — `prepare` impossible : aucun paiement actif dans le run. */
+export class PaymentRunEmptyException extends BusinessException {
+  constructor(runId: string) {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_EMPTY,
+      HttpStatus.CONFLICT,
+      `PaymentRun has no payments — add invoices before preparing`,
+      { runId },
+    );
+  }
+}
+
+/** 400 — `reject` sans motif. */
+export class PaymentRunRejectReasonRequiredException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_REJECT_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty reason is required to reject a PaymentRun`,
+    );
+  }
+}
+
+/** 400 — `cancel` sans motif. */
+export class PaymentRunCancelReasonRequiredException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_CANCEL_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty reason is required to cancel a PaymentRun`,
+    );
+  }
+}
+
+/**
+ * 409 — au moins un fournisseur n'a pas d'IBAN renseigné. Le run reste en
+ * `draft`, l'utilisateur doit corriger la fiche fournisseur ou retirer la
+ * facture du run.
+ */
+export class MissingIbanException extends BusinessException {
+  constructor(missing: Array<Record<string, unknown>>) {
+    super(
+      ErrorCode.BUSINESS.MISSING_IBAN,
+      HttpStatus.CONFLICT,
+      `${missing.length} supplier(s) have no IBAN — cannot prepare the run`,
+      { suppliers: missing },
+    );
+  }
+}
+
+/** 404 — bank account inconnu. */
+export class BankAccountNotFoundException extends BusinessException {
+  constructor(bankAccountId: string) {
+    super(
+      ErrorCode.BUSINESS.BANK_ACCOUNT_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `BankAccount not found`,
+      { bankAccountId },
+    );
+  }
+}
+
+/**
+ * 409 — le compte GL associé au compte bancaire n'est pas en classe 5
+ * (compte financier). Les paiements doivent passer par 521/522/57.
+ */
+export class BankAccountWrongClassException extends BusinessException {
+  constructor(bankAccountId: string, glAccount: string, actualClass: string) {
+    super(
+      ErrorCode.BUSINESS.BANK_ACCOUNT_WRONG_CLASS,
+      HttpStatus.CONFLICT,
+      `GL account ${glAccount} is in class ${actualClass}, expected class 5`,
+      { bankAccountId, glAccount, actualClass },
+    );
+  }
+}
+
+/** 409 — compte bancaire désactivé (soft delete). */
+export class BankAccountInactiveException extends BusinessException {
+  constructor(bankAccountId: string) {
+    super(
+      ErrorCode.BUSINESS.BANK_ACCOUNT_INACTIVE,
+      HttpStatus.CONFLICT,
+      `BankAccount is inactive`,
+      { bankAccountId },
+    );
+  }
+}

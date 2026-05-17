@@ -1,14 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { JournalType, EntryStatus, InvoiceStatus } from '@prisma/client';
-import type { Invoice, JournalEntry, JournalLine, Prisma, PurchaseOrder } from '@prisma/client';
+import type {
+  BankAccount,
+  Invoice,
+  JournalEntry,
+  JournalLine,
+  Payment,
+  Prisma,
+  PurchaseOrder,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
+  BankAccountWrongClassException,
   EntityNotFoundException,
   ExchangeRateMissingException,
   GlAccountNotFoundException,
   InvoiceAlreadyPostedException,
   InvoiceNotPostableException,
   NoOpenFiscalPeriodException,
+  PaymentCurrencyMismatchException,
   PeriodClosedException,
   PostingCancelReasonRequiredException,
   PostingHasPaymentException,
@@ -27,6 +37,7 @@ export const ACCOUNT_FALLBACK_EXPENSE = '605';
 /** Type d'écriture émis par ce service — utilisé en `source_type`. */
 export const SOURCE_TYPE_PO = 'purchase_order';
 export const SOURCE_TYPE_INVOICE = 'invoice';
+export const SOURCE_TYPE_PAYMENT = 'payment';
 
 export interface PostingActor {
   id: string;
@@ -69,6 +80,12 @@ export interface CancelPostingResult {
   acReverseEntryNumber: string;
   class8RecreatedEntryId: string | null;
   class8RecreatedEntryNumber: string | null;
+}
+
+export interface PostPaymentResult {
+  entryId: string;
+  entryNumber: string;
+  amountXof: number;
 }
 
 /**
@@ -732,6 +749,131 @@ export class PostingService {
         class8RecreatedEntryId: class8Recreated?.id ?? null,
         class8RecreatedEntryNumber: class8Recreated?.entryNumber ?? null,
       };
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Sprint 5.1 — postPayment (écriture BQ classe 5)
+  // ------------------------------------------------------------------
+
+  /**
+   * Comptabilise un paiement émis : crée une écriture journal `BQ` (banque)
+   * équilibrée Débit 401 / Crédit 5xx au montant TTC.
+   *
+   *  - Débit 401 (Fournisseurs)         auxiliary_code = supplier.code
+   *  - Crédit bankAccount.glAccountCode (ex: 521)
+   *
+   * Pré-conditions :
+   *  - facture status ∈ posted / partially_paid
+   *  - bankAccount.glAccountCode existe, classe 5, actif
+   *  - période fiscale ouverte à payment.paymentDate
+   *  - devise paiement = devise bankAccount (multidevises = sprint 5.2)
+   *
+   * Le service NE met PAS à jour la facture (status) — c'est le
+   * `PaymentRunService.approve` qui orchestre `posted → partially_paid → paid`
+   * en agrégeant les paiements executed.
+   */
+  async postPayment(
+    actor: PostingActor,
+    payment: Payment & { invoice: Invoice & { supplier: { code: string; name: string } } },
+    bankAccount: BankAccount,
+  ): Promise<PostPaymentResult> {
+    // 1) Cohérence devise (multidevises = sprint 5.2)
+    if (payment.currency !== bankAccount.currency) {
+      throw new PaymentCurrencyMismatchException(
+        payment.invoiceId,
+        payment.currency,
+        bankAccount.currency,
+      );
+    }
+
+    // 2) Vérif classe 5 du compte GL (filet de sécurité — déjà
+    //    contrôlé à la création du bankAccount, mais le seed pourrait
+    //    avoir contourné le service)
+    const gl = await this.prisma.glAccount.findUnique({
+      where: { code: bankAccount.glAccountCode },
+      select: { code: true, class: true },
+    });
+    if (!gl) {
+      throw new EntityNotFoundException('GlAccount', { code: bankAccount.glAccountCode });
+    }
+    if (gl.class !== '5') {
+      throw new BankAccountWrongClassException(bankAccount.id, gl.code, gl.class);
+    }
+
+    // 3) Période fiscale ouverte à paymentDate (PERIOD_CLOSED si fermée)
+    const period = await this.findOpenPeriodForDate(payment.paymentDate);
+
+    const amount = Number(payment.amount);
+    const supplier = payment.invoice.supplier;
+    const label =
+      `Paiement ${supplier.code} - ${payment.invoice.invoiceNumber}`.slice(0, 256);
+
+    return this.prisma.$transaction(async (tx) => {
+      const entryNumber = await this.generateEntryNumber(tx, JournalType.BQ);
+
+      const entry = await tx.journalEntry.create({
+        data: {
+          entryNumber,
+          journal: JournalType.BQ,
+          entryDate: payment.paymentDate,
+          periodId: period.id,
+          label,
+          sourceType: SOURCE_TYPE_PAYMENT,
+          sourceId: payment.id,
+          status: EntryStatus.draft,
+        },
+      });
+
+      await tx.journalLine.createMany({
+        data: [
+          {
+            entryId: entry.id,
+            lineNumber: 1,
+            accountCode: ACCOUNT_SUPPLIERS,
+            auxiliaryCode: supplier.code,
+            label: `Solde fournisseur ${supplier.code}`,
+            debit: amount,
+            credit: 0,
+            currency: payment.currency,
+          },
+          {
+            entryId: entry.id,
+            lineNumber: 2,
+            accountCode: bankAccount.glAccountCode,
+            label: `Banque ${bankAccount.code} - ${payment.invoice.invoiceNumber}`,
+            debit: 0,
+            credit: amount,
+            currency: payment.currency,
+          },
+        ],
+      });
+
+      await tx.journalEntry.update({
+        where: { id: entry.id },
+        data: { status: EntryStatus.posted, postedAt: new Date(), postedBy: actor.id },
+      });
+
+      this.logger.log(
+        { entryNumber, paymentId: payment.id, amount, bankAccount: bankAccount.code },
+        'payment posted (BQ entry)',
+      );
+
+      return { entryId: entry.id, entryNumber, amountXof: amount };
+    });
+  }
+
+  /**
+   * Liste les écritures liées à un paiement (sourceType='payment'),
+   * lignes incluses — utilisé par l'endpoint /payment-runs/:id/journal-entries.
+   */
+  async listEntriesForPayment(
+    paymentId: string,
+  ): Promise<Array<JournalEntry & { lines: JournalLine[] }>> {
+    return this.prisma.journalEntry.findMany({
+      where: { sourceType: SOURCE_TYPE_PAYMENT, sourceId: paymentId },
+      orderBy: { createdAt: 'asc' },
+      include: { lines: { orderBy: { lineNumber: 'asc' } } },
     });
   }
 
