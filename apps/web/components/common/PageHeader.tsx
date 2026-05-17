@@ -1,5 +1,6 @@
 export interface PageHeaderProps {
-  title: string;
+  /** Titre — string ou ReactNode (utile pour les badges inline N°/statut). */
+  title: React.ReactNode;
   subtitle?: React.ReactNode;
   actions?: React.ReactNode;
 }
