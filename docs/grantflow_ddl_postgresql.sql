@@ -1173,6 +1173,135 @@ ALTER TABLE ap.invoice
     ADD COLUMN IF NOT EXISTS match_summary JSONB;
 
 -- =====================================================================
+--  SPRINT 6.2 — Clôture mensuelle + TER SYSCEBNL
+--
+--  Workflow :
+--   1. COMPTABLE / DAF lance un precheck sur une période ouverte.
+--      Tous les checks (DA en attente, FNP, fonds dédiés non dotés,
+--      écritures déséquilibrées) sont matérialisés dans
+--      gl.period_close_check (1 ligne par finding). Severity = BLOCKING
+--      ou WARNING.
+--   2. DAF lance la dotation/reprise des fonds dédiés (689/789) pour
+--      chaque grant actif sur la période.
+--   3. DAF + CONTROLEUR ferme la période : `gl.fiscal_period.is_closed`
+--      passe à true. Un évènement est journalisé dans
+--      gl.period_close_event (action='close', user, reason).
+--   4. DAF peut ré-ouvrir une période (action='reopen' + reason
+--      obligatoire). Journalisé aussi.
+--   5. Génération des états financiers (TER, BILAN, RESULTAT) via
+--      reporting.financial_statement + financial_statement_line.
+--      Chaque statement peut être verrouillé (locked=true) — un trigger
+--      interdit alors toute suppression si la période est aussi close.
+-- =====================================================================
+
+-- Extension de gl.fiscal_period (closed_at/closed_by déjà présents)
+ALTER TABLE gl.fiscal_period
+    ADD COLUMN IF NOT EXISTS reopened_at    TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS reopened_by    UUID REFERENCES auth.app_user(id),
+    ADD COLUMN IF NOT EXISTS reopen_reason  TEXT;
+
+-- Findings du dernier precheck. On REMPLACE l'historique à chaque run
+-- (DELETE puis INSERT) — le but est de présenter au DAF "voici ce qui
+-- bloque MAINTENANT", pas un historique chronologique des problèmes
+-- résolus (qui serait du bruit).
+CREATE TABLE IF NOT EXISTS gl.period_close_check (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    period_id       UUID NOT NULL REFERENCES gl.fiscal_period(id) ON DELETE CASCADE,
+    check_code      TEXT NOT NULL,            -- 'C001' .. 'C006', 'W001' .. 'W003'
+    severity        TEXT NOT NULL CHECK (severity IN ('BLOCKING','WARNING')),
+    message         TEXT NOT NULL,
+    payload         JSONB NOT NULL DEFAULT '{}',
+    detected_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_period_close_check_period
+    ON gl.period_close_check(period_id);
+COMMENT ON TABLE gl.period_close_check IS
+  'Findings du dernier precheck de clôture — réécrit à chaque run.';
+
+-- Audit trail des actions de clôture / ré-ouverture. Append-only,
+-- jamais nettoyé : un auditeur bailleur doit pouvoir reconstituer
+-- qui a fermé la période 2026-02 et qui l''a éventuellement
+-- ré-ouverte 3 mois plus tard.
+CREATE TABLE IF NOT EXISTS gl.period_close_event (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    period_id       UUID NOT NULL REFERENCES gl.fiscal_period(id),
+    action          TEXT NOT NULL CHECK (action IN ('precheck','close','reopen','dedicated_funds')),
+    user_id         UUID NOT NULL REFERENCES auth.app_user(id),
+    reason          TEXT,
+    payload         JSONB NOT NULL DEFAULT '{}',
+    occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_period_close_event_period
+    ON gl.period_close_event(period_id);
+CREATE INDEX IF NOT EXISTS idx_period_close_event_user
+    ON gl.period_close_event(user_id);
+COMMENT ON TABLE gl.period_close_event IS
+  'Audit trail des opérations de clôture (close/reopen/precheck/dedicated_funds).';
+
+-- États financiers générés (TER, BILAN, RESULTAT). 1 statement par
+-- (period_id, type). Une régénération écrase l''ancien (sauf si locked).
+CREATE TABLE IF NOT EXISTS reporting.financial_statement (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    period_id           UUID NOT NULL REFERENCES gl.fiscal_period(id) ON DELETE CASCADE,
+    type                TEXT NOT NULL CHECK (type IN ('TER','BILAN','RESULTAT')),
+    generated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    generated_by        UUID NOT NULL REFERENCES auth.app_user(id),
+    locked              BOOLEAN NOT NULL DEFAULT false,
+    locked_at           TIMESTAMPTZ,
+    locked_by           UUID REFERENCES auth.app_user(id),
+    pdf_object_key      TEXT,
+    xlsx_object_key     TEXT,
+    totals              JSONB NOT NULL DEFAULT '{}',
+    UNIQUE (period_id, type)
+);
+CREATE INDEX IF NOT EXISTS idx_financial_statement_period
+    ON reporting.financial_statement(period_id);
+COMMENT ON TABLE reporting.financial_statement IS
+  'État financier SYSCEBNL (TER, Bilan, Compte de résultat) par période.';
+
+CREATE TABLE IF NOT EXISTS reporting.financial_statement_line (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    statement_id    UUID NOT NULL REFERENCES reporting.financial_statement(id) ON DELETE CASCADE,
+    section         TEXT NOT NULL,             -- 'EMPLOIS','RESSOURCES','ACTIF','PASSIF','CHARGES','PRODUITS'
+    label           TEXT NOT NULL,
+    account_code    TEXT,                       -- nullable pour les sous-totaux
+    debit           NUMERIC(18,2) NOT NULL DEFAULT 0,
+    credit          NUMERIC(18,2) NOT NULL DEFAULT 0,
+    balance         NUMERIC(18,2) NOT NULL DEFAULT 0,
+    sort_order      INT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_financial_statement_line_statement
+    ON reporting.financial_statement_line(statement_id);
+COMMENT ON TABLE reporting.financial_statement_line IS
+  'Lignes (snapshot) d''un état financier : 1 par poste ou sous-total.';
+
+-- Trigger : interdire la suppression d''un statement verrouillé dont
+-- la période est elle aussi close. Garantit l''immuabilité des états
+-- archivés (un audit bailleur N+1 doit retrouver le bilan signé).
+CREATE OR REPLACE FUNCTION reporting.protect_locked_statement() RETURNS trigger AS $$
+DECLARE
+    v_period_closed BOOLEAN;
+BEGIN
+    IF (TG_OP = 'DELETE') THEN
+        IF OLD.locked THEN
+            SELECT is_closed INTO v_period_closed
+            FROM gl.fiscal_period WHERE id = OLD.period_id;
+            IF v_period_closed THEN
+                RAISE EXCEPTION 'FINANCIAL_STATEMENT_LOCKED: cannot delete a locked statement of a closed period'
+                    USING ERRCODE = 'P0001';
+            END IF;
+        END IF;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_protect_locked_statement ON reporting.financial_statement;
+CREATE TRIGGER trg_protect_locked_statement
+BEFORE DELETE ON reporting.financial_statement
+FOR EACH ROW EXECUTE FUNCTION reporting.protect_locked_statement();
+
+-- =====================================================================
 --  FIN DU SCRIPT — Vérifications rapides
 -- =====================================================================
 -- SELECT COUNT(*) AS nb_tables FROM information_schema.tables

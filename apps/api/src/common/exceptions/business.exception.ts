@@ -1578,3 +1578,137 @@ export class ReportingFxRateMissingException extends BusinessException {
     );
   }
 }
+
+// ===== Sprint 6.2 — Clôture mensuelle + États financiers SYSCEBNL =====
+
+/** 404 — période fiscale inconnue. */
+export class PeriodNotFoundException extends BusinessException {
+  constructor(periodId: string) {
+    super(
+      ErrorCode.BUSINESS.PERIOD_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `Fiscal period not found`,
+      { periodId },
+    );
+  }
+}
+
+/** 409 — close impossible : la période est déjà clôturée. */
+export class PeriodAlreadyClosedException extends BusinessException {
+  constructor(periodId: string, code: string) {
+    super(
+      ErrorCode.BUSINESS.PERIOD_ALREADY_CLOSED,
+      HttpStatus.CONFLICT,
+      `Fiscal period "${code}" is already closed`,
+      { periodId, code },
+    );
+  }
+}
+
+/** 409 — reopen impossible : la période n'est pas clôturée. */
+export class PeriodAlreadyOpenException extends BusinessException {
+  constructor(periodId: string, code: string) {
+    super(
+      ErrorCode.BUSINESS.PERIOD_ALREADY_OPEN,
+      HttpStatus.CONFLICT,
+      `Fiscal period "${code}" is not closed`,
+      { periodId, code },
+    );
+  }
+}
+
+/**
+ * 409 — close refusée : au moins un check BLOCKING. `details.checks` détaille
+ * les codes (C001, C002, …) et leur payload pour affichage côté front.
+ * Override possible uniquement par DAF avec `acknowledgeWarnings=true` et
+ * reason explicite (audit trail).
+ */
+export class PeriodCloseBlockedException extends BusinessException {
+  constructor(periodId: string, checks: Array<Record<string, unknown>>) {
+    super(
+      ErrorCode.BUSINESS.PERIOD_CLOSE_BLOCKED,
+      HttpStatus.CONFLICT,
+      `Period close blocked by ${checks.length} BLOCKING check(s)`,
+      { periodId, checks },
+    );
+  }
+}
+
+/** 400 — reopen sans motif (audit obligatoire). */
+export class PeriodReopenReasonRequiredException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.PERIOD_REOPEN_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty reason is required to reopen a closed period`,
+    );
+  }
+}
+
+/**
+ * 400 — close avec override (`acknowledgeWarnings=true`) sans motif.
+ * L'override DAF est une exception forte (on ferme une période avec
+ * findings BLOCKING) — la traçabilité audit exige un motif explicite.
+ */
+export class PeriodCloseReasonRequiredException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.PERIOD_CLOSE_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty reason is required to close a period with BLOCKING findings (DAF override)`,
+    );
+  }
+}
+
+/** 404 — état financier inconnu. */
+export class FinancialStatementNotFoundException extends BusinessException {
+  constructor(statementId: string) {
+    super(
+      ErrorCode.BUSINESS.FINANCIAL_STATEMENT_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `Financial statement not found`,
+      { statementId },
+    );
+  }
+}
+
+/** 409 — tentative de régénération/suppression d'un statement verrouillé. */
+export class FinancialStatementLockedException extends BusinessException {
+  constructor(statementId: string, type: string) {
+    super(
+      ErrorCode.BUSINESS.FINANCIAL_STATEMENT_LOCKED,
+      HttpStatus.CONFLICT,
+      `Financial statement "${type}" is locked — immutable`,
+      { statementId, type },
+    );
+  }
+}
+
+/**
+ * 409 — l'équilibre comptable n'est pas respecté (emplois ≠ ressources sur
+ * un TER, actif ≠ passif sur un bilan). Indique une corruption ou une
+ * période sans écriture équilibrée. À investiguer manuellement avant
+ * lock — le service refuse de produire un état faux.
+ */
+export class FinancialStatementNotBalancedException extends BusinessException {
+  constructor(type: string, leftTotal: number, rightTotal: number) {
+    super(
+      ErrorCode.BUSINESS.FINANCIAL_STATEMENT_NOT_BALANCED,
+      HttpStatus.CONFLICT,
+      `Statement "${type}" is not balanced (left=${leftTotal}, right=${rightTotal})`,
+      { type, leftTotal, rightTotal, difference: leftTotal - rightTotal },
+    );
+  }
+}
+
+/** 404 — download impossible : PDF/Excel pas encore généré (statement freshly created). */
+export class FinancialStatementFileNotGeneratedException extends BusinessException {
+  constructor(statementId: string, kind: 'pdf' | 'xlsx') {
+    super(
+      ErrorCode.BUSINESS.FINANCIAL_STATEMENT_FILE_NOT_GENERATED,
+      HttpStatus.NOT_FOUND,
+      `${kind.toUpperCase()} not yet generated — regenerate the statement first`,
+      { statementId, kind },
+    );
+  }
+}
