@@ -498,16 +498,27 @@ export class PurchaseRequestService {
    * Pour éviter une race entre deux POST concurrents qui produiraient le
    * même numéro, on prend un `pg_advisory_xact_lock` indexé par l'année.
    * Le verrou est libéré automatiquement à la fin de la transaction.
+   *
+   * On utilise MAX(suffixe numérique) plutôt que COUNT(*) : ainsi, si une
+   * DA est supprimée et laisse un trou (ex: 0001 + 0003 sans 0002),
+   * la prochaine génération produit bien 0004 et non 0003 (collision).
+   *
+   * Le double tri lexicographique sur `prNumber DESC` est sûr car le suffixe
+   * est paddé à 4 chiffres : "0009" < "0010" reste vrai en alphabétique.
    */
   private async generatePrNumber(): Promise<string> {
     const year = new Date().getFullYear();
     return this.prisma.$transaction(async (tx) => {
       const lockKey = this.hashToBigInt(`pr_seq_${year}`);
       await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
-      const count = await tx.purchaseRequest.count({
+      const last = await tx.purchaseRequest.findFirst({
         where: { prNumber: { startsWith: `DA-${year}-` } },
+        orderBy: { prNumber: 'desc' },
+        select: { prNumber: true },
       });
-      return `DA-${year}-${String(count + 1).padStart(4, '0')}`;
+      const lastSeq = last ? parseInt(last.prNumber.split('-')[2] ?? '0', 10) : 0;
+      const next = Number.isFinite(lastSeq) ? lastSeq + 1 : 1;
+      return `DA-${year}-${String(next).padStart(4, '0')}`;
     });
   }
 
@@ -667,25 +678,4 @@ export class PurchaseRequestService {
     if (query.grantId) where.grantId = query.grantId;
 
     // Ownership : si l'acteur n'a pas full view, on force requestedBy = self (app_user.id résolu).
-    if (scopedUserId) {
-      where.requestedBy = scopedUserId;
-    } else if (query.requestedBy) {
-      where.requestedBy = query.requestedBy;
-    }
-
-    if (query.fromDate || query.toDate) {
-      where.requestedAt = {};
-      if (query.fromDate) where.requestedAt.gte = new Date(query.fromDate);
-      if (query.toDate) where.requestedAt.lte = new Date(query.toDate);
-    }
-
-    if (query.q) {
-      where.OR = [
-        { description: { contains: query.q.trim(), mode: 'insensitive' } },
-        { prNumber: { contains: query.q.trim(), mode: 'insensitive' } },
-      ];
-    }
-
-    return where;
-  }
-}
+    if (sco

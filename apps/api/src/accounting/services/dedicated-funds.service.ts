@@ -342,13 +342,10 @@ export class DedicatedFundsService {
 
   private async generateEntryNumber(tx: Prisma.TransactionClient): Promise<string> {
     const year = new Date().getFullYear();
-    const count = await tx.journalEntry.count({
+    // MAX au lieu de COUNT : résilient aux trous
+    const last = await tx.journalEntry.findFirst({
       where: { journal: JournalType.OD, entryNumber: { startsWith: `OD-${year}-` } },
+      orderBy: { entryNumber: 'desc' },
+      select: { entryNumber: true },
     });
-    return `OD-${year}-${String(count + 1).padStart(4, '0')}`;
-  }
-
-  private round2(v: number): number {
-    return Math.round(v * 100) / 100;
-  }
-}
+    const lastSeq = las
