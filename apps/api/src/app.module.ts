@@ -21,6 +21,7 @@ import { GlAccountModule } from './referential/gl-account/gl-account.module';
 import { CashBoxModule } from './referential/cash-box/cash-box.module';
 import { TreasuryModule } from './treasury/treasury.module';
 import { ReportingModule } from './reporting/reporting.module';
+import { AccountingModule } from './accounting/accounting.module';
 
 const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -84,6 +85,7 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     CashBoxModule,
     TreasuryModule,
     ReportingModule,
+    AccountingModule,
     // À ajouter au fil des sprints :
     // ApModule,
     // GlModule,

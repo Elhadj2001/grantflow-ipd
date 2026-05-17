@@ -1645,6 +1645,21 @@ export class PeriodReopenReasonRequiredException extends BusinessException {
   }
 }
 
+/**
+ * 400 — close avec override (`acknowledgeWarnings=true`) sans motif.
+ * L'override DAF est une exception forte (on ferme une période avec
+ * findings BLOCKING) — la traçabilité audit exige un motif explicite.
+ */
+export class PeriodCloseReasonRequiredException extends BusinessException {
+  constructor() {
+    super(
+      ErrorCode.BUSINESS.PERIOD_CLOSE_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `A non-empty reason is required to close a period with BLOCKING findings (DAF override)`,
+    );
+  }
+}
+
 /** 404 — état financier inconnu. */
 export class FinancialStatementNotFoundException extends BusinessException {
   constructor(statementId: string) {
