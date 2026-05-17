@@ -521,8 +521,27 @@ model Supplier {
 
   purchaseOrders PurchaseOrder[]
   invoices       Invoice[]
+  ibanHistory    SupplierIbanHistory[]
 
   @@map("supplier")
+  @@schema("ref")
+}
+
+model SupplierIbanHistory {
+  id            String    @id @default(uuid()) @db.Uuid
+  supplierId    String    @map("supplier_id") @db.Uuid
+  iban          String?
+  bic           String?
+  bankName      String?   @map("bank_name")
+  effectiveFrom DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz(6)
+  changedBy     String?   @map("changed_by") @db.Uuid
+  changeReason  String?   @map("change_reason")
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([supplierId], map: "idx_supplier_iban_history_supplier")
+  @@map("supplier_iban_history")
   @@schema("ref")
 }
 
@@ -917,6 +936,7 @@ model PaymentRun {
   sepaFileKey          String?   @map("sepa_file_key")
   preparationWarnings  Json?     @map("preparation_warnings") @db.JsonB
   rejectionReason      String?   @map("rejection_reason")
+  ibanAlerts           Json?     @map("iban_alerts") @db.JsonB
   approvedAt           DateTime? @map("approved_at") @db.Timestamptz(6)
   executedAt           DateTime? @map("executed_at") @db.Timestamptz(6)
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -932,17 +952,20 @@ model PaymentRun {
 }
 
 model Payment {
-  id            String        @id @default(uuid()) @db.Uuid
-  paymentRunId  String?       @map("payment_run_id") @db.Uuid
-  invoiceId     String        @map("invoice_id") @db.Uuid
-  amount        Decimal       @db.Decimal(18, 2)
-  currency      String        @db.Char(3)
-  method        PaymentMethod
-  paymentDate   DateTime      @map("payment_date") @db.Date
-  status        PaymentStatus @default(queued)
-  bankReference String?       @map("bank_reference")
-  fxGainLoss    Decimal?      @default(0) @map("fx_gain_loss") @db.Decimal(18, 2)
-  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                String        @id @default(uuid()) @db.Uuid
+  paymentRunId      String?       @map("payment_run_id") @db.Uuid
+  invoiceId         String        @map("invoice_id") @db.Uuid
+  amount            Decimal       @db.Decimal(18, 2)
+  currency          String        @db.Char(3)
+  originalAmount    Decimal?      @map("original_amount") @db.Decimal(18, 2)
+  originalCurrency  String?       @map("original_currency") @db.Char(3)
+  exchangeRate      Decimal?      @map("exchange_rate") @db.Decimal(18, 8)
+  method            PaymentMethod
+  paymentDate       DateTime      @map("payment_date") @db.Date
+  status            PaymentStatus @default(queued)
+  bankReference     String?       @map("bank_reference")
+  fxGainLoss        Decimal?      @default(0) @map("fx_gain_loss") @db.Decimal(18, 2)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   paymentRun PaymentRun? @relation(fields: [paymentRunId], references: [id])
   invoice    Invoice     @relation(fields: [invoiceId], references: [id])

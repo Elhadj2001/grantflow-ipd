@@ -1465,3 +1465,90 @@ export class BankAccountInactiveException extends BusinessException {
     );
   }
 }
+
+// ===== Sprint 5.2 — SEPA + multidevises + anti-fraude IBAN =====
+
+/**
+ * 500 — la génération du fichier SEPA a échoué côté serveur (XML/MinIO).
+ * Le détail technique reste dans les logs serveur.
+ */
+export class SepaGenerationFailedException extends BusinessException {
+  constructor(runId: string, reason: string) {
+    super(
+      ErrorCode.BUSINESS.SEPA_GENERATION_FAILED,
+      HttpStatus.INTERNAL_SERVER_ERROR,
+      `SEPA generation failed: ${reason}`,
+      { runId, reason },
+    );
+  }
+}
+
+/** 404 — tentative de téléchargement d'un fichier SEPA non généré. */
+export class SepaNotGeneratedException extends BusinessException {
+  constructor(runId: string) {
+    super(
+      ErrorCode.BUSINESS.SEPA_NOT_GENERATED,
+      HttpStatus.NOT_FOUND,
+      `SEPA file not yet generated for this run`,
+      { runId },
+    );
+  }
+}
+
+/** 409 — generate-sepa appelé sur un run pas en `prepared` ou `executed`. */
+export class SepaRunNotReadyException extends BusinessException {
+  constructor(runId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.SEPA_RUN_NOT_READY,
+      HttpStatus.CONFLICT,
+      `PaymentRun status "${status}" does not allow SEPA generation (must be prepared or executed)`,
+      { runId, status },
+    );
+  }
+}
+
+/**
+ * 409 — le run contient des alertes IBAN non acquittées. Le DAF doit
+ * approuver explicitement avec `acknowledgeIbanAlerts=true` + motif.
+ */
+export class IbanAlertsNotAcknowledgedException extends BusinessException {
+  constructor(runId: string, alertCount: number) {
+    super(
+      ErrorCode.BUSINESS.IBAN_ALERTS_NOT_ACKNOWLEDGED,
+      HttpStatus.CONFLICT,
+      `PaymentRun has ${alertCount} IBAN alert(s) — explicit acknowledgement required`,
+      { runId, alertCount },
+    );
+  }
+}
+
+/**
+ * 409 — multidevises : impossible de convertir la facture car aucun taux
+ * disponible pour la paire (invoice.currency → run.currency) à la date
+ * du paiement. Le contrôleur de gestion doit charger un taux.
+ */
+export class ExchangeRateForPaymentMissingException extends BusinessException {
+  constructor(from: string, to: string, date: string) {
+    super(
+      ErrorCode.BUSINESS.EXCHANGE_RATE_FOR_PAYMENT_MISSING,
+      HttpStatus.CONFLICT,
+      `Missing exchange rate ${from}→${to} on or before ${date} for payment conversion`,
+      { from, to, date },
+    );
+  }
+}
+
+/**
+ * 409 — sanity check : l'écart de change calculé excède 10% du montant
+ * facture. Probable erreur de taux saisi — la DAF doit re-valider.
+ */
+export class FxDiffTooLargeException extends BusinessException {
+  constructor(invoiceId: string, fxDiff: number, threshold: number) {
+    super(
+      ErrorCode.BUSINESS.FX_DIFF_TOO_LARGE,
+      HttpStatus.CONFLICT,
+      `FX variance ${fxDiff} exceeds safety threshold (${threshold}%)`,
+      { invoiceId, fxDiff, threshold },
+    );
+  }
+}

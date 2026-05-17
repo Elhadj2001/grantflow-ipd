@@ -54,6 +54,8 @@
     { "code": "66",   "label": "Charges de personnel", "class": "6", "is_movement": false, "syscebnl_specific": false },
     { "code": "661",  "label": "Rémunérations directes", "class": "6", "is_movement": true, "syscebnl_specific": false },
     { "code": "664",  "label": "Charges sociales", "class": "6", "is_movement": true, "syscebnl_specific": false },
+    { "code": "666",  "label": "Pertes de change", "class": "6", "is_movement": true, "syscebnl_specific": false,
+      "description": "Différence négative entre taux de comptabilisation et taux de règlement (multidevises). Sprint 5.2." },
     { "code": "68",   "label": "Dotations aux amortissements et provisions", "class": "6", "is_movement": false, "syscebnl_specific": false },
     { "code": "681",  "label": "Dotations aux amortissements", "class": "6", "is_movement": true, "syscebnl_specific": false },
     { "code": "689",  "label": "Dotations aux fonds dédiés", "class": "6", "is_movement": true, "syscebnl_specific": true,
@@ -63,6 +65,8 @@
     { "code": "75",   "label": "Cotisations, dons, subventions reçues", "class": "7", "is_movement": false, "syscebnl_specific": true },
     { "code": "754",  "label": "Subventions d'exploitation reçues", "class": "7", "is_movement": true, "syscebnl_specific": true },
     { "code": "756",  "label": "Dons manuels reçus", "class": "7", "is_movement": true, "syscebnl_specific": true },
+    { "code": "766",  "label": "Gains de change", "class": "7", "is_movement": true, "syscebnl_specific": false,
+      "description": "Différence positive entre taux de comptabilisation et taux de règlement (multidevises). Sprint 5.2." },
     { "code": "789",  "label": "Reports des ressources non utilisées", "class": "7", "is_movement": true, "syscebnl_specific": true,
       "description": "Reprise (produit) du fonds dédié constaté en N-1 et utilisé en N." },
 

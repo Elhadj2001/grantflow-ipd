@@ -351,6 +351,28 @@ CREATE TABLE ref.bank_account (
 CREATE INDEX idx_bank_account_currency ON ref.bank_account(currency);
 COMMENT ON TABLE ref.bank_account IS 'Comptes bancaires IPD utilisés pour décaissements (PaymentRun)';
 
+-- Historique des changements d'IBAN fournisseur (anti-fraude — sprint 5.2).
+-- À chaque mise à jour de supplier.iban, on insère ici l'ancien IBAN avec
+-- effective_to=now(). La ligne courante est celle sans effective_to.
+CREATE TABLE ref.supplier_iban_history (
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    supplier_id    UUID NOT NULL REFERENCES ref.supplier(id) ON DELETE CASCADE,
+    iban           TEXT,
+    bic            TEXT,
+    bank_name      TEXT,
+    effective_from TIMESTAMPTZ NOT NULL DEFAULT now(),
+    effective_to   TIMESTAMPTZ,
+    changed_by     UUID REFERENCES auth.app_user(id),
+    change_reason  TEXT
+);
+CREATE INDEX idx_supplier_iban_history_supplier ON ref.supplier_iban_history(supplier_id);
+-- Une seule ligne "courante" (effective_to IS NULL) par supplier
+CREATE UNIQUE INDEX idx_supplier_iban_history_current
+    ON ref.supplier_iban_history(supplier_id)
+    WHERE effective_to IS NULL;
+COMMENT ON TABLE ref.supplier_iban_history IS
+  'Historique des changements d''IBAN fournisseur (anti-fraude PaymentRun)';
+
 -- =====================================================================
 --  PROCUREMENT : Demandes d'achat
 -- =====================================================================
@@ -561,6 +583,7 @@ CREATE TABLE ap.payment_run (
     sepa_file_key         TEXT,
     preparation_warnings  JSONB,
     rejection_reason      TEXT,
+    iban_alerts           JSONB,           -- sprint 5.2 (anti-fraude)
     approved_at           TIMESTAMPTZ,
     executed_at           TIMESTAMPTZ,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -568,17 +591,21 @@ CREATE TABLE ap.payment_run (
 CREATE INDEX idx_payment_run_status ON ap.payment_run(status);
 
 CREATE TABLE ap.payment (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    payment_run_id  UUID REFERENCES ap.payment_run(id),
-    invoice_id      UUID NOT NULL REFERENCES ap.invoice(id),
-    amount          NUMERIC(18,2) NOT NULL CHECK (amount > 0),
-    currency        CHAR(3) NOT NULL,
-    method          ap.payment_method NOT NULL,
-    payment_date    DATE NOT NULL,
-    status          ap.payment_status NOT NULL DEFAULT 'queued',
-    bank_reference  TEXT,
-    fx_gain_loss    NUMERIC(18,2) DEFAULT 0,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    payment_run_id    UUID REFERENCES ap.payment_run(id),
+    invoice_id        UUID NOT NULL REFERENCES ap.invoice(id),
+    amount            NUMERIC(18,2) NOT NULL CHECK (amount > 0),
+    currency          CHAR(3) NOT NULL,
+    -- Sprint 5.2 — multidevises : on conserve la facture originale
+    original_amount   NUMERIC(18,2),
+    original_currency CHAR(3),
+    exchange_rate     NUMERIC(18,8),
+    method            ap.payment_method NOT NULL,
+    payment_date      DATE NOT NULL,
+    status            ap.payment_status NOT NULL DEFAULT 'queued',
+    bank_reference    TEXT,
+    fx_gain_loss      NUMERIC(18,2) DEFAULT 0,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_payment_invoice ON ap.payment(invoice_id);
 CREATE INDEX idx_payment_status  ON ap.payment(status);
@@ -847,6 +874,7 @@ INSERT INTO ref.gl_account (code, label, class, is_movement, syscebnl_specific) 
 ('66',     'Charges de personnel', '6', false, false),
 ('661',    'Rémunérations directes', '6', true, false),
 ('664',    'Charges sociales', '6', true, false),
+('666',    'Pertes de change', '6', true, false),
 ('68',     'Dotations aux amortissements et provisions', '6', false, false),
 ('681',    'Dotations aux amortissements', '6', true, false),
 ('689',    'Dotations aux fonds dédiés', '6', true, true),
@@ -854,6 +882,7 @@ INSERT INTO ref.gl_account (code, label, class, is_movement, syscebnl_specific) 
 ('75',     'Cotisations, dons, subventions reçues', '7', false, true),
 ('754',    'Subventions d''exploitation reçues', '7', true, true),
 ('756',    'Dons manuels reçus', '7', true, true),
+('766',    'Gains de change', '7', true, false),
 ('789',    'Reports des ressources non utilisées', '7', true, true),
 ('8',      'COMPTES SPÉCIAUX', '8', false, true),
 ('80',     'Engagements hors bilan', '8', false, true),
