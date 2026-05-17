@@ -18,11 +18,18 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
+  /** Préfixe à utiliser pour matcher l'état "actif" (par défaut = href). */
+  matchPrefix?: string;
 }
 
 const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/procurement', label: 'Achats', icon: ShoppingCart, disabled: true },
+  {
+    href: '/procurement/purchase-requests',
+    label: 'Achats',
+    icon: ShoppingCart,
+    matchPrefix: '/procurement',
+  },
   { href: '/accounting', label: 'Comptabilité', icon: Calculator, disabled: true },
   { href: '/treasury', label: 'Trésorerie', icon: Wallet, disabled: true },
   { href: '/reporting', label: 'Reporting', icon: FileBarChart, disabled: true },
@@ -43,7 +50,8 @@ export function AppSidebar() {
       <nav className="flex-1 py-4">
         <ul className="space-y-1 px-2">
           {NAV.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(item.href + '/');
+            const prefix = item.matchPrefix ?? item.href;
+            const active = pathname === item.href || pathname.startsWith(prefix + '/') || pathname === prefix;
             const Icon = item.icon;
             const baseClasses =
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors border-l-4 border-transparent';
