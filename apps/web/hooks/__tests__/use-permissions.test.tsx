@@ -83,4 +83,69 @@ describe('usePermissions', () => {
     expect(p.hasAny('PI', 'DAF')).toBe(true);
     expect(p.hasAny('PI', 'ACHETEUR')).toBe(false);
   });
+
+  // ------------------------------------------------------------------
+  // Sprint F3 — Invoicing
+  // ------------------------------------------------------------------
+
+  it('COMPTABLE can upload + match + post invoices (not force-match)', () => {
+    const p = withRoles(['COMPTABLE']);
+    expect(p.canUploadInvoice()).toBe(true);
+    expect(p.canMatchInvoice()).toBe(true);
+    expect(p.canPostInvoice()).toBe(true);
+    expect(p.canRejectInvoice()).toBe(true);
+    expect(p.canForceMatchInvoice()).toBe(false);
+    expect(p.canCancelPosting()).toBe(false);
+    expect(p.canViewInvoice()).toBe(true);
+    expect(p.canViewJournalEntry()).toBe(true);
+  });
+
+  it('DAF can force-match + post + cancel-posting (not upload/match)', () => {
+    const p = withRoles(['DAF']);
+    expect(p.canForceMatchInvoice()).toBe(true);
+    expect(p.canPostInvoice()).toBe(true);
+    expect(p.canCancelPosting()).toBe(true);
+    expect(p.canRejectInvoice()).toBe(true);
+    expect(p.canUploadInvoice()).toBe(false);
+    expect(p.canMatchInvoice()).toBe(false);
+    expect(p.canViewJournalEntry()).toBe(true);
+  });
+
+  it('CONTROLEUR can view journal entries but cannot post/match/upload', () => {
+    const p = withRoles(['CONTROLEUR']);
+    expect(p.canViewJournalEntry()).toBe(true);
+    expect(p.canViewInvoice()).toBe(true);
+    expect(p.canPostInvoice()).toBe(false);
+    expect(p.canMatchInvoice()).toBe(false);
+    expect(p.canUploadInvoice()).toBe(false);
+    expect(p.canForceMatchInvoice()).toBe(false);
+  });
+
+  it('BAILLEUR can view invoices (read-only via API) but no journal entries', () => {
+    const p = withRoles(['BAILLEUR']);
+    expect(p.canViewInvoice()).toBe(true);
+    expect(p.canViewJournalEntry()).toBe(false);
+    expect(p.canUploadInvoice()).toBe(false);
+    expect(p.canPostInvoice()).toBe(false);
+  });
+
+  it('SUPER_ADMIN can do every invoicing action', () => {
+    const p = withRoles(['SUPER_ADMIN']);
+    expect(p.canUploadInvoice()).toBe(true);
+    expect(p.canMatchInvoice()).toBe(true);
+    expect(p.canForceMatchInvoice()).toBe(true);
+    expect(p.canPostInvoice()).toBe(true);
+    expect(p.canCancelPosting()).toBe(true);
+    expect(p.canRejectInvoice()).toBe(true);
+    expect(p.canViewJournalEntry()).toBe(true);
+  });
+
+  it('no roles → no invoicing capabilities', () => {
+    const p = withRoles([]);
+    expect(p.canUploadInvoice()).toBe(false);
+    expect(p.canMatchInvoice()).toBe(false);
+    expect(p.canForceMatchInvoice()).toBe(false);
+    expect(p.canPostInvoice()).toBe(false);
+    expect(p.canViewJournalEntry()).toBe(false);
+  });
 });

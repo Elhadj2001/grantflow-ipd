@@ -602,11 +602,22 @@ export class PaymentRunService {
     const year = new Date().getFullYear();
     const lockKey = this.hashToBigInt(`payment_run_${year}`);
     await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
-    // MAX au lieu de COUNT : résilient aux trous (runs supprimés)
+    // MAX au lieu de COUNT : resilient aux trous
     const last = await tx.paymentRun.findFirst({
       where: { runNumber: { startsWith: `PAY-${year}-` } },
       orderBy: { runNumber: 'desc' },
       select: { runNumber: true },
     });
     const lastSeq = last ? parseInt(last.runNumber.split('-')[2] ?? '0', 10) : 0;
-    const next = Number.isFinite(lastSeq) ? last
+    const next = Number.isFinite(lastSeq) ? lastSeq + 1 : 1;
+    return `PAY-${year}-${String(next).padStart(4, '0')}`;
+  }
+
+  private hashToBigInt(s: string): bigint {
+    let h = 0n;
+    for (let i = 0; i < s.length; i += 1) {
+      h = (h * 31n + BigInt(s.charCodeAt(i))) & 0x7fffffffffffffffn;
+    }
+    return h;
+  }
+}

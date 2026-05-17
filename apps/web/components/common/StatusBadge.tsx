@@ -32,6 +32,14 @@ const STATUS_MAP: Record<string, { variant: StatusVariant; label: string }> = {
   petty_cash: { variant: 'secondary', label: 'Caisse' },
   cash_advance: { variant: 'secondary', label: 'Avance' },
   standard: { variant: 'muted', label: 'Standard' },
+  // Invoice (sprint F3)
+  captured: { variant: 'muted', label: 'Capturée' },
+  matched: { variant: 'success', label: 'Rapprochée' },
+  exception_price: { variant: 'error', label: 'Écart prix' },
+  exception_qty: { variant: 'error', label: 'Écart qté' },
+  posted: { variant: 'secondary', label: 'Comptabilisée' },
+  paid: { variant: 'success', label: 'Payée' },
+  archived: { variant: 'muted', label: 'Archivée' },
 };
 
 export interface StatusBadgeProps {

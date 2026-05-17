@@ -748,11 +748,23 @@ une date de livraison prévisionnelle.</p>
     return this.prisma.$transaction(async (tx) => {
       const lockKey = this.hashToBigInt(`po_seq_${year}`);
       await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
-      // MAX au lieu de COUNT : résilient aux trous (BC supprimés)
+      // MAX au lieu de COUNT : resilient aux trous
       const last = await tx.purchaseOrder.findFirst({
         where: { poNumber: { startsWith: `BC-${year}-` } },
         orderBy: { poNumber: 'desc' },
         select: { poNumber: true },
       });
       const lastSeq = last ? parseInt(last.poNumber.split('-')[2] ?? '0', 10) : 0;
-      const next = Number.isFinite(lastSeq) ? lastSeq +
+      const next = Number.isFinite(lastSeq) ? lastSeq + 1 : 1;
+      return `BC-${year}-${String(next).padStart(4, '0')}`;
+    });
+  }
+
+  private hashToBigInt(s: string): bigint {
+    let h = 0n;
+    for (let i = 0; i < s.length; i += 1) {
+      h = (h * 31n + BigInt(s.charCodeAt(i))) & 0x7fffffffffffffffn;
+    }
+    return h;
+  }
+}

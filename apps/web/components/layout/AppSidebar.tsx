@@ -30,7 +30,12 @@ const NAV: NavItem[] = [
     icon: ShoppingCart,
     matchPrefix: '/procurement',
   },
-  { href: '/accounting', label: 'Comptabilité', icon: Calculator, disabled: true },
+  {
+    href: '/accounting/invoices',
+    label: 'Comptabilité',
+    icon: Calculator,
+    matchPrefix: '/accounting',
+  },
   { href: '/treasury', label: 'Trésorerie', icon: Wallet, disabled: true },
   { href: '/reporting', label: 'Reporting', icon: FileBarChart, disabled: true },
 ];
