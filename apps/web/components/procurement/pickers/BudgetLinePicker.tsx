@@ -23,6 +23,7 @@ export interface BudgetLinePickerProps {
   currency?: string;
   disabled?: boolean;
   className?: string;
+  testId?: string;
 }
 
 /**
@@ -40,6 +41,7 @@ export function BudgetLinePicker({
   currency = 'XOF',
   disabled,
   className,
+  testId = 'budget-line-picker',
 }: BudgetLinePickerProps) {
   const { data, isLoading } = useGrantDashboard(grantId);
   const entries = React.useMemo(() => data?.byBudgetLine ?? [], [data]);
@@ -80,7 +82,7 @@ export function BudgetLinePicker({
 
   return (
     <Combobox
-      testId="budget-line-picker"
+      testId={testId}
       options={options}
       value={value}
       onChange={(id) => {

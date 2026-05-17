@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { Controller, useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Trash2 } from 'lucide-react';
 import { z } from 'zod';
@@ -10,6 +10,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { AmountDisplay } from '@/components/common/AmountDisplay';
+import { ProjectPicker } from '@/components/procurement/pickers/ProjectPicker';
+import { GrantPicker } from '@/components/procurement/pickers/GrantPicker';
+import { BudgetLinePicker } from '@/components/procurement/pickers/BudgetLinePicker';
+import { useGrantDashboard } from '@/hooks/use-referential';
 import { cn } from '@/lib/utils';
 import type { CreatePurchaseRequestInput, PrType } from '@/lib/api/procurement';
 
@@ -39,26 +43,27 @@ export interface PurchaseRequestFormProps {
   defaultValues?: Partial<PrFormValues>;
   onSubmit: (values: CreatePurchaseRequestInput) => void | Promise<void>;
   submitting?: boolean;
-  /** Label du bouton submit. */
   submitLabel?: string;
-  /** Slot pour boutons additionnels (Annuler, Sauvegarder brouillon, …). */
   extraActions?: React.ReactNode;
 }
 
 const PETTY_CASH_CEILING = 100_000;
 
 /**
- * Formulaire DA — version sprint F2 minimaliste mais fonctionnelle :
- *  - Champs principaux (description, projet, grant, neededBy, currency)
- *  - Type DA : standard / petty_cash / cash_advance (toggle)
- *  - Lignes éditables (description, qty, unitPrice, budgetLineId)
- *  - Total calculé live (sum qty*unitPrice)
- *  - Alerte si petty_cash ET total > 100 000 XOF
- *  - Validation Zod via @hookform/resolvers
+ * Formulaire DA — sprint F2.x : les saisies UUID brutes ont été
+ * remplacées par des combobox alimentées par /referential/*.
  *
- * Sprint F2 : les IDs (projectId, grantId, budgetLineId) sont saisis
- * en UUID brut. Sprint F2.x : on remplace par des Combobox alimentées
- * par /referential/projects, /grants, /budget-lines.
+ * Cascade analytique au niveau header :
+ *   ProjectPicker  →  GrantPicker  →  (devise auto, currency=grant.currency)
+ *
+ * À chaque ligne, BudgetLinePicker filtré par le grantId du header.
+ * La disponibilité (`available`) vient du même endpoint
+ * `/grants/:id/dashboard` (cache TanStack partagé) — on affiche un
+ * badge "Solde insuffisant" et on désactive le submit si nécessaire.
+ *
+ * Les champs costCenterId / activityId sont conservés dans le schéma
+ * mais masqués (sprint F2.y dédié quand `analytical-axes` exposera
+ * sa hiérarchie). Pré-remplissage possible via `defaultValues`.
  */
 export function PurchaseRequestForm({
   defaultValues,
@@ -96,15 +101,37 @@ export function PurchaseRequestForm({
 
   const watchedLines = watch('lines');
   const watchedType = watch('requestType') as PrType;
-  const total = watchedLines.reduce((s, l) => {
+  const watchedGrantId = watch('grantId');
+  const watchedProjectId = watch('projectId');
+  const watchedCurrency = watch('currency');
+
+  // Charge le dashboard du grant courant : sert à mapper budgetLineId → available
+  // pour le contrôle "Solde insuffisant" par ligne. Cache partagé avec
+  // les BudgetLinePicker en aval (même clé TanStack Query).
+  const { data: grantDashboard } = useGrantDashboard(watchedGrantId || null);
+  const availableByLine = React.useMemo(() => {
+    const m = new Map<string, { available: number; budgeted: number }>();
+    for (const e of grantDashboard?.byBudgetLine ?? []) {
+      m.set(e.budgetLineId, { available: e.available, budgeted: e.budgeted });
+    }
+    return m;
+  }, [grantDashboard]);
+
+  const linesWithComputed = watchedLines.map((l) => {
     const q = Number(l.quantity) || 0;
     const p = Number(l.unitPrice) || 0;
-    return s + q * p;
-  }, 0);
+    const lineTotal = q * p;
+    const ref = l.budgetLineId ? availableByLine.get(l.budgetLineId) : null;
+    const insufficient = !!ref && lineTotal > ref.available;
+    return { lineTotal, available: ref?.available ?? null, insufficient };
+  });
+
+  const total = linesWithComputed.reduce((s, l) => s + l.lineTotal, 0);
   const pettyCashExceeded = watchedType === 'petty_cash' && total > PETTY_CASH_CEILING;
+  const anyLineInsufficient = linesWithComputed.some((l) => l.insufficient);
+  const submitDisabled = submitting || pettyCashExceeded || anyLineInsufficient;
 
   const submit = handleSubmit(async (values) => {
-    // Normalise : enlève les chaînes vides des champs optionnels
     const payload: CreatePurchaseRequestInput = {
       description: values.description,
       projectId: values.projectId,
@@ -155,7 +182,7 @@ export function PurchaseRequestForm({
         </div>
       </div>
 
-      {/* Champs principaux */}
+      {/* Champs principaux + imputation analytique */}
       <div className="grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-2">
         <div className="md:col-span-2">
           <Label htmlFor="description">Objet de la demande *</Label>
@@ -165,26 +192,52 @@ export function PurchaseRequestForm({
           )}
         </div>
         <div>
-          <Label htmlFor="projectId">Projet (UUID) *</Label>
-          <Input id="projectId" {...register('projectId')} placeholder="00000000-…" />
+          <Label className="mb-1.5 block text-sm font-medium">Projet *</Label>
+          <Controller
+            control={control}
+            name="projectId"
+            render={({ field }) => (
+              <ProjectPicker
+                value={field.value || null}
+                onChange={(id) => {
+                  field.onChange(id ?? '');
+                  // Cascade : vider grant + budget lines des items
+                  setValue('grantId', '', { shouldValidate: false });
+                  for (let i = 0; i < watchedLines.length; i++) {
+                    setValue(`lines.${i}.budgetLineId`, '', { shouldValidate: false });
+                  }
+                }}
+              />
+            )}
+          />
           {errors.projectId && (
             <p className="mt-1 text-xs text-state-error">{errors.projectId.message}</p>
           )}
         </div>
         <div>
-          <Label htmlFor="grantId">Convention (UUID) *</Label>
-          <Input id="grantId" {...register('grantId')} placeholder="00000000-…" />
+          <Label className="mb-1.5 block text-sm font-medium">Convention *</Label>
+          <Controller
+            control={control}
+            name="grantId"
+            render={({ field }) => (
+              <GrantPicker
+                projectId={watchedProjectId || null}
+                value={field.value || null}
+                onChange={(id, grant) => {
+                  field.onChange(id ?? '');
+                  // Auto-set devise depuis la convention sélectionnée
+                  if (grant?.currency) setValue('currency', grant.currency, { shouldValidate: false });
+                  // Vider les budget lines des items (cascade)
+                  for (let i = 0; i < watchedLines.length; i++) {
+                    setValue(`lines.${i}.budgetLineId`, '', { shouldValidate: false });
+                  }
+                }}
+              />
+            )}
+          />
           {errors.grantId && (
             <p className="mt-1 text-xs text-state-error">{errors.grantId.message}</p>
           )}
-        </div>
-        <div>
-          <Label htmlFor="costCenterId">Centre de coût (UUID, optionnel)</Label>
-          <Input id="costCenterId" {...register('costCenterId')} />
-        </div>
-        <div>
-          <Label htmlFor="activityId">Activité (UUID, optionnel)</Label>
-          <Input id="activityId" {...register('activityId')} />
         </div>
         <div>
           <Label htmlFor="neededBy">Date souhaitée</Label>
@@ -192,15 +245,14 @@ export function PurchaseRequestForm({
         </div>
         <div>
           <Label htmlFor="currency">Devise</Label>
-          <select
+          <Input
             id="currency"
             {...register('currency')}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          >
-            {['XOF', 'EUR', 'USD', 'CHF', 'GBP'].map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+            readOnly
+            data-testid="pr-currency"
+            className="bg-slate-50"
+          />
+          <p className="mt-1 text-xs text-slate-muted">Hérité de la convention sélectionnée.</p>
         </div>
       </div>
 
@@ -230,47 +282,76 @@ export function PurchaseRequestForm({
           <p className="text-xs text-state-error">{errors.lines.message}</p>
         )}
         <div className="space-y-3">
-          {fields.map((f, i) => (
-            <div
-              key={f.id}
-              data-testid={`pr-line-${i}`}
-              className="grid grid-cols-1 gap-2 rounded-md border border-slate-100 bg-slate-50 p-3 md:grid-cols-12 md:items-end"
-            >
-              <div className="md:col-span-4">
-                <Label className="text-xs">Description</Label>
-                <Input {...register(`lines.${i}.description` as const)} />
+          {fields.map((f, i) => {
+            const computed = linesWithComputed[i];
+            return (
+              <div
+                key={f.id}
+                data-testid={`pr-line-${i}`}
+                className={cn(
+                  'grid grid-cols-1 gap-2 rounded-md border bg-slate-50 p-3 md:grid-cols-12 md:items-end',
+                  computed?.insufficient ? 'border-state-error' : 'border-slate-100',
+                )}
+              >
+                <div className="md:col-span-3">
+                  <Label className="text-xs">Description</Label>
+                  <Input {...register(`lines.${i}.description` as const)} />
+                </div>
+                <div className="md:col-span-1">
+                  <Label className="text-xs">Qté</Label>
+                  <Input type="number" step="0.01" {...register(`lines.${i}.quantity` as const)} />
+                </div>
+                <div className="md:col-span-1">
+                  <Label className="text-xs">Unité</Label>
+                  <Input {...register(`lines.${i}.unit` as const)} />
+                </div>
+                <div className="md:col-span-2">
+                  <Label className="text-xs">Prix unit.</Label>
+                  <Input type="number" step="0.01" {...register(`lines.${i}.unitPrice` as const)} />
+                </div>
+                <div className="md:col-span-4">
+                  <Label className="text-xs">Ligne budgétaire</Label>
+                  <Controller
+                    control={control}
+                    name={`lines.${i}.budgetLineId` as const}
+                    render={({ field }) => (
+                      <BudgetLinePicker
+                        grantId={watchedGrantId || null}
+                        value={field.value || null}
+                        requestedAmount={computed?.lineTotal ?? 0}
+                        currency={watchedCurrency}
+                        onChange={(id) => field.onChange(id ?? '')}
+                        testId={`budget-line-picker-${i}`}
+                      />
+                    )}
+                  />
+                  {computed?.insufficient && (
+                    <p
+                      data-testid={`pr-line-${i}-insufficient`}
+                      className="mt-1 text-xs font-medium text-state-error"
+                    >
+                      Solde insuffisant — {computed.available !== null && (
+                        <>disponible <AmountDisplay amount={computed.available} currency={watchedCurrency} /></>
+                      )}
+                    </p>
+                  )}
+                </div>
+                <div className="md:col-span-1 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Supprimer ligne ${i + 1}`}
+                    onClick={() => remove(i)}
+                    disabled={fields.length === 1}
+                    data-testid={`remove-line-${i}`}
+                  >
+                    <Trash2 className="h-4 w-4 text-state-error" />
+                  </Button>
+                </div>
               </div>
-              <div className="md:col-span-1">
-                <Label className="text-xs">Qté</Label>
-                <Input type="number" step="0.01" {...register(`lines.${i}.quantity` as const)} />
-              </div>
-              <div className="md:col-span-1">
-                <Label className="text-xs">Unité</Label>
-                <Input {...register(`lines.${i}.unit` as const)} />
-              </div>
-              <div className="md:col-span-2">
-                <Label className="text-xs">Prix unit.</Label>
-                <Input type="number" step="0.01" {...register(`lines.${i}.unitPrice` as const)} />
-              </div>
-              <div className="md:col-span-3">
-                <Label className="text-xs">Ligne budgétaire (UUID)</Label>
-                <Input {...register(`lines.${i}.budgetLineId` as const)} />
-              </div>
-              <div className="md:col-span-1 flex justify-end">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Supprimer ligne ${i + 1}`}
-                  onClick={() => remove(i)}
-                  disabled={fields.length === 1}
-                  data-testid={`remove-line-${i}`}
-                >
-                  <Trash2 className="h-4 w-4 text-state-error" />
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -278,12 +359,12 @@ export function PurchaseRequestForm({
       <div
         className={cn(
           'flex flex-col gap-2 rounded-lg border bg-white p-4 sm:flex-row sm:items-center sm:justify-between',
-          pettyCashExceeded ? 'border-state-error' : 'border-slate-200',
+          pettyCashExceeded || anyLineInsufficient ? 'border-state-error' : 'border-slate-200',
         )}
       >
         <div>
           <p className="text-xs uppercase tracking-wide text-slate-muted">Total estimé</p>
-          <AmountDisplay amount={total} currency={watch('currency')} className="text-2xl" />
+          <AmountDisplay amount={total} currency={watchedCurrency} className="text-2xl" />
         </div>
         {pettyCashExceeded && (
           <p
@@ -294,11 +375,20 @@ export function PurchaseRequestForm({
             ⚠ Le total dépasse le plafond petty cash ({PETTY_CASH_CEILING.toLocaleString('fr-FR')} XOF).
           </p>
         )}
+        {anyLineInsufficient && !pettyCashExceeded && (
+          <p
+            role="alert"
+            data-testid="form-budget-insufficient"
+            className="text-sm font-medium text-state-error"
+          >
+            ⚠ Au moins une ligne dépasse le solde budgétaire disponible.
+          </p>
+        )}
       </div>
 
       <div className="flex items-center justify-end gap-2">
         {extraActions}
-        <Button type="submit" disabled={submitting || pettyCashExceeded} data-testid="pr-submit">
+        <Button type="submit" disabled={submitDisabled} data-testid="pr-submit">
           {submitting ? 'Enregistrement…' : submitLabel}
         </Button>
       </div>
