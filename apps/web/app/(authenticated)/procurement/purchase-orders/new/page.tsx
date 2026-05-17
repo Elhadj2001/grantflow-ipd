@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ArrowLeft } from 'lucide-react';
@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCreatePoFromPr, usePR } from '@/hooks/use-procurement';
 import { AmountDisplay } from '@/components/common/AmountDisplay';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import { SupplierPicker } from '@/components/procurement/pickers/SupplierPicker';
 
 const Schema = z.object({
   supplierId: z.string().uuid('Fournisseur (UUID) requis'),
@@ -38,6 +39,7 @@ export default function NewPurchaseOrderPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<FormVals>({ resolver: zodResolver(Schema) });
@@ -106,8 +108,17 @@ export default function NewPurchaseOrderPage() {
               </CardHeader>
               <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="md:col-span-2">
-                  <Label htmlFor="supplierId">Fournisseur (UUID) *</Label>
-                  <Input id="supplierId" {...register('supplierId')} placeholder="00000000-…" />
+                  <Label className="mb-1.5 block text-sm font-medium">Fournisseur *</Label>
+                  <Controller
+                    control={control}
+                    name="supplierId"
+                    render={({ field }) => (
+                      <SupplierPicker
+                        value={field.value || null}
+                        onChange={(id) => field.onChange(id ?? '')}
+                      />
+                    )}
+                  />
                   {errors.supplierId && (
                     <p className="mt-1 text-xs text-state-error">{errors.supplierId.message}</p>
                   )}

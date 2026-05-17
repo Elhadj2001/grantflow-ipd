@@ -622,18 +622,11 @@ export class GoodsReceiptService {
     return this.prisma.$transaction(async (tx) => {
       const lockKey = this.hashToBigInt(`gr_seq_${year}`);
       await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
-      const count = await tx.goodsReceipt.count({
+      // MAX au lieu de COUNT : résilient aux trous (GR supprimés)
+      const last = await tx.goodsReceipt.findFirst({
         where: { grNumber: { startsWith: `GR-${year}-` } },
+        orderBy: { grNumber: 'desc' },
+        select: { grNumber: true },
       });
-      return `GR-${year}-${String(count + 1).padStart(4, '0')}`;
-    });
-  }
-
-  private hashToBigInt(s: string): bigint {
-    let h = 0n;
-    for (let i = 0; i < s.length; i += 1) {
-      h = (h * 31n + BigInt(s.charCodeAt(i))) & 0x7fffffffffffffffn;
-    }
-    return h;
-  }
-}
+      const lastSeq = last ? parseInt(last.grNumber.split('-')[2] ?? '0', 10) : 0;
+      const next = Number.isFinite(lastSeq) ? lastSeq +
