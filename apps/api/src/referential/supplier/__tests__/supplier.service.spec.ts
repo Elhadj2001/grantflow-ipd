@@ -23,6 +23,10 @@ describe('SupplierService', () => {
       create: jest.Mock;
       update: jest.Mock;
     };
+    supplierIbanHistory: {
+      create: jest.Mock;
+      updateMany: jest.Mock;
+    };
     purchaseOrder: { count: jest.Mock };
     $transaction: jest.Mock;
     $queryRaw: jest.Mock;
@@ -76,8 +80,15 @@ describe('SupplierService', () => {
         create: jest.fn(),
         update: jest.fn(),
       },
+      supplierIbanHistory: {
+        create: jest.fn(),
+        updateMany: jest.fn(),
+      },
       purchaseOrder: { count: jest.fn() },
-      $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+      $transaction: jest.fn(async (arg: unknown) => {
+        if (typeof arg === 'function') return (arg as (tx: unknown) => unknown)(prisma);
+        return Promise.all(arg as unknown[]);
+      }),
       $queryRaw: jest.fn(),
     };
     svc = new SupplierService(prisma as unknown as PrismaService);

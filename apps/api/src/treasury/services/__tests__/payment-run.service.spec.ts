@@ -3,10 +3,12 @@ import type { BankAccount, PaymentRun } from '@prisma/client';
 import { PaymentRunService } from '../payment-run.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PostingService } from '../../../accounting/services/posting.service';
+import { IbanFraudService } from '../iban-fraud.service';
 import {
   BankAccountInactiveException,
   BankAccountNotFoundException,
   EntityNotFoundException,
+  ExchangeRateForPaymentMissingException,
   InvoiceAlreadyInRunException,
   InvoiceNotPayableException,
   MissingIbanException,
@@ -144,9 +146,11 @@ describe('PaymentRunService', () => {
       postPayment: jest.fn(),
       listEntriesForPayment: jest.fn(),
     };
+    const ibanFraud = { checkPaymentRun: jest.fn().mockResolvedValue([]) };
     svc = new PaymentRunService(
       prisma as unknown as PrismaService,
       posting as unknown as PostingService,
+      ibanFraud as unknown as IbanFraudService,
     );
   });
 
@@ -191,16 +195,51 @@ describe('PaymentRunService', () => {
       ).rejects.toBeInstanceOf(InvoiceNotPayableException);
     });
 
-    it('rejects PAYMENT_CURRENCY_MISMATCH when invoice currency differs from bank', async () => {
+    it('multi-currency : converts via ref.exchange_rate when invoice currency differs', async () => {
       prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
-      prisma.invoice.findMany.mockResolvedValue([makeInvoice({ currency: 'EUR' })]);
+      prisma.invoice.findMany.mockResolvedValue([
+        makeInvoice({ currency: 'EUR', totalTtc: new Prisma.Decimal('100') }),
+      ]);
+      // mock du taux : 1 EUR = 655.957 XOF
+      (prisma as unknown as { exchangeRate: { findFirst: jest.Mock } }).exchangeRate = {
+        findFirst: jest.fn().mockResolvedValue({ rate: new Prisma.Decimal('655.957') }),
+      };
+      prisma.payment.findMany.mockResolvedValue([]);
+      prisma.paymentRun.count.mockResolvedValue(0);
+      prisma.paymentRun.create.mockResolvedValue(makeRun());
+      prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({
+        ...makeRun(),
+        payments: [],
+      });
+
+      await svc.createRun(actor, {
+        bankAccountId: bankAccountXof.id,
+        invoiceIds: ['inv-1'],
+        method: 'sepa',
+      });
+      const payArgs = prisma.payment.createMany.mock.calls[0][0].data;
+      expect(Number(payArgs[0].amount)).toBeCloseTo(65595.7, 0); // 100 EUR × 655.957
+      expect(payArgs[0].originalCurrency).toBe('EUR');
+      expect(Number(payArgs[0].originalAmount)).toBe(100);
+      expect(Number(payArgs[0].exchangeRate)).toBe(655.957);
+    });
+
+    it('rejects EXCHANGE_RATE_FOR_PAYMENT_MISSING if no rate found', async () => {
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
+      prisma.invoice.findMany.mockResolvedValue([
+        makeInvoice({ currency: 'USD', totalTtc: new Prisma.Decimal('100') }),
+      ]);
+      (prisma as unknown as { exchangeRate: { findFirst: jest.Mock } }).exchangeRate = {
+        findFirst: jest.fn().mockResolvedValue(null),
+      };
+      prisma.payment.findMany.mockResolvedValue([]);
       await expect(
         svc.createRun(actor, {
           bankAccountId: bankAccountXof.id,
           invoiceIds: ['inv-1'],
           method: 'sepa',
         }),
-      ).rejects.toBeInstanceOf(PaymentCurrencyMismatchException);
+      ).rejects.toBeInstanceOf(ExchangeRateForPaymentMissingException);
     });
 
     it('rejects INVOICE_ALREADY_IN_RUN when invoice already linked', async () => {
