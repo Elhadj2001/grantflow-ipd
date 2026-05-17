@@ -2,24 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =====================================================================
+ *  shadcn/ui — design tokens (mode clair seulement pour sprint F1)
+ *  Les couleurs primaires utilisent la charte IPD :
+ *    primary  = pasteur (#BE1622)  HSL = 355 79% 41%
+ *    secondary = navy (#1E3A5F)    HSL = 213 53% 25%
+ * ===================================================================== */
+
 @layer base {
-  html { font-family: var(--font-sans), system-ui, sans-serif; }
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;          /* slate-text #1F2937 */
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 355 79% 41%;             /* pasteur #BE1622 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 213 53% 25%;           /* navy #1E3A5F */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 60 13% 97%;                /* cream #FAFAF7 */
+    --muted-foreground: 220 9% 46%;     /* slate-muted #6B7280 */
+
+    --accent: 355 79% 96%;              /* pasteur-50 #FEF2F3 */
+    --accent-foreground: 355 79% 41%;
+
+    --destructive: 0 73% 51%;           /* state.error #DC2626 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 355 79% 41%;                /* pasteur for focus rings */
+
+    --radius: 0.5rem;
+  }
 }
 
-@layer components {
-  .btn-primary {
-    @apply inline-flex items-center justify-center rounded-lg bg-ipd-700 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-ipd-900 focus:outline-none focus:ring-2 focus:ring-ipd-500 focus:ring-offset-2 transition;
+@layer base {
+  * {
+    @apply border-border;
   }
-  .btn-outline {
-    @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-ipd-500;
+  html {
+    font-family: var(--font-sans), system-ui, sans-serif;
   }
-  .card {
-    @apply rounded-xl bg-white shadow-sm ring-1 ring-slate-200 p-5;
-  }
-  .label-input {
-    @apply block text-xs font-semibold text-slate-600 mb-1;
-  }
-  .input {
-    @apply w-full rounded-lg border-slate-300 text-sm focus:ring-ipd-500 focus:border-ipd-500;
+  body {
+    @apply bg-background text-foreground antialiased;
   }
 }
