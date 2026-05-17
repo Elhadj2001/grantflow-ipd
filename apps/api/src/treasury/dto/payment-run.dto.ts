@@ -42,6 +42,12 @@ export class RemoveInvoicesFromRunDto extends createZodDto(RemoveInvoicesFromRun
 export const ApprovePaymentRunSchema = z
   .object({
     comment: z.string().max(500).optional(),
+    /**
+     * Sprint 5.2 — anti-fraude IBAN : si le run a des alertes, le DAF doit
+     * passer `acknowledgeIbanAlerts=true` + un motif d'au moins 5 chars.
+     */
+    acknowledgeIbanAlerts: z.boolean().optional(),
+    acknowledgeReason: z.string().min(5).max(500).optional(),
   })
   .strict();
 export class ApprovePaymentRunDto extends createZodDto(ApprovePaymentRunSchema) {}

@@ -6,6 +6,8 @@ import {
   BankAccountInactiveException,
   BankAccountNotFoundException,
   EntityNotFoundException,
+  ExchangeRateForPaymentMissingException,
+  IbanAlertsNotAcknowledgedException,
   InvoiceAlreadyInRunException,
   InvoiceNotPayableException,
   MissingIbanException,
@@ -21,8 +23,10 @@ import {
 } from '../../common/exceptions/business.exception';
 import { isValidIban } from '../../referential/supplier/iban-bic.util';
 import { PostingService, type PostingActor } from '../../accounting/services/posting.service';
+import { IbanFraudService } from './iban-fraud.service';
 import type {
   AddInvoicesToRunDto,
+  ApprovePaymentRunDto,
   CreatePaymentRunDto,
   PaymentRunQueryDto,
 } from '../dto/payment-run.dto';
@@ -60,6 +64,7 @@ export class PaymentRunService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly posting: PostingService,
+    private readonly ibanFraud: IbanFraudService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -137,20 +142,22 @@ export class PaymentRunService {
 
   async createRun(actor: PostingActor, dto: CreatePaymentRunDto): Promise<PaymentRunWithPayments> {
     const bankAccount = await this.loadBankAccount(dto.bankAccountId);
-    const currency = bankAccount.currency;
+    const runCurrency = bankAccount.currency;
 
-    // Si l'utilisateur a passé une devise explicite, la valider
-    if (dto.currency && dto.currency !== currency) {
-      throw new PaymentCurrencyMismatchException('(run)', dto.currency, currency);
+    // Si l'utilisateur a passé une devise explicite, elle doit matcher
+    // la banque (la banque ne peut payer que dans sa devise).
+    if (dto.currency && dto.currency !== runCurrency) {
+      throw new PaymentCurrencyMismatchException('(run)', dto.currency, runCurrency);
     }
 
-    const invoices = await this.loadAndValidateInvoices(dto.invoiceIds, currency);
+    const invoices = await this.loadAndValidateInvoices(dto.invoiceIds);
 
     const paymentDate = dto.paymentDate ?? new Date();
-    const totalAmount = invoices.reduce(
-      (s, i) => s + this.remainingAmount(i),
-      0,
+    // Convertit chaque facture vers la devise du run (multidevises sprint 5.2)
+    const paymentsData = await Promise.all(
+      invoices.map((inv) => this.computePaymentLine(inv, runCurrency, paymentDate, dto.method)),
     );
+    const totalAmount = paymentsData.reduce((s, p) => s + p.amount, 0);
 
     return this.prisma.$transaction(async (tx) => {
       const runNumber = await this.generateRunNumber(tx);
@@ -158,7 +165,7 @@ export class PaymentRunService {
         data: {
           runNumber,
           runDate: paymentDate,
-          currency,
+          currency: runCurrency,
           bankAccountId: bankAccount.id,
           preparedBy: actor.id,
           totalAmount,
@@ -167,11 +174,14 @@ export class PaymentRunService {
       });
 
       await tx.payment.createMany({
-        data: invoices.map((inv) => ({
+        data: paymentsData.map((p) => ({
           paymentRunId: run.id,
-          invoiceId: inv.id,
-          amount: this.remainingAmount(inv),
-          currency: inv.currency,
+          invoiceId: p.invoiceId,
+          amount: p.amount,
+          currency: runCurrency,
+          originalAmount: p.originalAmount,
+          originalCurrency: p.originalCurrency,
+          exchangeRate: p.exchangeRate,
           method: dto.method,
           paymentDate,
           status: 'queued',
@@ -184,6 +194,7 @@ export class PaymentRunService {
           bankAccount: bankAccount.code,
           invoiceCount: invoices.length,
           totalAmount,
+          fxLines: paymentsData.filter((p) => p.exchangeRate != null).length,
         },
         'payment run created (draft)',
       );
@@ -211,15 +222,21 @@ export class PaymentRunService {
     if (run.status !== 'draft') {
       throw new PaymentRunNotEditableException(runId, run.status);
     }
-    const invoices = await this.loadAndValidateInvoices(dto.invoiceIds, run.currency);
+    const invoices = await this.loadAndValidateInvoices(dto.invoiceIds);
+    const paymentsData = await Promise.all(
+      invoices.map((inv) => this.computePaymentLine(inv, run.currency, run.runDate, 'sepa')),
+    );
 
     return this.prisma.$transaction(async (tx) => {
       await tx.payment.createMany({
-        data: invoices.map((inv) => ({
+        data: paymentsData.map((p) => ({
           paymentRunId: runId,
-          invoiceId: inv.id,
-          amount: this.remainingAmount(inv),
-          currency: inv.currency,
+          invoiceId: p.invoiceId,
+          amount: p.amount,
+          currency: run.currency,
+          originalAmount: p.originalAmount,
+          originalCurrency: p.originalCurrency,
+          exchangeRate: p.exchangeRate,
           method: 'sepa',
           paymentDate: run.runDate,
           status: 'queued',
@@ -351,6 +368,9 @@ export class PaymentRunService {
       throw new MissingIbanException(missingIban);
     }
 
+    // Anti-fraude IBAN : détection des changements récents (sprint 5.2)
+    const ibanAlerts = await this.ibanFraud.checkPaymentRun(runId);
+
     const updated = await this.prisma.paymentRun.update({
       where: { id: runId },
       data: {
@@ -358,6 +378,10 @@ export class PaymentRunService {
         preparationWarnings:
           warnings.length > 0
             ? (warnings as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+        ibanAlerts:
+          ibanAlerts.length > 0
+            ? (ibanAlerts as unknown as Prisma.InputJsonValue)
             : Prisma.JsonNull,
       },
     });
@@ -368,10 +392,29 @@ export class PaymentRunService {
     });
 
     this.logger.log(
-      { runId, actor: actor.email, paymentCount: payments.length, warnings: warnings.length },
+      {
+        runId,
+        actor: actor.email,
+        paymentCount: payments.length,
+        warnings: warnings.length,
+        ibanAlerts: ibanAlerts.length,
+      },
       'payment run prepared',
     );
     return updated;
+  }
+
+  /**
+   * Liste les alertes IBAN courantes d'un run (depuis payment_run.iban_alerts
+   * persisté au prepare).
+   */
+  async listIbanAlerts(runId: string) {
+    const run = await this.ensureExists(runId);
+    return {
+      runId,
+      runNumber: run.runNumber,
+      alerts: Array.isArray(run.ibanAlerts) ? run.ibanAlerts : [],
+    };
   }
 
   /**
@@ -380,7 +423,11 @@ export class PaymentRunService {
    * Met à jour le statut de chaque facture (partially_paid / paid) en
    * fonction du cumul des paiements executed.
    */
-  async approve(actor: PostingActor, runId: string, comment?: string): Promise<PaymentRun> {
+  async approve(
+    actor: PostingActor,
+    runId: string,
+    dto: ApprovePaymentRunDto = {} as ApprovePaymentRunDto,
+  ): Promise<PaymentRun> {
     const run = await this.ensureExists(runId);
     if (run.status !== 'prepared') {
       throw new PaymentRunNotApprovableException(runId, run.status);
@@ -389,6 +436,31 @@ export class PaymentRunService {
       throw new EntityNotFoundException('BankAccount', { runId, hint: 'No bankAccount linked' });
     }
     const bankAccount = await this.loadBankAccount(run.bankAccountId);
+
+    // Sprint 5.2 — vérif IBAN alerts : le DAF doit explicitement acquitter
+    // les alertes pour pouvoir approuver.
+    const ibanAlerts = Array.isArray(run.ibanAlerts)
+      ? (run.ibanAlerts as unknown[])
+      : [];
+    if (ibanAlerts.length > 0 && dto.acknowledgeIbanAlerts !== true) {
+      throw new IbanAlertsNotAcknowledgedException(runId, ibanAlerts.length);
+    }
+    if (ibanAlerts.length > 0 && dto.acknowledgeIbanAlerts === true) {
+      const reason = (dto.acknowledgeReason ?? '').trim();
+      if (reason.length < 5) {
+        throw new PaymentRunRejectReasonRequiredException();
+      }
+      this.logger.warn(
+        {
+          runId,
+          actor: actor.email,
+          alertCount: ibanAlerts.length,
+          reason,
+          event: 'ACKNOWLEDGED_IBAN_ALERT',
+        },
+        'PaymentRun approved despite IBAN alerts',
+      );
+    }
 
     const payments = await this.prisma.payment.findMany({
       where: { paymentRunId: runId },
@@ -415,6 +487,7 @@ export class PaymentRunService {
     // transaction. Si une étape échoue, on rollbacke les statuts mais
     // les écritures BQ déjà postées restent (extournement manuel via DAF).
     const now = new Date();
+    const comment = dto.comment;
     await this.prisma.$transaction(async (tx) => {
       for (const p of payments) {
         await tx.payment.update({
@@ -451,7 +524,13 @@ export class PaymentRunService {
     });
 
     this.logger.log(
-      { runId, actor: actor.email, paymentCount: payments.length, comment },
+      {
+        runId,
+        actor: actor.email,
+        paymentCount: payments.length,
+        comment,
+        ibanAlertsAcknowledged: ibanAlerts.length,
+      },
       'payment run approved + executed',
     );
 
@@ -519,7 +598,6 @@ export class PaymentRunService {
 
   private async loadAndValidateInvoices(
     invoiceIds: string[],
-    runCurrency: string,
   ): Promise<
     Array<{
       id: string;
@@ -552,9 +630,8 @@ export class PaymentRunService {
       if (!PAYABLE_INVOICE_STATUSES.includes(inv.status)) {
         throw new InvoiceNotPayableException(inv.id, inv.status);
       }
-      if (inv.currency !== runCurrency) {
-        throw new PaymentCurrencyMismatchException(inv.id, inv.currency, runCurrency);
-      }
+      // Note : sprint 5.2 lève le check currency match — la conversion est
+      // gérée par computePaymentLine via ref.exchange_rate.
     }
 
     // Aucune facture déjà liée à un run "actif" (draft/prepared/executed)
@@ -579,6 +656,76 @@ export class PaymentRunService {
     }
 
     return invoices;
+  }
+
+  /**
+   * Calcule les montants d'un paiement à ajouter au run :
+   *  - mono-devise (invoice.currency == runCurrency) : amount = reste à payer
+   *  - multi-devises : on lookup le taux invoice.currency→runCurrency à
+   *    paymentDate (sinon EXCHANGE_RATE_FOR_PAYMENT_MISSING), on stocke
+   *    originalAmount/originalCurrency/exchangeRate.
+   */
+  private async computePaymentLine(
+    invoice: {
+      id: string;
+      currency: string;
+      totalTtc: Prisma.Decimal;
+      payments: { amount: Prisma.Decimal }[];
+    },
+    runCurrency: string,
+    paymentDate: Date,
+    _method: string,
+  ): Promise<{
+    invoiceId: string;
+    amount: number;
+    originalAmount: number | null;
+    originalCurrency: string | null;
+    exchangeRate: number | null;
+  }> {
+    const remainingInInvoiceCcy = this.remainingAmount(invoice);
+    if (invoice.currency === runCurrency) {
+      return {
+        invoiceId: invoice.id,
+        amount: remainingInInvoiceCcy,
+        originalAmount: null,
+        originalCurrency: null,
+        exchangeRate: null,
+      };
+    }
+    // Multi-devises : conversion à paymentDate
+    const rate = await this.lookupRate(invoice.currency, runCurrency, paymentDate);
+    const amountInRunCcy = Math.round(remainingInInvoiceCcy * rate * 100) / 100;
+    return {
+      invoiceId: invoice.id,
+      amount: amountInRunCcy,
+      originalAmount: remainingInInvoiceCcy,
+      originalCurrency: invoice.currency,
+      exchangeRate: rate,
+    };
+  }
+
+  /**
+   * Cherche un taux dans `ref.exchange_rate` à `targetDate` (ou plus
+   * récent ≤). Lève EXCHANGE_RATE_FOR_PAYMENT_MISSING sinon.
+   */
+  private async lookupRate(
+    from: string,
+    to: string,
+    targetDate: Date,
+  ): Promise<number> {
+    if (from === to) return 1;
+    const rate = await this.prisma.exchangeRate.findFirst({
+      where: { fromCurrency: from, toCurrency: to, rateDate: { lte: targetDate } },
+      orderBy: { rateDate: 'desc' },
+    });
+    if (!rate) {
+      throw new ExchangeRateForPaymentMissingException(
+        from,
+        to,
+        targetDate.toISOString().slice(0, 10),
+      );
+    }
+    return Number(rate.rate);
   }
 
   private async loadBankAccount(bankAccountId: string): Promise<BankAccount> {

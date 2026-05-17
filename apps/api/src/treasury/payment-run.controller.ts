@@ -3,10 +3,12 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -15,14 +17,17 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentRunService } from './services/payment-run.service';
+import { SepaService } from './services/sepa.service';
 import {
   AddInvoicesToRunDto,
   ApprovePaymentRunDto,
@@ -41,6 +46,7 @@ import {
 export class PaymentRunController {
   constructor(
     private readonly svc: PaymentRunService,
+    private readonly sepa: SepaService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -173,11 +179,14 @@ export class PaymentRunController {
   @Roles('DAF', 'SUPER_ADMIN')
   @ApiOperation({
     summary: 'Approuver et exécuter le run (DAF) — crée les écritures BQ',
+    description:
+      "Si le run a des alertes IBAN (sprint 5.2), passer acknowledgeIbanAlerts=true + acknowledgeReason (min 5 chars). " +
+      "Sinon → 409 IBAN_ALERTS_NOT_ACKNOWLEDGED.",
   })
   @ApiOkResponse({ description: 'PaymentRun en executed' })
   @ApiConflictResponse({
     description:
-      'PAYMENT_RUN_NOT_APPROVABLE / BANK_ACCOUNT_INACTIVE / BANK_ACCOUNT_WRONG_CLASS / PERIOD_CLOSED',
+      'PAYMENT_RUN_NOT_APPROVABLE / BANK_ACCOUNT_INACTIVE / BANK_ACCOUNT_WRONG_CLASS / PERIOD_CLOSED / IBAN_ALERTS_NOT_ACKNOWLEDGED / EXCHANGE_RATE_FOR_PAYMENT_MISSING / FX_DIFF_TOO_LARGE',
   })
   async approve(
     @CurrentUser() user: AuthenticatedUser,
@@ -185,7 +194,52 @@ export class PaymentRunController {
     @Body() dto: ApprovePaymentRunDto,
   ) {
     const actor = await this.resolveActor(user);
-    return this.svc.approve(actor, id, dto.comment);
+    return this.svc.approve(actor, id, dto);
+  }
+
+  // ------------------------------------------------------------------
+  // Sprint 5.2 — SEPA + anti-fraude IBAN
+  // ------------------------------------------------------------------
+
+  @Get('payment-runs/:id/iban-alerts')
+  @ApiOperation({
+    summary: 'Lister les alertes IBAN détectées au prepare (anti-fraude)',
+  })
+  ibanAlerts(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.svc.listIbanAlerts(id);
+  }
+
+  @Post('payment-runs/:id/generate-sepa')
+  @Roles('TRESORIER', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Générer le fichier SEPA pain.001.001.03 (idempotent, regénère si re-appelé)',
+    description:
+      'Run doit être en prepared ou executed. Fichier stocké dans MinIO bucket grantflow-sepa.',
+  })
+  @ApiConflictResponse({
+    description: 'SEPA_RUN_NOT_READY / SEPA_GENERATION_FAILED',
+  })
+  async generateSepa(@Param('id', new ParseUUIDPipe()) id: string) {
+    const { sepaFileKey, xmlSummary, nbOfTxs, ctrlSum } =
+      await this.sepa.generatePaymentRunXml(id);
+    return { sepaFileKey, xmlSummary, nbOfTxs, ctrlSum };
+  }
+
+  @Get('payment-runs/:id/sepa')
+  @Roles('TRESORIER', 'DAF', 'SUPER_ADMIN')
+  @ApiProduces('application/xml')
+  @Header('Content-Type', 'application/xml')
+  @ApiOperation({ summary: 'Télécharger le fichier SEPA pain.001 du run' })
+  @ApiNotFoundResponse({ description: 'SEPA_NOT_GENERATED (download avant generate)' })
+  async downloadSepa(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.sepa.downloadSepaFile(id);
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.end(buffer);
   }
 
   @Post('payment-runs/:id/reject')

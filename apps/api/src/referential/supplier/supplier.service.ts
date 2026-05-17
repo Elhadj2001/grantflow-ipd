@@ -187,30 +187,48 @@ export class SupplierService {
 
   async create(dto: CreateSupplierDto): Promise<Supplier> {
     try {
-      return await this.prisma.supplier.create({ data: { ...dto } });
+      return await this.prisma.$transaction(async (tx) => {
+        const supplier = await tx.supplier.create({ data: { ...dto } });
+        if (supplier.iban) {
+          await tx.supplierIbanHistory.create({
+            data: {
+              supplierId: supplier.id,
+              iban: supplier.iban,
+              bic: supplier.bic,
+              bankName: supplier.bankName,
+              changeReason: 'INITIAL',
+            },
+          });
+        }
+        return supplier;
+      });
     } catch (e) {
       this.handlePrismaWriteError(e, dto.code);
     }
   }
 
   async replace(id: string, dto: CreateSupplierDto): Promise<Supplier> {
-    await this.ensureExists(id);
+    const existing = await this.ensureExists(id);
     try {
-      return await this.prisma.supplier.update({
-        where: { id },
-        data: {
-          code: dto.code,
-          name: dto.name,
-          vatNumber: dto.vatNumber ?? null,
-          address: dto.address ?? null,
-          country: dto.country ?? null,
-          iban: dto.iban ?? null,
-          bic: dto.bic ?? null,
-          bankName: dto.bankName ?? null,
-          paymentTermsDays: dto.paymentTermsDays,
-          currencyDefault: dto.currencyDefault,
-          riskScore: dto.riskScore,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.supplier.update({
+          where: { id },
+          data: {
+            code: dto.code,
+            name: dto.name,
+            vatNumber: dto.vatNumber ?? null,
+            address: dto.address ?? null,
+            country: dto.country ?? null,
+            iban: dto.iban ?? null,
+            bic: dto.bic ?? null,
+            bankName: dto.bankName ?? null,
+            paymentTermsDays: dto.paymentTermsDays,
+            currencyDefault: dto.currencyDefault,
+            riskScore: dto.riskScore,
+          },
+        });
+        await this.recordIbanChangeIfNeeded(tx, existing, updated, 'REPLACE');
+        return updated;
       });
     } catch (e) {
       this.handlePrismaWriteError(e, dto.code);
@@ -218,11 +236,52 @@ export class SupplierService {
   }
 
   async update(id: string, dto: UpdateSupplierDto): Promise<Supplier> {
-    await this.ensureExists(id);
+    const existing = await this.ensureExists(id);
     try {
-      return await this.prisma.supplier.update({ where: { id }, data: dto });
+      return await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.supplier.update({ where: { id }, data: dto });
+        await this.recordIbanChangeIfNeeded(tx, existing, updated, 'PATCH');
+        return updated;
+      });
     } catch (e) {
       this.handlePrismaWriteError(e, dto.code ?? '(unchanged)');
+    }
+  }
+
+  /**
+   * Si l'IBAN a changé entre `before` et `after`, clôt la ligne courante
+   * du history (effective_to=now()) et insère une nouvelle ligne. Permet
+   * à IbanFraudService de détecter les changements récents au prepare.
+   */
+  private async recordIbanChangeIfNeeded(
+    tx: Prisma.TransactionClient,
+    before: Supplier,
+    after: Supplier,
+    reason: string,
+  ): Promise<void> {
+    const ibanChanged = (before.iban ?? null) !== (after.iban ?? null);
+    const bicChanged = (before.bic ?? null) !== (after.bic ?? null);
+    const bankChanged = (before.bankName ?? null) !== (after.bankName ?? null);
+    if (!ibanChanged && !bicChanged && !bankChanged) return;
+
+    const now = new Date();
+    // 1) Clôture la ligne courante si elle existe
+    await tx.supplierIbanHistory.updateMany({
+      where: { supplierId: after.id, effectiveTo: null },
+      data: { effectiveTo: now },
+    });
+    // 2) Insère la nouvelle ligne courante (si IBAN ou banque renseignée)
+    if (after.iban || after.bankName) {
+      await tx.supplierIbanHistory.create({
+        data: {
+          supplierId: after.id,
+          iban: after.iban,
+          bic: after.bic,
+          bankName: after.bankName,
+          effectiveFrom: now,
+          changeReason: reason,
+        },
+      });
     }
   }
 

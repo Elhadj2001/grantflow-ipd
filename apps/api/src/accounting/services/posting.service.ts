@@ -14,6 +14,7 @@ import {
   BankAccountWrongClassException,
   EntityNotFoundException,
   ExchangeRateMissingException,
+  FxDiffTooLargeException,
   GlAccountNotFoundException,
   InvoiceAlreadyPostedException,
   InvoiceNotPostableException,
@@ -33,6 +34,15 @@ export const ACCOUNT_SUPPLIERS = '401';
 export const ACCOUNT_VAT_DEDUCTIBLE = '445';
 /** Compte de charge fallback si rien n'est résolu ailleurs. */
 export const ACCOUNT_FALLBACK_EXPENSE = '605';
+/** Pertes / gains de change (sprint 5.2 multidevises). */
+export const ACCOUNT_FX_LOSS = '666';
+export const ACCOUNT_FX_GAIN = '766';
+/**
+ * Seuil de sanity (% du montant facture) au-delà duquel un écart de
+ * change déclenche FX_DIFF_TOO_LARGE. Vise les erreurs de saisie de
+ * taux (typo ×10 ou inversion de paire).
+ */
+export const FX_DIFF_SAFETY_THRESHOLD_PCT = 10;
 
 /** Type d'écriture émis par ce service — utilisé en `source_type`. */
 export const SOURCE_TYPE_PO = 'purchase_order';
@@ -86,6 +96,8 @@ export interface PostPaymentResult {
   entryId: string;
   entryNumber: string;
   amountXof: number;
+  /** Écart de change signé (XOF). Positif = gain (766), négatif = perte (666). */
+  fxGainLoss: number;
 }
 
 /**
@@ -758,16 +770,26 @@ export class PostingService {
 
   /**
    * Comptabilise un paiement émis : crée une écriture journal `BQ` (banque)
-   * équilibrée Débit 401 / Crédit 5xx au montant TTC.
+   * équilibrée.
    *
-   *  - Débit 401 (Fournisseurs)         auxiliary_code = supplier.code
-   *  - Crédit bankAccount.glAccountCode (ex: 521)
+   * Mode mono-devise (invoice.currency === payment.currency) :
+   *   D 401 (Fournisseurs, auxiliary_code=supplier.code)   payment.amount
+   *   C bankAccount.glAccountCode (5xx)                    payment.amount
+   *
+   * Mode multi-devises (sprint 5.2 — invoice.currency ≠ payment.currency) :
+   *   D 401 = originalAmount × invoice.exchangeRate   (XOF — solde le 401
+   *           crédité au taux historique lors du postInvoice)
+   *   C bank = payment.amount                          (XOF — cash réel sorti)
+   *   Si écart (D 401 − C bank > 0) → gain → C 766 (Gains de change)
+   *   Si écart < 0 → perte → D 666 (Pertes de change)
    *
    * Pré-conditions :
    *  - facture status ∈ posted / partially_paid
    *  - bankAccount.glAccountCode existe, classe 5, actif
    *  - période fiscale ouverte à payment.paymentDate
-   *  - devise paiement = devise bankAccount (multidevises = sprint 5.2)
+   *  - devise paiement = devise bankAccount
+   *  - en multi-devises : taux historique de la facture présent
+   *    (invoice.exchangeRate non null), sinon EXCHANGE_RATE_FOR_PAYMENT_MISSING
    *
    * Le service NE met PAS à jour la facture (status) — c'est le
    * `PaymentRunService.approve` qui orchestre `posted → partially_paid → paid`
@@ -778,7 +800,8 @@ export class PostingService {
     payment: Payment & { invoice: Invoice & { supplier: { code: string; name: string } } },
     bankAccount: BankAccount,
   ): Promise<PostPaymentResult> {
-    // 1) Cohérence devise (multidevises = sprint 5.2)
+    // 1) Cohérence devise paiement = devise du compte bancaire
+    //    (multidevises = invoice currency vs run currency, traité en aval)
     if (payment.currency !== bankAccount.currency) {
       throw new PaymentCurrencyMismatchException(
         payment.invoiceId,
@@ -787,9 +810,7 @@ export class PostingService {
       );
     }
 
-    // 2) Vérif classe 5 du compte GL (filet de sécurité — déjà
-    //    contrôlé à la création du bankAccount, mais le seed pourrait
-    //    avoir contourné le service)
+    // 2) Vérif classe 5 du compte GL (filet de sécurité)
     const gl = await this.prisma.glAccount.findUnique({
       where: { code: bankAccount.glAccountCode },
       select: { code: true, class: true },
@@ -801,13 +822,51 @@ export class PostingService {
       throw new BankAccountWrongClassException(bankAccount.id, gl.code, gl.class);
     }
 
-    // 3) Période fiscale ouverte à paymentDate (PERIOD_CLOSED si fermée)
+    // 3) Période fiscale ouverte
     const period = await this.findOpenPeriodForDate(payment.paymentDate);
 
-    const amount = Number(payment.amount);
     const supplier = payment.invoice.supplier;
     const label =
       `Paiement ${supplier.code} - ${payment.invoice.invoiceNumber}`.slice(0, 256);
+    const isMultiCurrency =
+      payment.originalCurrency != null &&
+      payment.originalCurrency !== payment.currency;
+
+    // 4) Calcul des montants comptables — tout en XOF (devise des livres)
+    //    Pour sprint 5.2, on suppose bank.currency = XOF (= devise des livres).
+    //    Si bank en EUR/USD (cas EUR bailleur), pas d'écart FX généré ici
+    //    (à revoir au sprint 6 avec une conversion bank→XOF systématique).
+    const bankCreditXof = Number(payment.amount);
+    let expectedDebit401Xof = bankCreditXof;
+    let fxGainLoss = 0;
+
+    if (isMultiCurrency) {
+      // Taux historique de la facture (stocké lors du postInvoice sprint 4.2b)
+      const invoiceRate = payment.invoice.exchangeRate != null
+        ? Number(payment.invoice.exchangeRate)
+        : null;
+      if (invoiceRate == null) {
+        throw new EntityNotFoundException('Invoice.exchangeRate', {
+          invoiceId: payment.invoiceId,
+          hint: 'Historical rate required for multi-currency payment posting',
+        });
+      }
+      const originalAmount = payment.originalAmount != null
+        ? Number(payment.originalAmount)
+        : Number(payment.invoice.totalTtc);
+      expectedDebit401Xof = this.roundXof(originalAmount * invoiceRate);
+      fxGainLoss = this.roundXof(expectedDebit401Xof - bankCreditXof);
+
+      // Sanity check : écart trop grand → probable erreur de taux saisi
+      const threshold = (expectedDebit401Xof * FX_DIFF_SAFETY_THRESHOLD_PCT) / 100;
+      if (Math.abs(fxGainLoss) > threshold) {
+        throw new FxDiffTooLargeException(
+          payment.invoiceId,
+          fxGainLoss,
+          FX_DIFF_SAFETY_THRESHOLD_PCT,
+        );
+      }
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const entryNumber = await this.generateEntryNumber(tx, JournalType.BQ);
@@ -825,41 +884,86 @@ export class PostingService {
         },
       });
 
-      await tx.journalLine.createMany({
-        data: [
-          {
-            entryId: entry.id,
-            lineNumber: 1,
-            accountCode: ACCOUNT_SUPPLIERS,
-            auxiliaryCode: supplier.code,
-            label: `Solde fournisseur ${supplier.code}`,
-            debit: amount,
-            credit: 0,
-            currency: payment.currency,
-          },
-          {
-            entryId: entry.id,
-            lineNumber: 2,
-            accountCode: bankAccount.glAccountCode,
-            label: `Banque ${bankAccount.code} - ${payment.invoice.invoiceNumber}`,
-            debit: 0,
-            credit: amount,
-            currency: payment.currency,
-          },
-        ],
-      });
+      const lines: Prisma.JournalLineCreateManyInput[] = [
+        {
+          entryId: entry.id,
+          lineNumber: 1,
+          accountCode: ACCOUNT_SUPPLIERS,
+          auxiliaryCode: supplier.code,
+          label: `Solde fournisseur ${supplier.code}`,
+          debit: expectedDebit401Xof,
+          credit: 0,
+          currency: payment.invoice.currency,
+        },
+        {
+          entryId: entry.id,
+          lineNumber: 2,
+          accountCode: bankAccount.glAccountCode,
+          label: `Banque ${bankAccount.code} - ${payment.invoice.invoiceNumber}`,
+          debit: 0,
+          credit: bankCreditXof,
+          currency: payment.currency,
+        },
+      ];
+
+      if (fxGainLoss > 0) {
+        // Gain : 401 > bank — on crédite 766
+        lines.push({
+          entryId: entry.id,
+          lineNumber: 3,
+          accountCode: ACCOUNT_FX_GAIN,
+          label: `Gain de change ${payment.invoice.invoiceNumber}`,
+          debit: 0,
+          credit: fxGainLoss,
+          currency: 'XOF',
+        });
+      } else if (fxGainLoss < 0) {
+        // Perte : bank > 401 — on débite 666
+        lines.push({
+          entryId: entry.id,
+          lineNumber: 3,
+          accountCode: ACCOUNT_FX_LOSS,
+          label: `Perte de change ${payment.invoice.invoiceNumber}`,
+          debit: Math.abs(fxGainLoss),
+          credit: 0,
+          currency: 'XOF',
+        });
+      }
+
+      await tx.journalLine.createMany({ data: lines });
 
       await tx.journalEntry.update({
         where: { id: entry.id },
         data: { status: EntryStatus.posted, postedAt: new Date(), postedBy: actor.id },
       });
 
+      // Persiste l'écart sur le paiement (audit + reporting)
+      if (isMultiCurrency) {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { fxGainLoss },
+        });
+      }
+
       this.logger.log(
-        { entryNumber, paymentId: payment.id, amount, bankAccount: bankAccount.code },
+        {
+          entryNumber,
+          paymentId: payment.id,
+          bankCreditXof,
+          expectedDebit401Xof,
+          fxGainLoss,
+          isMultiCurrency,
+          bankAccount: bankAccount.code,
+        },
         'payment posted (BQ entry)',
       );
 
-      return { entryId: entry.id, entryNumber, amountXof: amount };
+      return {
+        entryId: entry.id,
+        entryNumber,
+        amountXof: bankCreditXof,
+        fxGainLoss,
+      };
     });
   }
 
