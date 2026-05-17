@@ -3,6 +3,8 @@
 import { signOut } from 'next-auth/react';
 import { LogOut, User } from 'lucide-react';
 import type { Session } from 'next-auth';
+import type { GrantflowRole } from '@/lib/auth';
+import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,18 +19,46 @@ interface AppHeaderProps {
 }
 
 /**
+ * Priorité d'affichage des rôles (haut → bas) + couleur de badge.
+ * Le rôle "principal" affiché à côté du nom est le premier de la liste
+ * que l'utilisateur possède.
+ */
+const ROLE_PRIORITY: Array<{ role: GrantflowRole; classes: string; label: string }> = [
+  { role: 'SUPER_ADMIN', classes: 'bg-pasteur text-white', label: 'Admin' },
+  { role: 'DAF', classes: 'bg-pasteur text-white', label: 'DAF' },
+  { role: 'CONTROLEUR', classes: 'bg-navy text-white', label: 'Contrôleur' },
+  { role: 'COMPTABLE', classes: 'bg-navy text-white', label: 'Comptable' },
+  { role: 'TRESORIER', classes: 'bg-state-success text-white', label: 'Trésorier' },
+  { role: 'CAISSIER', classes: 'bg-state-warning text-white', label: 'Caissier' },
+  { role: 'ACHETEUR', classes: 'bg-state-success text-white', label: 'Acheteur' },
+  { role: 'MAGASINIER', classes: 'bg-state-success text-white', label: 'Magasinier' },
+  { role: 'PI', classes: 'bg-navy text-white', label: 'PI' },
+  { role: 'DEMANDEUR', classes: 'bg-slate-500 text-white', label: 'Demandeur' },
+  { role: 'BAILLEUR', classes: 'bg-slate-500 text-white', label: 'Bailleur' },
+];
+
+function pickPrimaryRole(roles: GrantflowRole[]): (typeof ROLE_PRIORITY)[number] | null {
+  for (const r of ROLE_PRIORITY) {
+    if (roles.includes(r.role)) return r;
+  }
+  return null;
+}
+
+/**
  * Header de l'app authentifiée — fond rouge IPD (pasteur), 56px de haut.
- * Logo à gauche (placeholder texte), avatar + dropdown à droite.
+ * Sprint F1.1 : ajout d'un badge rôle principal à côté du nom.
  */
 export function AppHeader({ session }: AppHeaderProps) {
   const fullName = session.fullName || session.user?.email || 'Utilisateur';
   const email = session.user?.email ?? '';
-  const initials = fullName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((s) => s[0]?.toUpperCase() ?? '')
-    .join('') || 'U';
+  const initials =
+    fullName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase() ?? '')
+      .join('') || 'U';
+  const primaryRole = pickPrimaryRole(session.roles ?? []);
 
   return (
     <header className="h-14 bg-pasteur text-white flex items-center justify-between px-4 shadow-sm">
@@ -54,11 +84,25 @@ export function AppHeader({ session }: AppHeaderProps) {
             {initials}
           </span>
           <span className="hidden sm:inline text-sm">{fullName}</span>
+          {primaryRole && (
+            <span
+              data-testid="role-badge"
+              className={cn(
+                'hidden md:inline-block rounded-full px-2 py-0.5 text-xs font-medium',
+                primaryRole.classes,
+              )}
+            >
+              {primaryRole.label}
+            </span>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>
             <div className="font-semibold">{fullName}</div>
             {email && <div className="text-xs text-muted-foreground">{email}</div>}
+            {primaryRole && (
+              <div className="mt-1 text-xs text-pasteur">{primaryRole.label}</div>
+            )}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled>

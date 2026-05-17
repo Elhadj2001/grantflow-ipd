@@ -11,6 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SystemStatus } from './SystemStatus';
 
 interface NavItem {
   href: string;
@@ -29,8 +30,8 @@ const NAV: NavItem[] = [
 
 /**
  * Sidebar fixe à gauche, 240px, fond cream. 5 entrées dont Dashboard
- * actif. Les autres sont disabled (opacity-50) en attendant les
- * sprints fonctionnels.
+ * actif. Sprint F1.1 — ajout du bloc SystemStatus en bas (ping
+ * /health toutes les 30 s).
  */
 export function AppSidebar() {
   const pathname = usePathname();
@@ -82,8 +83,9 @@ export function AppSidebar() {
           })}
         </ul>
       </nav>
-      <div className="border-t border-slate-200 px-4 py-3 text-xs text-slate-muted">
-        v0.11.0 — Sprint F1
+      <div className="border-t border-slate-200 px-4 py-3 space-y-2">
+        <SystemStatus />
+        <div className="text-xs text-slate-muted">v0.11.1 — Sprint F1.1</div>
       </div>
     </aside>
   );

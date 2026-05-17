@@ -39,6 +39,24 @@ describe('AppHeader', () => {
     expect(screen.getByText('x@pasteur.sn')).toBeInTheDocument();
   });
 
+  it('renders the primary role badge (DAF)', () => {
+    render(<AppHeader session={fakeSession} />);
+    const badge = screen.getByTestId('role-badge');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent('DAF');
+    expect(badge.className).toMatch(/bg-pasteur/);
+  });
+
+  it('picks SUPER_ADMIN over DAF when both are present', () => {
+    render(<AppHeader session={{ ...fakeSession, roles: ['DAF', 'SUPER_ADMIN'] }} />);
+    expect(screen.getByTestId('role-badge')).toHaveTextContent('Admin');
+  });
+
+  it('shows no badge when roles is empty', () => {
+    render(<AppHeader session={{ ...fakeSession, roles: [] }} />);
+    expect(screen.queryByTestId('role-badge')).toBeNull();
+  });
+
   it('calls signOut when the logout item is clicked', async () => {
     const user = userEvent.setup();
     render(<AppHeader session={fakeSession} />);

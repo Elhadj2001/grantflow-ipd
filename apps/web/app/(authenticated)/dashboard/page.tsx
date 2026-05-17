@@ -1,95 +1,218 @@
-import { FileBarChart, FileText, Wallet } from 'lucide-react';
+import {
+  Calendar,
+  ClipboardList,
+  Download,
+  FileBarChart,
+  FilePlus,
+  FileText,
+  Inbox,
+  Receipt,
+  Send,
+  TrendingUp,
+  Wallet,
+} from 'lucide-react';
 import { auth } from '@/lib/auth';
+import type { GrantflowRole } from '@/lib/auth';
 import { PageHeader } from '@/components/common/PageHeader';
 import { KpiCard } from '@/components/common/KpiCard';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ShortcutCard } from '@/components/common/ShortcutCard';
+import { Button } from '@/components/ui/button';
+
+const ROLE_LABELS_FR: Record<GrantflowRole, string> = {
+  SUPER_ADMIN: 'Administrateur',
+  DAF: 'Directeur Administratif & Financier',
+  CONTROLEUR: 'Contrôleur de gestion',
+  COMPTABLE: 'Comptable',
+  TRESORIER: 'Trésorier',
+  ACHETEUR: 'Acheteur',
+  MAGASINIER: 'Magasinier',
+  PI: 'Principal Investigator',
+  DEMANDEUR: 'Demandeur',
+  BAILLEUR: 'Bailleur / Auditeur',
+  CAISSIER: 'Caissier',
+};
+
+function formatRolesFr(roles: GrantflowRole[]): string {
+  if (roles.length === 0) return 'Aucun rôle attribué';
+  return roles.map((r) => ROLE_LABELS_FR[r]).join(' · ');
+}
+
+function initialsOf(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase() ?? '')
+      .join('') || 'U'
+  );
+}
 
 /**
- * Page d'accueil de l'app authentifiée. Pour le sprint F1, on
- * présente :
- *  - L'en-tête PageHeader avec la date du jour (formatée FR)
- *  - 3 KpiCards en placeholders (valeurs "—" en attendant les
- *    endpoints dashboard du sprint F2)
- *  - Une carte de bienvenue avec fullName + rôles en badges
+ * Sprint F1.1 — refonte dashboard :
+ *  1. PageHeader (titre + date du jour + actions disabled)
+ *  2. Carte hero "Bonjour {fullName}" + rôles + période active
+ *  3. Grille 4 KPIs avec progress bars placeholders
+ *  4. Section "Activité récente" → EmptyState (F2 will populate)
+ *  5. Section "Raccourcis" → 4 ShortcutCards disabled
  */
 export default async function DashboardPage() {
   const session = await auth();
-  // Layout (authenticated) garantit session non nulle, mais TS ne sait
-  // pas ça via `auth()` typing — guard défensif.
   const fullName = session?.fullName ?? session?.user?.email ?? 'Utilisateur';
   const roles = session?.roles ?? [];
 
-  const today = new Intl.DateTimeFormat('fr-FR', {
+  const todayFmt = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   }).format(new Date());
 
+  const monthFmt = new Intl.DateTimeFormat('fr-FR', {
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date());
+  const periodLabel = monthFmt.charAt(0).toUpperCase() + monthFmt.slice(1);
+
   return (
     <>
-      <PageHeader title="Tableau de bord" subtitle={`Aujourd'hui — ${today}`} />
+      <PageHeader
+        title="Tableau de bord"
+        subtitle={
+          <span className="inline-flex items-center gap-1.5">
+            <Calendar className="h-3.5 w-3.5" aria-hidden />
+            {todayFmt.charAt(0).toUpperCase() + todayFmt.slice(1)}
+          </span>
+        }
+        actions={
+          <>
+            <Button variant="outline" size="sm" disabled>
+              <Download className="mr-2 h-4 w-4" aria-hidden />
+              Exporter
+            </Button>
+            <Button size="sm" disabled>
+              <FilePlus className="mr-2 h-4 w-4" aria-hidden />
+              Nouvelle DA
+            </Button>
+          </>
+        }
+      />
 
-      <div className="p-8 space-y-6">
+      <div className="p-8 space-y-8">
+        {/* ====================== Hero ====================== */}
         <section
-          aria-labelledby="kpis-heading"
-          className="grid grid-cols-1 gap-4 md:grid-cols-3"
+          aria-labelledby="hero-heading"
+          className="relative overflow-hidden rounded-xl bg-gradient-to-r from-pasteur to-pasteur-dark text-white shadow-sm"
         >
+          <div className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              <span
+                aria-hidden
+                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white text-pasteur text-lg font-bold shadow-lg ring-4 ring-white/10"
+              >
+                {initialsOf(fullName)}
+              </span>
+              <div>
+                <h2 id="hero-heading" className="text-2xl font-bold leading-tight">
+                  Bonjour {fullName}
+                </h2>
+                <p className="mt-1 text-sm text-pasteur-100">
+                  {formatRolesFr(roles)} — IPD Finance
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-2 self-start rounded-full bg-white/20 px-3 py-1 text-xs font-medium md:self-auto">
+              <Calendar className="h-3.5 w-3.5" aria-hidden />
+              Période : {periodLabel}
+            </span>
+          </div>
+        </section>
+
+        {/* ====================== 4 KPIs ====================== */}
+        <section aria-labelledby="kpis-heading">
           <h2 id="kpis-heading" className="sr-only">
             Indicateurs clés
           </h2>
-          <KpiCard
-            label="DA en attente"
-            value="—"
-            hint="Demandes d'achat à approuver"
-            icon={FileText}
-            accent="pasteur"
-          />
-          <KpiCard
-            label="Factures à matcher"
-            value="—"
-            hint="3-way matching à valider"
-            icon={FileBarChart}
-            accent="navy"
-          />
-          <KpiCard
-            label="Budget consommé"
-            value="—%"
-            hint="Toutes conventions confondues"
-            icon={Wallet}
-            accent="success"
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard
+              label="DA en attente"
+              value="—"
+              hint="Aucune en cours"
+              icon={ClipboardList}
+              accent="pasteur"
+            />
+            <KpiCard
+              label="Factures à matcher"
+              value="—"
+              hint="Aucune en attente"
+              icon={FileText}
+              accent="navy"
+            />
+            <KpiCard
+              label="Budget consommé"
+              value="—%"
+              hint="Mois en cours"
+              icon={TrendingUp}
+              accent="success"
+            />
+            <KpiCard
+              label="Paiements ce mois"
+              value="—"
+              hint="0 XOF traité"
+              icon={Wallet}
+              accent="warning"
+            />
+          </div>
+        </section>
+
+        {/* ====================== Activité récente ====================== */}
+        <section aria-labelledby="activity-heading" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 id="activity-heading" className="text-lg font-semibold text-slate-text">
+              Activité récente
+            </h2>
+            <Button variant="link" size="sm" disabled className="text-pasteur">
+              Voir tout
+            </Button>
+          </div>
+          <EmptyState
+            icon={Inbox}
+            title="Pas encore d'activité"
+            description="Les actions récentes (DA, BC, factures, paiements) apparaîtront ici une fois le module Achats déployé (sprint F2)."
+            actionLabel="Module en construction"
+            actionDisabled
           />
         </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Bienvenue, {fullName}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-slate-muted">
-              Cet espace vous donnera une vue temps réel de vos engagements, vos
-              factures à matcher, votre consommation budgétaire et vos rapports
-              bailleurs. Les indicateurs ci-dessus seront alimentés au sprint
-              F2 par les endpoints <code className="rounded bg-muted px-1">/api/v1/dashboard</code>.
-            </p>
-            <div className="flex flex-wrap gap-2 pt-2">
-              {roles.length === 0 ? (
-                <span className="rounded-full border border-slate-200 px-2.5 py-0.5 text-xs text-slate-muted">
-                  Aucun rôle GRANTFLOW attribué
-                </span>
-              ) : (
-                roles.map((r) => (
-                  <span
-                    key={r}
-                    className="rounded-full bg-pasteur-50 px-2.5 py-0.5 text-xs font-medium text-pasteur"
-                  >
-                    {r}
-                  </span>
-                ))
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {/* ====================== Raccourcis ====================== */}
+        <section aria-labelledby="shortcuts-heading" className="space-y-3">
+          <h2 id="shortcuts-heading" className="text-lg font-semibold text-slate-text">
+            Raccourcis
+          </h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <ShortcutCard
+              icon={FilePlus}
+              title="Créer une DA"
+              description="Saisir une demande d'achat avec imputation analytique."
+            />
+            <ShortcutCard
+              icon={Receipt}
+              title="Suivre factures"
+              description="3-way matching et comptabilisation des factures fournisseurs."
+            />
+            <ShortcutCard
+              icon={Send}
+              title="Lancer un paiement"
+              description="PaymentRun + export SEPA pain.001 multi-bénéficiaires."
+            />
+            <ShortcutCard
+              icon={FileBarChart}
+              title="Rapport bailleur"
+              description="USAID FFR-425, OMS, Wellcome — PDF + Excel."
+            />
+          </div>
+        </section>
       </div>
     </>
   );
