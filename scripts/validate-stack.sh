@@ -153,6 +153,23 @@ check_min "≥ 3 donor_report_template seedés (sprint-6.1)" \
   "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc 'SELECT count(*) FROM reporting.donor_report_template;'" \
   "3"
 
+# Sprint 6.2 — tables clôture / états financiers présentes (DDL appliqué)
+check_min "table gl.period_close_check présente (sprint-6.2)" \
+  "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc \"SELECT count(*) FROM information_schema.tables WHERE table_schema='gl' AND table_name='period_close_check';\"" \
+  "1"
+
+check_min "table gl.period_close_event présente (sprint-6.2)" \
+  "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc \"SELECT count(*) FROM information_schema.tables WHERE table_schema='gl' AND table_name='period_close_event';\"" \
+  "1"
+
+check_min "table reporting.financial_statement présente (sprint-6.2)" \
+  "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc \"SELECT count(*) FROM information_schema.tables WHERE table_schema='reporting' AND table_name='financial_statement';\"" \
+  "1"
+
+check_min "trigger protect_locked_statement actif (sprint-6.2)" \
+  "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc \"SELECT count(*) FROM pg_trigger WHERE tgname='trg_protect_locked_statement';\"" \
+  "1"
+
 # ---- Bilan ----
 echo ""
 echo "============================================================"

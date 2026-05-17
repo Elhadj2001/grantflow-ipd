@@ -26,6 +26,7 @@ import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { DonorReportService } from './services/donor-report.service';
 import { DonorTemplateService } from './services/donor-template.service';
+import { FinancialStatementService } from './services/financial-statement.service';
 import {
   AddMappingsDto,
   CreateDonorTemplateDto,
@@ -34,6 +35,8 @@ import {
   CreateDonorReportDto,
   SendDonorReportDto,
 } from './dto/donor-report.dto';
+import { CreateFinancialStatementDto } from './dto/financial-statement.dto';
+import type { StatementType } from './services/financial-statement-generator.service';
 
 @ApiTags('reporting')
 @ApiBearerAuth()
@@ -44,6 +47,7 @@ export class ReportingController {
   constructor(
     private readonly templates: DonorTemplateService,
     private readonly reports: DonorReportService,
+    private readonly statements: FinancialStatementService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -181,6 +185,89 @@ export class ReportingController {
     @Res() res: Response,
   ): Promise<void> {
     const { buffer, filename } = await this.reports.downloadExcel(id);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.end(buffer);
+  }
+
+  // ------------------------------------------------------------------
+  // Financial statements (sprint 6.2) — TER / BILAN / RESULTAT
+  // ------------------------------------------------------------------
+
+  @Get('statements')
+  @ApiOperation({ summary: 'Liste des états financiers (filtre periodId / type)' })
+  listStatements(
+    @Query('periodId') periodId?: string,
+    @Query('type') type?: StatementType,
+  ) {
+    return this.statements.list(periodId, type);
+  }
+
+  @Get('statements/:id')
+  @ApiOperation({ summary: 'Détail d\'un état financier (lignes par section)' })
+  @ApiNotFoundResponse({ description: 'BUSINESS.FINANCIAL_STATEMENT_NOT_FOUND' })
+  findStatement(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.statements.findOne(id);
+  }
+
+  @Post('statements')
+  @Roles('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Génère un état financier (TER, BILAN ou RESULTAT) sur une période',
+    description:
+      'Idempotent : régénère si pas locked. Lève FINANCIAL_STATEMENT_LOCKED si déjà verrouillé.',
+  })
+  @ApiConflictResponse({
+    description: 'BUSINESS.FINANCIAL_STATEMENT_LOCKED / FINANCIAL_STATEMENT_NOT_BALANCED',
+  })
+  async createStatement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateFinancialStatementDto,
+  ) {
+    const actor = await this.resolveActor(user);
+    return this.statements.generate(actor, dto.periodId, dto.type);
+  }
+
+  @Post('statements/:id/lock')
+  @Roles('DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Verrouille un état financier — DAF only (immuable après lock + close)',
+  })
+  async lockStatement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    const actor = await this.resolveActor(user);
+    return this.statements.lock(actor, id);
+  }
+
+  @Get('statements/:id/pdf')
+  @ApiProduces('application/pdf')
+  @Header('Content-Type', 'application/pdf')
+  @ApiOperation({ summary: 'Télécharger le PDF d\'un état financier' })
+  async downloadStatementPdf(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.statements.downloadPdf(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.end(buffer);
+  }
+
+  @Get('statements/:id/excel')
+  @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @ApiOperation({ summary: 'Télécharger le Excel d\'un état financier (2 onglets)' })
+  async downloadStatementExcel(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.statements.downloadExcel(id);
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
