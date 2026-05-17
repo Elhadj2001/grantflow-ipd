@@ -37,13 +37,18 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  useCancelPosting,
+  useForceMatchInvoice,
   useInvoice,
+  useInvoiceMatchDetails,
+  usePostInvoice,
   useRejectInvoice,
   useSubmitInvoice,
   useUpdateInvoice,
 } from '@/hooks/use-invoicing';
 import { usePermissions } from '@/hooks/use-permissions';
-import type { InvoiceStatus, OcrResult } from '@/lib/api/invoicing';
+import type { InvoiceStatus, MatchSummary, OcrResult } from '@/lib/api/invoicing';
+import { MatchingResultPanel } from '@/components/invoicing/MatchingResultPanel';
 
 const LOW_CONFIDENCE_PCT = 80;
 
@@ -66,7 +71,15 @@ const REJECTABLE_STATUSES: InvoiceStatus[] = [
   'exception_qty',
 ];
 
-type DialogKind = 'reject' | null;
+type DialogKind = 'reject' | 'post' | 'force-match' | 'cancel-posting' | null;
+
+const MATCHING_VISIBLE: InvoiceStatus[] = [
+  'matched',
+  'exception_price',
+  'exception_qty',
+  'posted',
+  'paid',
+];
 
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
@@ -74,9 +87,13 @@ export default function InvoiceDetailPage() {
   const id = params?.id ?? '';
   const permissions = usePermissions();
   const inv = useInvoice(id);
+  const matchDetails = useInvoiceMatchDetails(id);
   const updateM = useUpdateInvoice(id);
   const submitM = useSubmitInvoice(id);
   const rejectM = useRejectInvoice(id);
+  const postM = usePostInvoice(id);
+  const forceMatchM = useForceMatchInvoice(id);
+  const cancelPostM = useCancelPosting(id);
   const [editing, setEditing] = React.useState(false);
   const [dialog, setDialog] = React.useState<DialogKind>(null);
 
@@ -111,6 +128,16 @@ export default function InvoiceDetailPage() {
   const canEdit = isEditable && permissions.canMatchInvoice();
   const canSubmit = SUBMITTABLE_STATUSES.includes(data.status) && permissions.canMatchInvoice();
   const canReject = REJECTABLE_STATUSES.includes(data.status) && permissions.canRejectInvoice();
+  const canPost = data.status === 'matched' && permissions.canPostInvoice();
+  const canForceMatch =
+    (data.status === 'exception_price' || data.status === 'exception_qty') &&
+    permissions.canForceMatchInvoice();
+  const canCancelPosting = data.status === 'posted' && permissions.canCancelPosting();
+  const matchingVisible = MATCHING_VISIBLE.includes(data.status);
+  const matchSummary =
+    matchDetails.data?.summary ??
+    (data.matchSummary as unknown as MatchSummary | null) ??
+    null;
   const ocrPayload = (data.capturedPayload?.ocr ?? null) as OcrResult | null;
   const lowConfidence = ocrPayload && ocrPayload.confidence < LOW_CONFIDENCE_PCT;
 
@@ -161,15 +188,23 @@ export default function InvoiceDetailPage() {
                 <Send className="mr-2 h-4 w-4" /> {submitM.isPending ? 'Matching…' : 'Soumettre au matching'}
               </Button>
             )}
-            {data.status === 'matched' && permissions.canPostInvoice() && (
+            {canPost && (
               <Button
                 size="sm"
-                onClick={() =>
-                  router.push(`/accounting/invoices/${data.id}#post`)
-                }
-                data-testid="invoice-post-cta"
+                onClick={() => setDialog('post')}
+                data-testid="invoice-post"
               >
                 <CheckCircle2 className="mr-2 h-4 w-4" /> Comptabiliser…
+              </Button>
+            )}
+            {canCancelPosting && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDialog('cancel-posting')}
+                data-testid="invoice-cancel-posting"
+              >
+                Annuler comptabilisation
               </Button>
             )}
             {data.status === 'posted' && permissions.canViewJournalEntry() && (
@@ -295,6 +330,16 @@ export default function InvoiceDetailPage() {
             </CardContent>
           </Card>
 
+          {matchingVisible && (
+            <MatchingResultPanel
+              invoice={data}
+              summary={matchSummary}
+              showForceMatch={canForceMatch}
+              onForceMatch={() => setDialog('force-match')}
+              forceMatchPending={forceMatchM.isPending}
+            />
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Lignes ({data.lines.length})</CardTitle>
@@ -389,6 +434,70 @@ export default function InvoiceDetailPage() {
         loading={rejectM.isPending}
         onConfirm={async (reason) => {
           await rejectM.mutateAsync(reason ?? '');
+          setDialog(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={dialog === 'post'}
+        onOpenChange={(o) => !o && setDialog(null)}
+        title="Comptabiliser la facture"
+        description={
+          <>
+            Cette action est <b>irréversible côté UI</b>. Elle crée l'écriture comptable AC
+            (SYSCEBNL) et extourne l'engagement classe 8 du BC. Aucun aperçu n'est
+            disponible avant validation — les triggers PostgreSQL vérifient l'équilibre
+            débit/crédit. En cas d'erreur, seul un DAF peut annuler la comptabilisation
+            via <i>cancel-posting</i> (et tant qu'aucun paiement n'a été émis).
+          </>
+        }
+        confirmLabel="Comptabiliser"
+        loading={postM.isPending}
+        onConfirm={async () => {
+          await postM.mutateAsync();
+          setDialog(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={dialog === 'force-match'}
+        onOpenChange={(o) => !o && setDialog(null)}
+        title="Forcer le matching (DAF)"
+        description={
+          <>
+            Réservé aux cas exceptionnels. La facture passera en <code>matched</code>
+            malgré l'exception. Le motif sera consigné dans l'audit log et dans
+            <code> match_summary.forcedMatch</code> (min 5 caractères).
+          </>
+        }
+        destructive
+        requireReason
+        reasonLabel="Motif de l'override"
+        confirmLabel="Forcer le matching"
+        loading={forceMatchM.isPending}
+        onConfirm={async (reason) => {
+          await forceMatchM.mutateAsync(reason ?? '');
+          setDialog(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={dialog === 'cancel-posting'}
+        onOpenChange={(o) => !o && setDialog(null)}
+        title="Annuler la comptabilisation"
+        description={
+          <>
+            Crée une écriture AC inverse qui solde l'originale, puis recrée l'engagement
+            classe 8 du BC. Refusé si un paiement a déjà été émis. Motif obligatoire.
+          </>
+        }
+        destructive
+        requireReason
+        reasonLabel="Motif de l'annulation"
+        confirmLabel="Annuler la comptabilisation"
+        loading={cancelPostM.isPending}
+        onConfirm={async (reason) => {
+          await cancelPostM.mutateAsync(reason ?? '');
           setDialog(null);
         }}
       />
