@@ -109,7 +109,7 @@ export default async function DashboardPage() {
             <div className="flex items-center gap-4">
               <span
                 aria-hidden
-                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white text-pasteur text-lg font-bold shadow-lg ring-4 ring-white/10"
+                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white text-ipd-darker text-lg font-bold shadow-lg ring-4 ring-white/10"
               >
                 {initialsOf(fullName)}
               </span>
@@ -117,7 +117,7 @@ export default async function DashboardPage() {
                 <h2 id="hero-heading" className="text-2xl font-bold leading-tight">
                   Bonjour {fullName}
                 </h2>
-                <p className="mt-1 text-sm text-pasteur-100">
+                <p className="mt-1 text-sm text-ipd-100">
                   {formatRolesFr(roles)} — IPD Finance
                 </p>
               </div>
@@ -140,7 +140,7 @@ export default async function DashboardPage() {
               value="—"
               hint="Aucune en cours"
               icon={ClipboardList}
-              accent="pasteur"
+              accent="ipd"
             />
             <KpiCard
               label="Factures à matcher"
@@ -172,7 +172,7 @@ export default async function DashboardPage() {
             <h2 id="activity-heading" className="text-lg font-semibold text-slate-text">
               Activité récente
             </h2>
-            <Button variant="link" size="sm" disabled className="text-pasteur">
+            <Button variant="link" size="sm" disabled className="text-ipd-darker">
               Voir tout
             </Button>
           </div>

@@ -22,12 +22,12 @@ describe('AppSidebar', () => {
     );
   });
 
-  it('marks Dashboard active on /dashboard with pasteur accent', () => {
+  it('marks Dashboard active on /dashboard with ipd accent', () => {
     mockPathname = '/dashboard';
     render(<AppSidebar />);
     const dashboardLink = screen.getByText('Dashboard').closest('a');
     expect(dashboardLink).toHaveAttribute('aria-current', 'page');
-    expect(dashboardLink?.className).toMatch(/border-l-pasteur/);
+    expect(dashboardLink?.className).toMatch(/border-l-ipd/);
   });
 
   it('disables Achats / Compta / Trésorerie / Reporting in F1', () => {

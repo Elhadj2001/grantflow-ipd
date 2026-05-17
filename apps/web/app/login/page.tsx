@@ -17,7 +17,7 @@ const FEATURES: Feature[] = [
 ];
 
 const ROLE_PREVIEWS = [
-  { label: 'DAF', color: 'bg-pasteur text-white' },
+  { label: 'DAF', color: 'bg-ipd-dark text-white' },
   { label: 'Comptable', color: 'bg-navy text-white' },
   { label: 'Demandeur', color: 'bg-state-success text-white' },
 ];
@@ -77,11 +77,11 @@ export default async function LoginPage({
           <div className="flex items-center gap-3">
             <span
               aria-hidden
-              className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white text-pasteur font-bold text-xl shadow-lg ring-4 ring-white/10"
+              className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white text-ipd-darker font-bold text-xl shadow-lg ring-4 ring-white/10"
             >
               IPD
             </span>
-            <div className="text-xs uppercase tracking-widest text-pasteur-100">
+            <div className="text-xs uppercase tracking-widest text-ipd-100">
               Institut Pasteur de Dakar
             </div>
           </div>
@@ -89,7 +89,7 @@ export default async function LoginPage({
           {/* Titre + sous-titre */}
           <div className="space-y-3 max-w-xl">
             <h1 className="text-4xl lg:text-5xl font-bold leading-tight">GRANTFLOW IPD</h1>
-            <p className="text-pasteur-50 text-lg leading-relaxed">
+            <p className="text-ipd-50 text-lg leading-relaxed">
               Automatisation Procure-to-Account & Comptabilité analytique multi-bailleurs.
             </p>
           </div>
@@ -107,7 +107,7 @@ export default async function LoginPage({
           </ul>
         </div>
 
-        <div className="relative pt-8 text-xs text-pasteur-100">
+        <div className="relative pt-8 text-xs text-ipd-100">
           © 2026 Institut Pasteur de Dakar — Direction Administrative & Financière
         </div>
       </aside>
@@ -172,7 +172,7 @@ export default async function LoginPage({
             aria-label="Liens secondaires"
             className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-muted"
           >
-            <Link href="/" className="hover:text-pasteur underline-offset-4 hover:underline">
+            <Link href="/" className="hover:text-ipd-darker underline-offset-4 hover:underline">
               Accueil
             </Link>
             <span aria-hidden>•</span>

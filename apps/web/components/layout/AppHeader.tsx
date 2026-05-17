@@ -24,8 +24,10 @@ interface AppHeaderProps {
  * que l'utilisateur possède.
  */
 const ROLE_PRIORITY: Array<{ role: GrantflowRole; classes: string; label: string }> = [
-  { role: 'SUPER_ADMIN', classes: 'bg-pasteur text-white', label: 'Admin' },
-  { role: 'DAF', classes: 'bg-pasteur text-white', label: 'DAF' },
+  // Note : pour les badges sur fond rouge/aqua du header, on utilise les
+  // teintes "-dark" qui passent AA avec text-white.
+  { role: 'SUPER_ADMIN', classes: 'bg-ipd-dark text-white', label: 'Admin' },
+  { role: 'DAF', classes: 'bg-ipd-dark text-white', label: 'DAF' },
   { role: 'CONTROLEUR', classes: 'bg-navy text-white', label: 'Contrôleur' },
   { role: 'COMPTABLE', classes: 'bg-navy text-white', label: 'Comptable' },
   { role: 'TRESORIER', classes: 'bg-state-success text-white', label: 'Trésorier' },
@@ -45,8 +47,9 @@ function pickPrimaryRole(roles: GrantflowRole[]): (typeof ROLE_PRIORITY)[number]
 }
 
 /**
- * Header de l'app authentifiée — fond rouge IPD (pasteur), 56px de haut.
+ * Header de l'app authentifiée — fond aqua IPD (#4FC3D9), 56px de haut.
  * Sprint F1.1 : ajout d'un badge rôle principal à côté du nom.
+ * Sprint F1.2 : re-charte aqua (pasteur → ipd).
  */
 export function AppHeader({ session }: AppHeaderProps) {
   const fullName = session.fullName || session.user?.email || 'Utilisateur';
@@ -61,11 +64,11 @@ export function AppHeader({ session }: AppHeaderProps) {
   const primaryRole = pickPrimaryRole(session.roles ?? []);
 
   return (
-    <header className="h-14 bg-pasteur text-white flex items-center justify-between px-4 shadow-sm">
+    <header className="h-14 bg-ipd text-white flex items-center justify-between px-4 shadow-sm">
       <div className="flex items-center gap-2 font-bold tracking-tight">
         <span
           aria-hidden
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-white text-pasteur font-bold"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-white text-ipd-darker font-bold"
         >
           G
         </span>
@@ -75,11 +78,11 @@ export function AppHeader({ session }: AppHeaderProps) {
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label="Menu utilisateur"
-          className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-pasteur-dark/40 focus:outline-none focus:ring-2 focus:ring-white/60"
+          className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-ipd-dark/40 focus:outline-none focus:ring-2 focus:ring-white/60"
         >
           <span
             aria-hidden
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-pasteur text-sm font-semibold"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-ipd-darker text-sm font-semibold"
           >
             {initials}
           </span>
@@ -101,7 +104,7 @@ export function AppHeader({ session }: AppHeaderProps) {
             <div className="font-semibold">{fullName}</div>
             {email && <div className="text-xs text-muted-foreground">{email}</div>}
             {primaryRole && (
-              <div className="mt-1 text-xs text-pasteur">{primaryRole.label}</div>
+              <div className="mt-1 text-xs text-ipd-darker">{primaryRole.label}</div>
             )}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />

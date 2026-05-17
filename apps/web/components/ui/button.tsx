@@ -8,12 +8,14 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-pasteur-dark',
+        // 'default' utilise ipd-dark/darker explicitement (PAS bg-primary qui
+        // est aqua clair et n'a pas de contraste AA avec text-white).
+        default: 'bg-ipd-dark text-white hover:bg-ipd-darker',
         destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
         outline: 'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-navy-light',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
-        link: 'text-primary underline-offset-4 hover:underline',
+        link: 'text-ipd-darker underline-offset-4 hover:underline',
       },
       size: {
         default: 'h-10 px-4 py-2',

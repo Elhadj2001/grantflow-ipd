@@ -71,8 +71,8 @@ export function AppSidebar() {
                   className={cn(
                     baseClasses,
                     active
-                      ? 'bg-pasteur-50 text-pasteur border-l-pasteur'
-                      : 'text-slate-text hover:bg-pasteur-50/60 hover:text-pasteur',
+                      ? 'bg-ipd-50 text-ipd-darker border-l-ipd'
+                      : 'text-slate-text hover:bg-ipd-50/60 hover:text-ipd-darker',
                   )}
                 >
                   <Icon className="h-4 w-4" />
