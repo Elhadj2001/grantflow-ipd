@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { ArrowLeft, CheckCircle2, Pencil, Send, Undo2, XCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Pencil, Send, ShoppingCart, Undo2, XCircle, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { AmountDisplay } from '@/components/common/AmountDisplay';
@@ -84,6 +84,11 @@ export default function PurchaseRequestDetailPage() {
   const canCancel = isDraft && permissions.canCancelPR(ownerId, userEmail);
   const canSubmit = isDraft && permissions.canCreatePR();
 
+  const canCreateBC =
+    data.status === 'approved' &&
+    data.requestType !== 'petty_cash' &&
+    permissions.canCreatePO();
+
   const canApproveNow =
     (data.status === 'pending_pi' && permissions.canApprovePRAsPi()) ||
     (data.status === 'pending_cg' && permissions.canApprovePRAsCg()) ||
@@ -131,6 +136,17 @@ export default function PurchaseRequestDetailPage() {
             {canSubmit && (
               <Button size="sm" onClick={() => setDialog('submit')} data-testid="action-submit">
                 <Send className="mr-2 h-4 w-4" /> Soumettre
+              </Button>
+            )}
+            {canCreateBC && (
+              <Button
+                size="sm"
+                onClick={() =>
+                  router.push(`/procurement/purchase-orders/new?fromPR=${data.id}`)
+                }
+                data-testid="action-create-bc"
+              >
+                <ShoppingCart className="mr-2 h-4 w-4" /> Créer un BC
               </Button>
             )}
             {canApproveNow && (
