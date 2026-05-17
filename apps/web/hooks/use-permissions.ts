@@ -31,6 +31,24 @@ export interface Permissions {
   canManagePO: () => boolean;
 
   canReceive: () => boolean;
+
+  // ------------------ Invoicing (sprint F3) ------------------
+  /** Upload PDF facture (capture OCR) — COMPTABLE / SUPER_ADMIN. */
+  canUploadInvoice: () => boolean;
+  /** Lancer le matching 3-voies (submit) — COMPTABLE / SUPER_ADMIN. */
+  canMatchInvoice: () => boolean;
+  /** Forcer matched malgré exception — DAF / SUPER_ADMIN. */
+  canForceMatchInvoice: () => boolean;
+  /** Comptabiliser (post) — COMPTABLE / DAF / SUPER_ADMIN. */
+  canPostInvoice: () => boolean;
+  /** Annuler la comptabilisation — DAF / SUPER_ADMIN. */
+  canCancelPosting: () => boolean;
+  /** Rejeter une facture — COMPTABLE / DAF / SUPER_ADMIN. */
+  canRejectInvoice: () => boolean;
+  /** Voir les factures (tous sauf BAILLEUR lecture seule — implicite côté serveur). */
+  canViewInvoice: () => boolean;
+  /** Consulter une écriture comptable. */
+  canViewJournalEntry: () => boolean;
 }
 
 /**
@@ -78,6 +96,28 @@ export function usePermissions(): Permissions {
 
       // Procurement — Réception
       canReceive: () => hasAny('MAGASINIER', 'SUPER_ADMIN'),
+
+      // Invoicing — F3
+      canUploadInvoice: () => hasAny('COMPTABLE', 'SUPER_ADMIN'),
+      canMatchInvoice: () => hasAny('COMPTABLE', 'SUPER_ADMIN'),
+      canForceMatchInvoice: () => hasAny('DAF', 'SUPER_ADMIN'),
+      canPostInvoice: () => hasAny('COMPTABLE', 'DAF', 'SUPER_ADMIN'),
+      canCancelPosting: () => hasAny('DAF', 'SUPER_ADMIN'),
+      canRejectInvoice: () => hasAny('COMPTABLE', 'DAF', 'SUPER_ADMIN'),
+      canViewInvoice: () =>
+        hasAny(
+          'COMPTABLE',
+          'DAF',
+          'CONTROLEUR',
+          'SUPER_ADMIN',
+          'TRESORIER',
+          'ACHETEUR',
+          'BAILLEUR',
+          'DEMANDEUR',
+          'PI',
+        ),
+      canViewJournalEntry: () =>
+        hasAny('COMPTABLE', 'DAF', 'CONTROLEUR', 'SUPER_ADMIN'),
     };
   }, [roles]);
 }
