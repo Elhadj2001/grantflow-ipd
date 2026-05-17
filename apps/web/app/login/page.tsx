@@ -1,12 +1,38 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { BarChart3, CheckCircle2, Globe, Lock } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import { LoginButton } from './login-button';
 
+interface Feature {
+  Icon: typeof CheckCircle2;
+  text: string;
+}
+
+const FEATURES: Feature[] = [
+  { Icon: CheckCircle2, text: 'Cycle complet DA → BC → Facture → Paiement' },
+  { Icon: Lock, text: "Conformité SYSCEBNL & piste d'audit immuable" },
+  { Icon: Globe, text: 'Multi-bailleurs, multi-devises, parité fixe BCEAO' },
+  { Icon: BarChart3, text: 'Reporting bailleur automatisé (TER, Bilan, USAID FFR-425)' },
+];
+
+const ROLE_PREVIEWS = [
+  { label: 'DAF', color: 'bg-pasteur text-white' },
+  { label: 'Comptable', color: 'bg-navy text-white' },
+  { label: 'Demandeur', color: 'bg-state-success text-white' },
+];
+
 /**
- * Page /login : si l'utilisateur est déjà authentifié, redirige vers
- * /dashboard. Sinon affiche la card centrée avec le bouton "Se
- * connecter avec Keycloak" qui déclenche signIn('keycloak') côté client.
+ * Sprint F1.1 — refonte page /login.
+ *
+ *  - Aside gauche : dégradé pasteur → pasteur-dark, pattern SVG dots,
+ *    logo cerclé blanc, 4 features (CheckCircle/Lock/Globe/BarChart3),
+ *    footer copyright.
+ *  - Section droite : Card centrée, header "Connexion", bouton SSO
+ *    Keycloak full-width, separator "ou", note redirection, mini-cards
+ *    rôles, footer liens secondaires.
+ *
+ * Server component — délègue le bouton à login-button.tsx (client).
  */
 export default async function LoginPage({
   searchParams,
@@ -19,43 +45,143 @@ export default async function LoginPage({
   const callbackUrl = searchParams?.callbackUrl ?? '/dashboard';
 
   return (
-    <main className="min-h-screen grid lg:grid-cols-2 bg-cream">
-      <aside className="hidden lg:flex flex-col justify-center bg-pasteur text-white p-12">
-        <div className="text-5xl font-bold mb-3">G</div>
-        <h2 className="text-3xl font-bold mb-3">GRANTFLOW IPD</h2>
-        <p className="opacity-90 max-w-md">
-          Plateforme intégrée Procure-to-Account et comptabilité analytique
-          multi-bailleurs — Institut Pasteur de Dakar.
-        </p>
-        <p className="text-xs opacity-60 mt-12">
-          © 2026 Institut Pasteur de Dakar — Conforme SYSCEBNL
-        </p>
-      </aside>
+    <main className="min-h-screen flex flex-col lg:flex-row bg-cream">
+      {/* ====================== ASIDE (rouge dégradé) ====================== */}
+      <aside
+        aria-label="Présentation GRANTFLOW IPD"
+        className="relative overflow-hidden bg-gradient-to-br from-pasteur via-pasteur to-pasteur-dark text-white p-8 lg:p-12 lg:basis-1/2 lg:flex flex-col justify-between"
+      >
+        {/* Pattern SVG dots subtil */}
+        <svg
+          aria-hidden
+          className="absolute inset-0 h-full w-full opacity-10"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <pattern
+              id="dot-pattern"
+              x="0"
+              y="0"
+              width="24"
+              height="24"
+              patternUnits="userSpaceOnUse"
+            >
+              <circle cx="2" cy="2" r="1.2" fill="currentColor" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#dot-pattern)" />
+        </svg>
 
-      <section className="flex items-center justify-center p-8">
-        <div className="w-full max-w-sm space-y-6">
-          <div>
-            <h3 className="text-2xl font-bold text-slate-text">Bienvenue</h3>
-            <p className="text-sm text-slate-muted mt-1">
-              Connectez-vous avec votre compte Pasteur (SSO Keycloak).
+        <div className="relative space-y-8">
+          {/* Logo cerclé */}
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden
+              className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white text-pasteur font-bold text-xl shadow-lg ring-4 ring-white/10"
+            >
+              IPD
+            </span>
+            <div className="text-xs uppercase tracking-widest text-pasteur-100">
+              Institut Pasteur de Dakar
+            </div>
+          </div>
+
+          {/* Titre + sous-titre */}
+          <div className="space-y-3 max-w-xl">
+            <h1 className="text-4xl lg:text-5xl font-bold leading-tight">GRANTFLOW IPD</h1>
+            <p className="text-pasteur-50 text-lg leading-relaxed">
+              Automatisation Procure-to-Account & Comptabilité analytique multi-bailleurs.
             </p>
           </div>
 
-          {error && (
-            <div
-              role="alert"
-              className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-            >
-              Échec de connexion : {error}
+          {/* Features list */}
+          <ul className="space-y-3 max-w-md">
+            {FEATURES.map(({ Icon, text }) => (
+              <li key={text} className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/20">
+                  <Icon className="h-4 w-4" aria-hidden />
+                </span>
+                <span className="text-sm leading-relaxed">{text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="relative pt-8 text-xs text-pasteur-100">
+          © 2026 Institut Pasteur de Dakar — Direction Administrative & Financière
+        </div>
+      </aside>
+
+      {/* ====================== FORM (droite) ====================== */}
+      <section className="flex flex-1 flex-col items-center justify-center p-6 lg:p-12">
+        <div className="w-full max-w-md space-y-6">
+          <article className="rounded-2xl border border-slate-200 bg-white shadow-xl p-8 space-y-6">
+            <header className="space-y-2 text-center">
+              <h2 className="text-3xl font-bold text-slate-text">Connexion</h2>
+              <p className="text-sm text-slate-muted">Accédez à votre espace IPD.</p>
+            </header>
+
+            {error && (
+              <div
+                role="alert"
+                className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+              >
+                Échec de connexion : {error}
+              </div>
+            )}
+
+            <LoginButton callbackUrl={callbackUrl} />
+
+            <div className="relative my-2">
+              <div className="absolute inset-0 flex items-center" aria-hidden>
+                <span className="w-full border-t border-slate-200" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase tracking-wide">
+                <span className="bg-white px-3 text-slate-muted">ou</span>
+              </div>
             </div>
-          )}
 
-          <LoginButton callbackUrl={callbackUrl} />
+            <p className="text-center text-sm text-slate-muted">
+              Vous serez redirigé vers Keycloak pour authentification SSO.
+              <br />
+              <span className="text-xs">Authentification multi-facteurs activée pour DAF.</span>
+            </p>
 
-          <p className="text-xs text-slate-muted text-center">
-            En cas de problème, contactez votre DAF ou consultez{' '}
-            <Link href="/" className="underline">l'accueil</Link>.
-          </p>
+            {/* Mini-cards rôles décoratifs */}
+            <div className="pt-2">
+              <p className="mb-2 text-center text-xs uppercase tracking-wide text-slate-muted">
+                Adapté à votre rôle
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {ROLE_PREVIEWS.map((r) => (
+                  <span
+                    key={r.label}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${r.color}`}
+                  >
+                    {r.label}
+                  </span>
+                ))}
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-muted">
+                  + 8 rôles
+                </span>
+              </div>
+            </div>
+          </article>
+
+          <nav
+            aria-label="Liens secondaires"
+            className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-muted"
+          >
+            <Link href="/" className="hover:text-pasteur underline-offset-4 hover:underline">
+              Accueil
+            </Link>
+            <span aria-hidden>•</span>
+            <span>Documentation</span>
+            <span aria-hidden>•</span>
+            <span>Politique RGPD</span>
+            <span aria-hidden>•</span>
+            <span>Contact DAF</span>
+          </nav>
         </div>
       </section>
     </main>
