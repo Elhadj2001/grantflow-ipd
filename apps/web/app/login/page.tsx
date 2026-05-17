@@ -25,9 +25,9 @@ const ROLE_PREVIEWS = [
 /**
  * Sprint F1.1 — refonte page /login.
  *
- *  - Aside gauche : dégradé pasteur → pasteur-dark, pattern SVG dots,
- *    logo cerclé blanc, 4 features (CheckCircle/Lock/Globe/BarChart3),
- *    footer copyright.
+ *  - Aside gauche : dégradé ipd → ipd-dark → navy (aqua qui glisse vers
+ *    secondaire), pattern SVG dots, logo cerclé blanc, 4 features
+ *    (CheckCircle/Lock/Globe/BarChart3), footer copyright.
  *  - Section droite : Card centrée, header "Connexion", bouton SSO
  *    Keycloak full-width, separator "ou", note redirection, mini-cards
  *    rôles, footer liens secondaires.
@@ -49,7 +49,7 @@ export default async function LoginPage({
       {/* ====================== ASIDE (rouge dégradé) ====================== */}
       <aside
         aria-label="Présentation GRANTFLOW IPD"
-        className="relative overflow-hidden bg-gradient-to-br from-pasteur via-pasteur to-pasteur-dark text-white p-8 lg:p-12 lg:basis-1/2 lg:flex flex-col justify-between"
+        className="relative overflow-hidden bg-gradient-to-br from-ipd via-ipd-dark to-navy text-white p-8 lg:p-12 lg:basis-1/2 lg:flex flex-col justify-between"
       >
         {/* Pattern SVG dots subtil */}
         <svg

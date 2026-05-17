@@ -65,6 +65,17 @@
 - Appels API via `lib/api-client.ts` avec TanStack Query.
 - Tous les forms utilisent React Hook Form + Zod.
 
+#### Charte couleur IPD (aqua institutionnel)
+- **Primaire** : `ipd` (#4FC3D9) — aqua doux / teal institutionnel. Le nom historique « Pasteur rouge » ne s'applique PAS à l'IPD.
+- **Secondaire** : `navy` (#1E3A5F) — pour graphiques + transitions.
+- **Règles d'usage AA** :
+  - `bg-ipd` → grandes surfaces (header, hero, login aside).
+  - `bg-ipd-dark` (#2BA0B8) → **boutons primaires** (texte blanc reste lisible).
+  - `text-ipd-darker` (#1B7A8E) → texte de marque sur fond clair (titres, liens).
+  - `bg-ipd-50/100` → fonds très clairs (items actifs sidebar, hover doux).
+  - **Jamais** `bg-ipd` + `text-white` ensemble (contraste insuffisant).
+- Tokens shadcn (`--primary`, `--ring`, `--accent`) mappés sur cette charte dans `globals.css`.
+
 ### Backend (NestJS)
 - Un module par bounded context : `auth/`, `procurement/`, `ap/`, `gl/`, `co/`, `reporting/`, `treasury/`, `referential/`.
 - Pattern Controller → Service → Repository (Prisma).
