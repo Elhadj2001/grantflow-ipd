@@ -288,6 +288,9 @@ model AppUser {
   cashBoxesCustodian    CashBox[]
   cashSettlementsDone   CashSettlement[]
   invoicesMatched       Invoice[]        @relation("InvoiceMatchedBy")
+  donorReportsGenerated DonorReport[]    @relation("DonorReportGeneratedBy")
+  donorReportsLocked    DonorReport[]    @relation("DonorReportLockedBy")
+  donorReportsSent      DonorReport[]    @relation("DonorReportSentBy")
 
   @@index([status], map: "idx_user_status")
   @@map("app_user")
@@ -344,6 +347,7 @@ model GlAccount {
   allocationRulesAsSource AllocationRule[]
   journalLines            JournalLine[]
   bankAccounts            BankAccount[]
+  accountMappings         AccountMapping[]
 
   @@index([class], map: "idx_gl_account_class")
   @@map("gl_account")
@@ -443,8 +447,9 @@ model Donor {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  grants          GrantAgreement[]
-  reportTemplates ReportTemplate[]
+  grants               GrantAgreement[]
+  reportTemplates      ReportTemplate[]
+  donorReportTemplates DonorReportTemplate[]
 
   @@map("donor")
   @@schema("ref")
@@ -475,6 +480,7 @@ model GrantAgreement {
   overheadCalcs     OverheadCalculation[]
   allocationTargets AllocationTarget[]
   reportRuns        ReportRun[]
+  donorReports      DonorReport[]
 
   @@index([projectId], map: "idx_grant_project")
   @@index([donorId], map: "idx_grant_donor")
@@ -1152,5 +1158,123 @@ model ReportRun {
   generator AppUser         @relation(fields: [generatedBy], references: [id])
 
   @@map("report_run")
+  @@schema("reporting")
+}
+
+// =====================================================================
+//  REPORTING — Sprint 6.1 — Templates donor-specific
+// =====================================================================
+
+model DonorReportTemplate {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  donorId   String?  @map("donor_id") @db.Uuid
+  currency  String   @default("XOF") @db.Char(3)
+  format    Json     @default("{}") @db.JsonB
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  donor      Donor?            @relation(fields: [donorId], references: [id])
+  categories DonorCategory[]
+  mappings   AccountMapping[]
+  reports    DonorReport[]
+
+  @@index([donorId], map: "idx_donor_report_template_donor")
+  @@map("donor_report_template")
+  @@schema("reporting")
+}
+
+model DonorCategory {
+  id         String  @id @default(uuid()) @db.Uuid
+  templateId String  @map("template_id") @db.Uuid
+  code       String
+  label      String
+  parentId   String? @map("parent_id") @db.Uuid
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  template DonorReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parent   DonorCategory?      @relation("DonorCategoryParent", fields: [parentId], references: [id], onDelete: Cascade)
+  children DonorCategory[]     @relation("DonorCategoryParent")
+  mappings AccountMapping[]
+  lines    DonorReportLine[]
+
+  @@unique([templateId, code])
+  @@index([templateId], map: "idx_donor_category_template")
+  @@map("donor_category")
+  @@schema("reporting")
+}
+
+model AccountMapping {
+  id              String @id @default(uuid()) @db.Uuid
+  templateId      String @map("template_id") @db.Uuid
+  glAccountCode   String @map("gl_account_code")
+  donorCategoryId String @map("donor_category_id") @db.Uuid
+  sign            Int    @default(1) @db.SmallInt
+
+  template      DonorReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  glAccount     GlAccount           @relation(fields: [glAccountCode], references: [code])
+  donorCategory DonorCategory       @relation(fields: [donorCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, glAccountCode])
+  @@index([templateId], map: "idx_account_mapping_template")
+  @@map("account_mapping")
+  @@schema("reporting")
+}
+
+model DonorReport {
+  id              String    @id @default(uuid()) @db.Uuid
+  grantId         String    @map("grant_id") @db.Uuid
+  templateId      String    @map("template_id") @db.Uuid
+  periodStart     DateTime  @map("period_start") @db.Date
+  periodEnd       DateTime  @map("period_end") @db.Date
+  status          String    @default("draft")
+  currency        String    @db.Char(3)
+  fxRateUsed      Decimal?  @map("fx_rate_used") @db.Decimal(18, 8)
+  totalBudget     Decimal   @default(0) @map("total_budget") @db.Decimal(18, 2)
+  totalSpent      Decimal   @default(0) @map("total_spent") @db.Decimal(18, 2)
+  totalOverhead   Decimal   @default(0) @map("total_overhead") @db.Decimal(18, 2)
+  fundsCarried    Decimal   @default(0) @map("funds_carried") @db.Decimal(18, 2)
+  generatedBy     String    @map("generated_by") @db.Uuid
+  generatedAt     DateTime  @default(now()) @map("generated_at") @db.Timestamptz(6)
+  lockedBy        String?   @map("locked_by") @db.Uuid
+  lockedAt        DateTime? @map("locked_at") @db.Timestamptz(6)
+  sentBy          String?   @map("sent_by") @db.Uuid
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  pdfObjectKey    String?   @map("pdf_object_key")
+  excelObjectKey  String?   @map("excel_object_key")
+  notes           String?
+
+  grant     GrantAgreement      @relation(fields: [grantId], references: [id])
+  template  DonorReportTemplate @relation(fields: [templateId], references: [id])
+  generator AppUser             @relation("DonorReportGeneratedBy", fields: [generatedBy], references: [id])
+  locker    AppUser?            @relation("DonorReportLockedBy", fields: [lockedBy], references: [id])
+  sender    AppUser?            @relation("DonorReportSentBy", fields: [sentBy], references: [id])
+  lines     DonorReportLine[]
+
+  @@index([grantId, periodStart, periodEnd], map: "idx_donor_report_grant_period")
+  @@index([status], map: "idx_donor_report_status")
+  @@map("donor_report")
+  @@schema("reporting")
+}
+
+model DonorReportLine {
+  id              String  @id @default(uuid()) @db.Uuid
+  reportId        String  @map("report_id") @db.Uuid
+  donorCategoryId String  @map("donor_category_id") @db.Uuid
+  categoryCode    String  @map("category_code")
+  categoryLabel   String  @map("category_label")
+  budgetAmount    Decimal @default(0) @map("budget_amount") @db.Decimal(18, 2)
+  spentAmount     Decimal @default(0) @map("spent_amount") @db.Decimal(18, 2)
+  variance        Decimal @default(0) @db.Decimal(18, 2)
+  variancePct     Decimal @default(0) @map("variance_pct") @db.Decimal(8, 4)
+
+  report        DonorReport   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  donorCategory DonorCategory @relation(fields: [donorCategoryId], references: [id])
+
+  @@unique([reportId, donorCategoryId])
+  @@index([reportId], map: "idx_donor_report_line_report")
+  @@map("donor_report_line")
   @@schema("reporting")
 }

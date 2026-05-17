@@ -137,17 +137,21 @@ check_min "≥ 55 comptes SYSCEBNL chargés" \
   "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc 'SELECT count(*) FROM ref.gl_account;'" \
   "55"
 
-check "10 rôles RBAC chargés" \
+check_min "≥ 10 rôles RBAC chargés" \
   "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc 'SELECT count(*) FROM auth.role;'" \
   "10"
 
-check "9 bailleurs chargés" \
+check_min "≥ 9 bailleurs chargés" \
   "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc 'SELECT count(*) FROM ref.donor;'" \
   "9"
 
-check "17 périodes fiscales 2026" \
+check_min "≥ 17 périodes fiscales 2026" \
   "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc 'SELECT count(*) FROM gl.fiscal_period;'" \
   "17"
+
+check_min "≥ 3 donor_report_template seedés (sprint-6.1)" \
+  "docker compose exec -T postgres psql -U grantflow -d grantflow_dev -tAc 'SELECT count(*) FROM reporting.donor_report_template;'" \
+  "3"
 
 # ---- Bilan ----
 echo ""

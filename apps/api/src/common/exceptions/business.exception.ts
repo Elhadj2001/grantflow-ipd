@@ -1465,3 +1465,116 @@ export class BankAccountInactiveException extends BusinessException {
     );
   }
 }
+
+// ===== Sprint 6.1 — Reporting bailleur =====
+
+/** 404 — template de rapport bailleur inconnu. */
+export class DonorTemplateNotFoundException extends BusinessException {
+  constructor(templateId: string) {
+    super(
+      ErrorCode.BUSINESS.DONOR_TEMPLATE_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `Donor report template not found`,
+      { templateId },
+    );
+  }
+}
+
+/** 404 — rapport bailleur inconnu. */
+export class DonorReportNotFoundException extends BusinessException {
+  constructor(reportId: string) {
+    super(
+      ErrorCode.BUSINESS.DONOR_REPORT_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `Donor report not found`,
+      { reportId },
+    );
+  }
+}
+
+/** 409 — lock impossible : rapport pas en draft. */
+export class DonorReportNotDraftException extends BusinessException {
+  constructor(reportId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.DONOR_REPORT_NOT_DRAFT,
+      HttpStatus.CONFLICT,
+      `Donor report status "${status}" forbids editing or lock (must be draft)`,
+      { reportId, status },
+    );
+  }
+}
+
+/** 409 — send impossible : rapport pas en locked. */
+export class DonorReportNotLockedException extends BusinessException {
+  constructor(reportId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.DONOR_REPORT_NOT_LOCKED,
+      HttpStatus.CONFLICT,
+      `Donor report status "${status}" forbids send (must be locked)`,
+      { reportId, status },
+    );
+  }
+}
+
+/** 409 — toute modification est interdite sur un rapport déjà envoyé. */
+export class DonorReportAlreadySentException extends BusinessException {
+  constructor(reportId: string) {
+    super(
+      ErrorCode.BUSINESS.DONOR_REPORT_ALREADY_SENT,
+      HttpStatus.CONFLICT,
+      `Donor report has already been sent to the donor — immutable`,
+      { reportId },
+    );
+  }
+}
+
+/** 404 — tentative de download avant lock (PDF/Excel pas encore générés). */
+export class DonorReportFileNotGeneratedException extends BusinessException {
+  constructor(reportId: string, kind: 'pdf' | 'excel') {
+    super(
+      ErrorCode.BUSINESS.DONOR_REPORT_FILE_NOT_GENERATED,
+      HttpStatus.NOT_FOUND,
+      `${kind.toUpperCase()} not yet generated — lock the report first`,
+      { reportId, kind },
+    );
+  }
+}
+
+/**
+ * 409 — un template n'a aucun mapping compte → catégorie. Impossible
+ * d'agréger quoi que ce soit.
+ */
+export class DonorTemplateHasNoMappingsException extends BusinessException {
+  constructor(templateId: string) {
+    super(
+      ErrorCode.BUSINESS.DONOR_TEMPLATE_HAS_NO_MAPPINGS,
+      HttpStatus.CONFLICT,
+      `Donor template has no account mappings — add mappings before generating a report`,
+      { templateId },
+    );
+  }
+}
+
+/** 400 — periodEnd < periodStart ou en dehors de la grant. */
+export class ReportingPeriodInvalidException extends BusinessException {
+  constructor(periodStart: string, periodEnd: string, reason?: string) {
+    super(
+      ErrorCode.BUSINESS.REPORTING_PERIOD_INVALID,
+      HttpStatus.BAD_REQUEST,
+      `Invalid reporting period: ${reason ?? 'periodEnd must be >= periodStart and within the grant'}`,
+      { periodStart, periodEnd, reason: reason ?? null },
+    );
+  }
+}
+
+/** 409 — pas de taux de change disponible pour la conversion du rapport. */
+export class ReportingFxRateMissingException extends BusinessException {
+  constructor(from: string, to: string, date: string) {
+    super(
+      ErrorCode.BUSINESS.REPORTING_FX_RATE_MISSING,
+      HttpStatus.CONFLICT,
+      `Missing exchange rate ${from}→${to} on or before ${date} for report conversion`,
+      { from, to, date },
+    );
+  }
+}
