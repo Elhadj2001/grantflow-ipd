@@ -1181,11 +1181,22 @@ export class PostingService {
     const year = new Date().getFullYear();
     const lockKey = this.hashToBigInt(`je_${journal}_${year}`);
     await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${lockKey})`);
-    // MAX au lieu de COUNT : résilient aux trous (écritures supprimées)
+    // MAX au lieu de COUNT : resilient aux trous
     const last = await tx.journalEntry.findFirst({
       where: { journal, entryNumber: { startsWith: `${journal}-${year}-` } },
       orderBy: { entryNumber: 'desc' },
       select: { entryNumber: true },
     });
     const lastSeq = last ? parseInt(last.entryNumber.split('-')[2] ?? '0', 10) : 0;
-    const next = Number.isFinite(lastSeq) 
+    const next = Number.isFinite(lastSeq) ? lastSeq + 1 : 1;
+    return `${journal}-${year}-${String(next).padStart(4, '0')}`;
+  }
+
+  private hashToBigInt(s: string): bigint {
+    let h = 0n;
+    for (let i = 0; i < s.length; i += 1) {
+      h = (h * 31n + BigInt(s.charCodeAt(i))) & 0x7fffffffffffffffn;
+    }
+    return h;
+  }
+}
