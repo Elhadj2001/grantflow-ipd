@@ -1,7 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: { typedRoutes: true },
+  // typedRoutes désactivé pour permettre des hrefs string vers des routes
+  // pas encore créées (ex: /procurement, /accounting affichés en disabled
+  // dans la sidebar). À ré-activer une fois toutes les routes en place.
+  experimental: { typedRoutes: false },
   transpilePackages: ['@grantflow/shared'],
   i18n: undefined, // utilisé en mode App Router via middleware si besoin
   async rewrites() {
