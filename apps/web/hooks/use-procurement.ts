@@ -1,0 +1,385 @@
+'use client';
+
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSession } from 'next-auth/react';
+import { ApiError } from '@/lib/api-client';
+import {
+  approvePurchaseRequest,
+  cancelGoodsReceipt,
+  cancelPurchaseOrder,
+  cancelPurchaseRequest,
+  checkPrBudget,
+  completeGoodsReceipt,
+  createGrFromPo,
+  createPoFromPr,
+  createPurchaseRequest,
+  getGoodsReceipt,
+  getPrApprovalHistory,
+  getPurchaseOrder,
+  getPurchaseRequest,
+  listGoodsReceipts,
+  listPurchaseOrders,
+  listPurchaseRequests,
+  rejectGoodsReceipt,
+  rejectPurchaseRequest,
+  returnPurchaseRequestForChanges,
+  sendPurchaseOrder,
+  submitPurchaseRequest,
+  updateGrLine,
+  updatePurchaseRequest,
+  acknowledgePurchaseOrder,
+  type CreateGrFromPoInput,
+  type CreatePoFromPrInput,
+  type CreatePurchaseRequestInput,
+  type GoodsReceiptDetail,
+  type ListGrQuery,
+  type ListPoQuery,
+  type ListPrQuery,
+  type PatchGrLineInput,
+  type PurchaseOrderDetail,
+  type PurchaseRequestDetail,
+  type UpdatePurchaseRequestInput,
+} from '@/lib/api/procurement';
+import { mapApiErrorToToast } from '@/lib/use-api';
+import { toast } from '@/hooks/use-toast';
+
+const procurementKeys = {
+  all: ['procurement'] as const,
+  prs: () => [...procurementKeys.all, 'prs'] as const,
+  pr: (id: string) => [...procurementKeys.prs(), id] as const,
+  prList: (query: ListPrQuery) => [...procurementKeys.prs(), 'list', query] as const,
+  prBudget: (id: string) => [...procurementKeys.pr(id), 'budget'] as const,
+  prApproval: (id: string) => [...procurementKeys.pr(id), 'approval-history'] as const,
+  pos: () => [...procurementKeys.all, 'pos'] as const,
+  po: (id: string) => [...procurementKeys.pos(), id] as const,
+  poList: (query: ListPoQuery) => [...procurementKeys.pos(), 'list', query] as const,
+  grs: () => [...procurementKeys.all, 'grs'] as const,
+  gr: (id: string) => [...procurementKeys.grs(), id] as const,
+  grList: (query: ListGrQuery) => [...procurementKeys.grs(), 'list', query] as const,
+};
+
+function useToken() {
+  const { data: session, status } = useSession();
+  return {
+    accessToken: session?.accessToken ?? null,
+    sessionReady: status === 'authenticated',
+  };
+}
+
+// =====================================================================
+//  Purchase Requests
+// =====================================================================
+
+export function useListPRs(query: ListPrQuery = {}) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.prList(query),
+    enabled: sessionReady,
+    queryFn: async () => {
+      try {
+        return await listPurchaseRequests(query, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
+
+export function usePR(id: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.pr(id ?? '__none__'),
+    enabled: sessionReady && !!id,
+    queryFn: async () => {
+      try {
+        return await getPurchaseRequest(id!, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
+
+export function usePrApprovalHistory(id: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.prApproval(id ?? '__none__'),
+    enabled: sessionReady && !!id,
+    queryFn: async () => getPrApprovalHistory(id!, { accessToken }),
+  });
+}
+
+export function usePrBudgetCheck(id: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.prBudget(id ?? '__none__'),
+    enabled: sessionReady && !!id,
+    queryFn: async () => checkPrBudget(id!, { accessToken }),
+  });
+}
+
+export function useCreatePR() {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<PurchaseRequestDetail, ApiError, CreatePurchaseRequestInput>({
+    mutationFn: (input) => createPurchaseRequest(input, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.prs() });
+      toast({ variant: 'success', title: 'DA créée', description: 'Brouillon enregistré.' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useUpdatePR(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<PurchaseRequestDetail, ApiError, UpdatePurchaseRequestInput>({
+    mutationFn: (input) => updatePurchaseRequest(id, input, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.pr(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.prs() });
+      toast({ variant: 'success', title: 'DA mise à jour' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useSubmitPR(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, void>({
+    mutationFn: () => submitPurchaseRequest(id, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.pr(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.prs() });
+      toast({ variant: 'success', title: 'DA soumise', description: 'En attente d\'approbation PI.' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useApprovePR(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, string | undefined>({
+    mutationFn: (comment) => approvePurchaseRequest(id, comment, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.pr(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.prApproval(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.prs() });
+      toast({ variant: 'success', title: 'DA approuvée' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useRejectPR(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, string>({
+    mutationFn: (reason) => rejectPurchaseRequest(id, reason, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.pr(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.prApproval(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.prs() });
+      toast({ variant: 'destructive', title: 'DA rejetée' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useReturnPRForChanges(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, string>({
+    mutationFn: (comment) => returnPurchaseRequestForChanges(id, comment, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.pr(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.prs() });
+      toast({ variant: 'success', title: 'DA renvoyée en draft' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useCancelPR(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, void>({
+    mutationFn: () => cancelPurchaseRequest(id, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.prs() });
+      toast({ variant: 'success', title: 'DA annulée' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+// =====================================================================
+//  Purchase Orders
+// =====================================================================
+
+export function useListPOs(query: ListPoQuery = {}) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.poList(query),
+    enabled: sessionReady,
+    queryFn: () => listPurchaseOrders(query, { accessToken }),
+  });
+}
+
+export function usePO(id: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.po(id ?? '__none__'),
+    enabled: sessionReady && !!id,
+    queryFn: () => getPurchaseOrder(id!, { accessToken }),
+  });
+}
+
+export function useCreatePoFromPr() {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<PurchaseOrderDetail, ApiError, { prId: string; input: CreatePoFromPrInput }>({
+    mutationFn: ({ prId, input }) => createPoFromPr(prId, input, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.pos() });
+      qc.invalidateQueries({ queryKey: procurementKeys.prs() });
+      toast({ variant: 'success', title: 'BC créé', description: 'Brouillon enregistré.' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useSendPO(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, void>({
+    mutationFn: () => sendPurchaseOrder(id, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.po(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.pos() });
+      toast({ variant: 'success', title: 'BC envoyé' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useAcknowledgePO(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, string | undefined>({
+    mutationFn: (contactEmail) => acknowledgePurchaseOrder(id, contactEmail, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.po(id) });
+      toast({ variant: 'success', title: 'BC confirmé' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useCancelPO(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, string>({
+    mutationFn: (reason) => cancelPurchaseOrder(id, reason, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.po(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.pos() });
+      toast({ variant: 'destructive', title: 'BC annulé' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+// =====================================================================
+//  Goods Receipts
+// =====================================================================
+
+export function useListGRs(query: ListGrQuery = {}) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.grList(query),
+    enabled: sessionReady,
+    queryFn: () => listGoodsReceipts(query, { accessToken }),
+  });
+}
+
+export function useGR(id: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.gr(id ?? '__none__'),
+    enabled: sessionReady && !!id,
+    queryFn: () => getGoodsReceipt(id!, { accessToken }),
+  });
+}
+
+export function useCreateGrFromPo() {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<GoodsReceiptDetail, ApiError, { poId: string; input: CreateGrFromPoInput }>({
+    mutationFn: ({ poId, input }) => createGrFromPo(poId, input, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.grs() });
+      qc.invalidateQueries({ queryKey: procurementKeys.pos() });
+      toast({ variant: 'success', title: 'Réception créée' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useUpdateGrLine(grId: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<GoodsReceiptDetail, ApiError, PatchGrLineInput>({
+    mutationFn: (input) => updateGrLine(grId, input, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.gr(grId) });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useCompleteGR(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, void>({
+    mutationFn: () => completeGoodsReceipt(id, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.gr(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.grs() });
+      toast({ variant: 'success', title: 'Réception complétée' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useCancelGR(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, string>({
+    mutationFn: (reason) => cancelGoodsReceipt(id, reason, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.gr(id) });
+      qc.invalidateQueries({ queryKey: procurementKeys.grs() });
+      toast({ variant: 'destructive', title: 'Réception annulée' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+export function useRejectGR(id: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, string>({
+    mutationFn: (reason) => rejectGoodsReceipt(id, reason, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.gr(id) });
+      toast({ variant: 'destructive', title: 'Réception rejetée' });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
