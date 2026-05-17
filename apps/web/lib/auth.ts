@@ -59,6 +59,45 @@ function filterRoles(claims: string[] | undefined): GrantflowRole[] {
   return claims.filter((r): r is GrantflowRole => (GRANTFLOW_ROLES as readonly string[]).includes(r));
 }
 
+/**
+ * Décode la partie payload d'un JWT (sans vérifier la signature).
+ * Sert UNIQUEMENT à extraire les rôles realm de l'access_token Keycloak
+ * quand le mapper "realm roles" n'est pas activé "Add to ID token".
+ * On ne fait pas confiance à cette donnée pour autorisation côté API —
+ * c'est apps/api qui valide la signature via JwtBridge.
+ */
+function decodeJwtPayload(jwt: string | undefined): Record<string, unknown> | null {
+  if (!jwt) return null;
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    const payload = Buffer.from(parts[1], 'base64url').toString('utf-8');
+    return JSON.parse(payload) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extrait les rôles realm Keycloak en priorité depuis le profile
+ * (id_token), avec fallback sur l'access_token décodé. Cette double
+ * lecture rend la conf Keycloak résiliente : "Add to ID token" du mapper
+ * realm roles peut être ON ou OFF, on récupère les rôles dans les deux cas.
+ */
+function extractRealmRoles(
+  profile: KeycloakProfile | undefined,
+  accessToken: string | undefined,
+): string[] | undefined {
+  // 1) id_token / userinfo via profile
+  const fromProfile = profile?.realm_access?.roles;
+  if (fromProfile && fromProfile.length > 0) return fromProfile;
+  // 2) Fallback : decode payload access_token
+  const payload = decodeJwtPayload(accessToken);
+  if (!payload) return undefined;
+  const realmAccess = payload['realm_access'] as { roles?: string[] } | undefined;
+  return realmAccess?.roles;
+}
+
 const KEYCLOAK_ID = process.env.KEYCLOAK_ID ?? 'grantflow-web';
 const KEYCLOAK_SECRET = process.env.KEYCLOAK_SECRET ?? '';
 const KEYCLOAK_ISSUER = process.env.KEYCLOAK_ISSUER ?? 'http://localhost:8080/realms/grantflow';
@@ -109,7 +148,14 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
-        token.roles = filterRoles(kc.realm_access?.roles);
+        const realmRoles = extractRealmRoles(kc, account.access_token);
+        token.roles = filterRoles(realmRoles);
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[next-auth][debug] jwt callback — roles extracted: ${JSON.stringify(token.roles)}`,
+          );
+        }
         const composed = [kc.given_name, kc.family_name].filter(Boolean).join(' ');
         token.fullName = kc.name ?? (composed || kc.preferred_username || '');
         token.email = kc.email ?? token.email;
