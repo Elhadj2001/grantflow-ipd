@@ -24,9 +24,9 @@ describe('KpiCard', () => {
     expect(container.querySelector('svg')).not.toBeNull();
   });
 
-  it('applies pasteur accent by default', () => {
+  it('applies ipd accent by default', () => {
     const { container } = render(<KpiCard label="X" value="1" />);
-    expect(container.querySelector('.bg-pasteur')).not.toBeNull();
+    expect(container.querySelector('.bg-ipd')).not.toBeNull();
   });
 
   it('applies navy accent when passed', () => {

@@ -29,7 +29,7 @@ export function EmptyState({
       <CardContent className="flex flex-col items-center justify-center gap-3 py-12 text-center">
         <span
           aria-hidden
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-pasteur-50 text-pasteur"
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-ipd-50 text-ipd-darker"
         >
           <Icon className="h-7 w-7" />
         </span>

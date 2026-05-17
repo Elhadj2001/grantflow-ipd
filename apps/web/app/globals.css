@@ -3,10 +3,12 @@
 @tailwind utilities;
 
 /* =====================================================================
- *  shadcn/ui — design tokens (mode clair seulement pour sprint F1)
- *  Les couleurs primaires utilisent la charte IPD :
- *    primary  = pasteur (#BE1622)  HSL = 355 79% 41%
- *    secondary = navy (#1E3A5F)    HSL = 213 53% 25%
+ *  shadcn/ui — design tokens (mode clair seulement pour sprint F1.x)
+ *  Charte IPD officielle = aqua / teal institutionnelle.
+ *    primary   = ipd (#4FC3D9)    HSL = 190 62% 58%
+ *    ring      = ipd-dark (#2BA0B8) HSL = 190 62% 45% (focus visible)
+ *    accent    = ipd-50 (#ECF9FC) HSL = 190 70% 95%
+ *    secondary = navy (#1E3A5F)   HSL = 213 53% 25% (inchangé)
  * ===================================================================== */
 
 @layer base {
@@ -20,7 +22,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 355 79% 41%;             /* pasteur #BE1622 */
+    --primary: 190 62% 58%;             /* ipd #4FC3D9 */
     --primary-foreground: 0 0% 100%;
 
     --secondary: 213 53% 25%;           /* navy #1E3A5F */
@@ -29,15 +31,15 @@
     --muted: 60 13% 97%;                /* cream #FAFAF7 */
     --muted-foreground: 220 9% 46%;     /* slate-muted #6B7280 */
 
-    --accent: 355 79% 96%;              /* pasteur-50 #FEF2F3 */
-    --accent-foreground: 355 79% 41%;
+    --accent: 190 70% 95%;              /* ipd-50 #ECF9FC */
+    --accent-foreground: 190 62% 30%;   /* ipd-darker pour AA sur fond pâle */
 
     --destructive: 0 73% 51%;           /* state.error #DC2626 */
     --destructive-foreground: 0 0% 100%;
 
     --border: 220 13% 91%;
     --input: 220 13% 91%;
-    --ring: 355 79% 41%;                /* pasteur for focus rings */
+    --ring: 190 62% 45%;                /* ipd-dark pour focus visible AA */
 
     --radius: 0.5rem;
   }

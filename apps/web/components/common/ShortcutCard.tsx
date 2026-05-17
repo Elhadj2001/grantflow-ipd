@@ -33,7 +33,7 @@ export function ShortcutCard({
       <CardContent className="flex flex-col gap-3 p-5">
         <span
           aria-hidden
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-pasteur-50 text-pasteur transition-transform group-hover:scale-110"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-ipd-50 text-ipd-darker transition-transform group-hover:scale-110"
         >
           <Icon className="h-5 w-5" />
         </span>

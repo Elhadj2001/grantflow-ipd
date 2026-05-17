@@ -7,8 +7,8 @@ export interface KpiCardProps {
   value: React.ReactNode;
   hint?: string;
   icon?: LucideIcon;
-  /** Couleur d'accent — pasteur (rouge) par défaut, "navy" pour les KPIs neutres. */
-  accent?: 'pasteur' | 'navy' | 'success' | 'warning';
+  /** Couleur d'accent — ipd (aqua) par défaut, "navy" pour les KPIs neutres. */
+  accent?: 'ipd' | 'navy' | 'success' | 'warning';
   /**
    * Progression 0..100 affichée en mini-bar en bas. Si undefined, on rend
    * un skeleton grisé (état "donnée pas encore disponible" — utile pour
@@ -29,11 +29,11 @@ export function KpiCard({
   value,
   hint,
   icon: Icon,
-  accent = 'pasteur',
+  accent = 'ipd',
   progress,
 }: KpiCardProps) {
   const accentBg: Record<NonNullable<KpiCardProps['accent']>, string> = {
-    pasteur: 'bg-pasteur',
+    ipd: 'bg-ipd',
     navy: 'bg-navy',
     success: 'bg-state-success',
     warning: 'bg-state-warning',

@@ -15,14 +15,22 @@ const config: Config = {
     },
     extend: {
       colors: {
-        // ===== Charte IPD =====
-        pasteur: {
-          DEFAULT: '#BE1622',
-          dark: '#8B0F1A',
-          light: '#E8404F',
-          50: '#FEF2F3',
-          100: '#FDE3E5',
-          900: '#7F1318',
+        // ===== Charte IPD — aqua doux (institutionnel) =====
+        // Brand color #4FC3D9. Voir docs et CLAUDE.md pour les
+        // règles d'usage (AA contrast) :
+        //   bg-ipd        → grandes surfaces (header, hero, login aside)
+        //   bg-ipd-dark   → boutons primaires (texte blanc lisible)
+        //   text-ipd-darker → texte de marque sur fond clair
+        //   border-ipd    → ring focus, séparateurs
+        //   bg-ipd-50/100 → fonds très doux (items actifs, hover)
+        ipd: {
+          DEFAULT: '#4FC3D9',
+          dark: '#2BA0B8',
+          darker: '#1B7A8E',
+          light: '#7AD3E4',
+          50: '#ECF9FC',
+          100: '#D9F2F8',
+          900: '#0E5060',
         },
         navy: {
           DEFAULT: '#1E3A5F',

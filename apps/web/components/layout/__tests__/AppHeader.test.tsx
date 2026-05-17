@@ -44,7 +44,7 @@ describe('AppHeader', () => {
     const badge = screen.getByTestId('role-badge');
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent('DAF');
-    expect(badge.className).toMatch(/bg-pasteur/);
+    expect(badge.className).toMatch(/bg-ipd-dark/);
   });
 
   it('picks SUPER_ADMIN over DAF when both are present', () => {
