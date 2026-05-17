@@ -1,0 +1,88 @@
+{
+  "$schema": "Templates de rapport financier bailleur — Sprint 6.1",
+  "_meta": {
+    "note": "Mappings comptes SYSCEBNL → catégories imposées par chaque bailleur. Source unique pour la fonction de seed Prisma + tests d'intégration. 3 templates seedés au minimum (USAID FFR-425, OMS, Wellcome Trust). Tout ajout de catégorie doit être validé par le contrôleur de gestion."
+  },
+  "templates": [
+    {
+      "code": "USAID-FFR425",
+      "name": "USAID Federal Financial Report (FFR-425)",
+      "donorCode": "USAID",
+      "currency": "USD",
+      "format": { "layout": "ffr-425", "sections": ["summary", "categories", "indirect"], "language": "en" },
+      "categories": [
+        { "code": "PERSONNEL", "label": "Personnel", "sortOrder": 1 },
+        { "code": "FRINGE",    "label": "Fringe Benefits", "sortOrder": 2 },
+        { "code": "TRAVEL",    "label": "Travel", "sortOrder": 3 },
+        { "code": "EQUIPMENT", "label": "Equipment", "sortOrder": 4 },
+        { "code": "SUPPLIES",  "label": "Supplies", "sortOrder": 5 },
+        { "code": "CONTRACT",  "label": "Contractual", "sortOrder": 6 },
+        { "code": "OTHER",     "label": "Other", "sortOrder": 7 },
+        { "code": "INDIRECT",  "label": "Indirect Costs (overhead)", "sortOrder": 8 }
+      ],
+      "mappings": [
+        { "glAccount": "661",  "category": "PERSONNEL", "sign": 1 },
+        { "glAccount": "664",  "category": "FRINGE",    "sign": 1 },
+        { "glAccount": "61",   "category": "TRAVEL",    "sign": 1 },
+        { "glAccount": "218",  "category": "EQUIPMENT", "sign": 1 },
+        { "glAccount": "604",  "category": "SUPPLIES",  "sign": 1 },
+        { "glAccount": "6041", "category": "SUPPLIES",  "sign": 1 },
+        { "glAccount": "601",  "category": "SUPPLIES",  "sign": 1 },
+        { "glAccount": "632",  "category": "CONTRACT",  "sign": 1 },
+        { "glAccount": "626",  "category": "OTHER",     "sign": 1 },
+        { "glAccount": "622",  "category": "OTHER",     "sign": 1 }
+      ]
+    },
+    {
+      "code": "WHO-FFR",
+      "name": "WHO Financial Report (standard)",
+      "donorCode": "WHO",
+      "currency": "CHF",
+      "format": { "layout": "who-standard", "sections": ["staff", "activities", "admin"], "language": "en" },
+      "categories": [
+        { "code": "STAFF",      "label": "Staff", "sortOrder": 1 },
+        { "code": "ACTIVITIES", "label": "Activities", "sortOrder": 2 },
+        { "code": "TRAVEL",     "label": "Travel", "sortOrder": 3 },
+        { "code": "EQUIPMENT",  "label": "Equipment", "sortOrder": 4 },
+        { "code": "ADMIN",      "label": "Administration", "sortOrder": 5 }
+      ],
+      "mappings": [
+        { "glAccount": "661",  "category": "STAFF",      "sign": 1 },
+        { "glAccount": "664",  "category": "STAFF",      "sign": 1 },
+        { "glAccount": "604",  "category": "ACTIVITIES", "sign": 1 },
+        { "glAccount": "6041", "category": "ACTIVITIES", "sign": 1 },
+        { "glAccount": "601",  "category": "ACTIVITIES", "sign": 1 },
+        { "glAccount": "61",   "category": "TRAVEL",     "sign": 1 },
+        { "glAccount": "218",  "category": "EQUIPMENT",  "sign": 1 },
+        { "glAccount": "622",  "category": "ADMIN",      "sign": 1 },
+        { "glAccount": "626",  "category": "ADMIN",      "sign": 1 },
+        { "glAccount": "632",  "category": "ADMIN",      "sign": 1 }
+      ]
+    },
+    {
+      "code": "WELLCOME",
+      "name": "Wellcome Trust Annual Statement",
+      "donorCode": "WT",
+      "currency": "GBP",
+      "format": { "layout": "wellcome-annual", "sections": ["research", "personnel", "estates"], "language": "en" },
+      "categories": [
+        { "code": "RESEARCH",  "label": "Research costs", "sortOrder": 1 },
+        { "code": "PERSONNEL", "label": "Personnel", "sortOrder": 2 },
+        { "code": "ESTATES",   "label": "Estates", "sortOrder": 3 },
+        { "code": "INDIRECT",  "label": "Indirect costs", "sortOrder": 4 },
+        { "code": "TRAVEL",    "label": "Travel & conferences", "sortOrder": 5 }
+      ],
+      "mappings": [
+        { "glAccount": "604",  "category": "RESEARCH",  "sign": 1 },
+        { "glAccount": "6041", "category": "RESEARCH",  "sign": 1 },
+        { "glAccount": "601",  "category": "RESEARCH",  "sign": 1 },
+        { "glAccount": "661",  "category": "PERSONNEL", "sign": 1 },
+        { "glAccount": "664",  "category": "PERSONNEL", "sign": 1 },
+        { "glAccount": "622",  "category": "ESTATES",   "sign": 1 },
+        { "glAccount": "626",  "category": "ESTATES",   "sign": 1 },
+        { "glAccount": "632",  "category": "INDIRECT",  "sign": 1 },
+        { "glAccount": "61",   "category": "TRAVEL",    "sign": 1 }
+      ]
+    }
+  ]
+}

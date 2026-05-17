@@ -20,6 +20,7 @@ import { ExchangeRateModule } from './referential/exchange-rate/exchange-rate.mo
 import { GlAccountModule } from './referential/gl-account/gl-account.module';
 import { CashBoxModule } from './referential/cash-box/cash-box.module';
 import { TreasuryModule } from './treasury/treasury.module';
+import { ReportingModule } from './reporting/reporting.module';
 
 const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,6 +83,7 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     GlAccountModule,
     CashBoxModule,
     TreasuryModule,
+    ReportingModule,
     // À ajouter au fil des sprints :
     // ApModule,
     // GlModule,

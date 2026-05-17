@@ -755,6 +755,133 @@ CREATE TABLE reporting.report_run (
 );
 
 -- =====================================================================
+--  SPRINT 6.1 — Reporting bailleur (templates donor-specific)
+--
+--  Workflow :
+--   1. CONTROLEUR crée un donor_report_template (par bailleur) + ses
+--      donor_category (Personnel, Travel, Equipment, ...) + ses
+--      account_mapping (gl_account → donor_category, sign +/-).
+--   2. CONTROLEUR génère un donor_report (period_start → period_end)
+--      pour un grant donné. L'agrégation est snapshot dans
+--      donor_report_line + totaux dans donor_report.
+--   3. CONTROLEUR/DAF lock le rapport (status='locked'), génère PDF/Excel.
+--   4. DAF mark le rapport 'sent' (envoyé bailleur) — un trigger
+--      empêche toute modification ultérieure.
+-- =====================================================================
+CREATE TABLE reporting.donor_report_template (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    code            TEXT UNIQUE NOT NULL,
+    name            TEXT NOT NULL,
+    donor_id        UUID REFERENCES ref.donor(id),
+    currency        CHAR(3) NOT NULL DEFAULT 'XOF',
+    format          JSONB NOT NULL DEFAULT '{}',
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_donor_report_template_donor ON reporting.donor_report_template(donor_id);
+COMMENT ON TABLE reporting.donor_report_template IS
+  'Templates de rapport bailleur (USAID FFR-425, OMS, Wellcome, …). 1 template par bailleur × format imposé.';
+
+CREATE TABLE reporting.donor_category (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    template_id     UUID NOT NULL REFERENCES reporting.donor_report_template(id) ON DELETE CASCADE,
+    code            TEXT NOT NULL,
+    label           TEXT NOT NULL,
+    parent_id       UUID REFERENCES reporting.donor_category(id) ON DELETE CASCADE,
+    sort_order      INT NOT NULL DEFAULT 0,
+    UNIQUE (template_id, code)
+);
+CREATE INDEX idx_donor_category_template ON reporting.donor_category(template_id);
+COMMENT ON TABLE reporting.donor_category IS
+  'Catégories budgétaires imposées par le bailleur (ex. USAID : Personnel, Travel, Equipment).';
+
+CREATE TABLE reporting.account_mapping (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    template_id         UUID NOT NULL REFERENCES reporting.donor_report_template(id) ON DELETE CASCADE,
+    gl_account_code     TEXT NOT NULL REFERENCES ref.gl_account(code),
+    donor_category_id   UUID NOT NULL REFERENCES reporting.donor_category(id) ON DELETE CASCADE,
+    -- sign : +1 si charge (D-C), -1 si produit (C-D inversion). Permet
+    -- aux templates de gérer aussi des produits (remboursements bailleur).
+    sign                SMALLINT NOT NULL DEFAULT 1 CHECK (sign IN (-1, 1)),
+    UNIQUE (template_id, gl_account_code)
+);
+CREATE INDEX idx_account_mapping_template ON reporting.account_mapping(template_id);
+COMMENT ON TABLE reporting.account_mapping IS
+  'Mapping plan SYSCEBNL → catégorie bailleur. 1 compte = max 1 catégorie par template.';
+
+CREATE TABLE reporting.donor_report (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    grant_id        UUID NOT NULL REFERENCES ref.grant_agreement(id),
+    template_id     UUID NOT NULL REFERENCES reporting.donor_report_template(id),
+    period_start    DATE NOT NULL,
+    period_end      DATE NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','locked','sent')),
+    currency        CHAR(3) NOT NULL,
+    fx_rate_used    NUMERIC(18,8),
+    total_budget    NUMERIC(18,2) NOT NULL DEFAULT 0,
+    total_spent     NUMERIC(18,2) NOT NULL DEFAULT 0,
+    total_overhead  NUMERIC(18,2) NOT NULL DEFAULT 0,
+    funds_carried   NUMERIC(18,2) NOT NULL DEFAULT 0,
+    generated_by    UUID NOT NULL REFERENCES auth.app_user(id),
+    generated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locked_by       UUID REFERENCES auth.app_user(id),
+    locked_at       TIMESTAMPTZ,
+    sent_by         UUID REFERENCES auth.app_user(id),
+    sent_at         TIMESTAMPTZ,
+    pdf_object_key  TEXT,
+    excel_object_key TEXT,
+    notes           TEXT,
+    CHECK (period_end >= period_start)
+);
+CREATE INDEX idx_donor_report_grant_period ON reporting.donor_report(grant_id, period_start, period_end);
+CREATE INDEX idx_donor_report_status ON reporting.donor_report(status);
+COMMENT ON TABLE reporting.donor_report IS
+  'Rapport financier bailleur — snapshot des montants à la date de génération.';
+
+CREATE TABLE reporting.donor_report_line (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    report_id           UUID NOT NULL REFERENCES reporting.donor_report(id) ON DELETE CASCADE,
+    donor_category_id   UUID NOT NULL REFERENCES reporting.donor_category(id),
+    category_code       TEXT NOT NULL,
+    category_label      TEXT NOT NULL,
+    budget_amount       NUMERIC(18,2) NOT NULL DEFAULT 0,
+    spent_amount        NUMERIC(18,2) NOT NULL DEFAULT 0,
+    variance            NUMERIC(18,2) NOT NULL DEFAULT 0,
+    variance_pct        NUMERIC(8,4) NOT NULL DEFAULT 0,
+    UNIQUE (report_id, donor_category_id)
+);
+CREATE INDEX idx_donor_report_line_report ON reporting.donor_report_line(report_id);
+
+-- Trigger : interdit toute modification d'un rapport `sent`. Garantit
+-- l'intégrité de la pièce envoyée au bailleur (cf. CLAUDE.md §8 — pas
+-- de modif d'écriture posted, ici extension : pas de modif de rapport sent).
+CREATE OR REPLACE FUNCTION reporting.protect_sent_report() RETURNS trigger AS $$
+BEGIN
+    IF (TG_OP = 'UPDATE' AND OLD.status = 'sent') THEN
+        IF (NEW.status <> 'sent') THEN
+            RAISE EXCEPTION 'DONOR_REPORT_LOCKED: cannot modify a report with status=sent'
+                USING ERRCODE = 'P0001';
+        END IF;
+        -- Autorise les UPDATE no-op (mêmes valeurs) — rare mais possible
+        -- via les ORMs. Le test compare les colonnes métier.
+        IF (OLD.total_spent <> NEW.total_spent OR OLD.total_budget <> NEW.total_budget
+            OR OLD.pdf_object_key IS DISTINCT FROM NEW.pdf_object_key
+            OR OLD.excel_object_key IS DISTINCT FROM NEW.excel_object_key
+            OR OLD.notes IS DISTINCT FROM NEW.notes) THEN
+            RAISE EXCEPTION 'DONOR_REPORT_LOCKED: cannot modify business columns of a sent report'
+                USING ERRCODE = 'P0001';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_protect_sent_donor_report
+BEFORE UPDATE OR DELETE ON reporting.donor_report
+FOR EACH ROW EXECUTE FUNCTION reporting.protect_sent_report();
+
+-- =====================================================================
 --  VUES MÉTIER
 -- =====================================================================
 

@@ -20,7 +20,7 @@ import './load-env';
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { PrismaClient, type DonorType } from '@prisma/client';
+import { PrismaClient, Prisma, type DonorType } from '@prisma/client';
 
 const prisma = new PrismaClient();
 const SEED_DIR = path.join(__dirname, '..', '..', '..', 'seed');
@@ -281,6 +281,100 @@ async function seedDemoProjects() {
   console.log(`✅ ${projects.length} projets, ${projects.length} grants et budget lines créés`);
 }
 
+type DonorTemplateFixture = {
+  code: string;
+  name: string;
+  donorCode?: string;
+  currency: string;
+  format?: Record<string, unknown>;
+  categories: { code: string; label: string; parentCode?: string; sortOrder: number }[];
+  mappings: { glAccount: string; category: string; sign?: number }[];
+};
+
+async function seedDonorReportTemplates() {
+  // Tolère l'absence du fichier (utile si le seed est appelé avant
+  // que sprint-6.1 n'ait livré la fixture)
+  const fixturePath = path.join(SEED_DIR, 'donor-templates.json');
+  if (!fs.existsSync(fixturePath)) {
+    console.log('⚠️  donor-templates.json absent — skip seed templates');
+    return;
+  }
+  const templates = loadFixture<DonorTemplateFixture>('donor-templates.json', 'templates');
+  for (const t of templates) {
+    // Résout le donor par code (tolère l'absence — Wellcome Trust pas seedé)
+    let donorId: string | null = null;
+    if (t.donorCode) {
+      const donor = await prisma.donor.findUnique({ where: { code: t.donorCode } });
+      donorId = donor?.id ?? null;
+    }
+    const tpl = await prisma.donorReportTemplate.upsert({
+      where: { code: t.code },
+      update: {
+        name: t.name,
+        donorId,
+        currency: t.currency,
+        format: (t.format ?? {}) as Prisma.InputJsonValue,
+      },
+      create: {
+        code: t.code,
+        name: t.name,
+        donorId,
+        currency: t.currency,
+        format: (t.format ?? {}) as Prisma.InputJsonValue,
+      },
+    });
+
+    // Catégories (upsert par (templateId, code))
+    for (const c of t.categories) {
+      await prisma.donorCategory.upsert({
+        where: { templateId_code: { templateId: tpl.id, code: c.code } },
+        update: { label: c.label, sortOrder: c.sortOrder },
+        create: {
+          templateId: tpl.id,
+          code: c.code,
+          label: c.label,
+          sortOrder: c.sortOrder,
+        },
+      });
+    }
+
+    // Mappings (upsert par (templateId, glAccount))
+    const cats = await prisma.donorCategory.findMany({
+      where: { templateId: tpl.id },
+      select: { id: true, code: true },
+    });
+    const idByCode = new Map(cats.map((c) => [c.code, c.id]));
+    for (const m of t.mappings) {
+      const categoryId = idByCode.get(m.category);
+      if (!categoryId) {
+        console.warn(`  ⚠ template ${t.code}: catégorie "${m.category}" inconnue, mapping ignoré`);
+        continue;
+      }
+      // Vérifie que le gl_account existe — sinon skip (tolérance pour
+      // les seeds sur des plans comptables partiels en dev)
+      const acct = await prisma.glAccount.findUnique({ where: { code: m.glAccount } });
+      if (!acct) {
+        console.warn(`  ⚠ template ${t.code}: gl_account "${m.glAccount}" absent, mapping ignoré`);
+        continue;
+      }
+      await prisma.accountMapping.upsert({
+        where: {
+          templateId_glAccountCode: { templateId: tpl.id, glAccountCode: m.glAccount },
+        },
+        update: { donorCategoryId: categoryId, sign: m.sign ?? 1 },
+        create: {
+          templateId: tpl.id,
+          glAccountCode: m.glAccount,
+          donorCategoryId: categoryId,
+          sign: m.sign ?? 1,
+        },
+      });
+    }
+    console.log(`  ✅ template ${t.code} (${t.categories.length} cats, ${t.mappings.length} mappings)`);
+  }
+  console.log(`✅ ${templates.length} donor templates chargés`);
+}
+
 async function main() {
   console.log('🌱 Seed GRANTFLOW IPD — démarrage...');
   await seedGlAccounts();
@@ -292,6 +386,21 @@ async function main() {
   await seedUsers();
   await seedDefaultCashBox();
   await seedDemoProjects();
+  // Templates bailleur (livrés par Sprint 6.1). On tolère l'absence de la
+  // table en base (P2021) pour que le seed reste utilisable sur une base
+  // antérieure à sprint-6.1.
+  try {
+    await seedDonorReportTemplates();
+  } catch (e) {
+    const err = e as { code?: string; meta?: { table?: string } };
+    if (err.code === 'P2021') {
+      console.log(
+        `⚠️  Table ${err.meta?.table ?? 'reporting.donor_report_template'} absente — sprint-6.1 pas encore appliqué, skip.`,
+      );
+    } else {
+      throw e;
+    }
+  }
   console.log('🎉 Seed terminé avec succès.');
 }
 
