@@ -59,12 +59,39 @@ function filterRoles(claims: string[] | undefined): GrantflowRole[] {
   return claims.filter((r): r is GrantflowRole => (GRANTFLOW_ROLES as readonly string[]).includes(r));
 }
 
+const KEYCLOAK_ID = process.env.KEYCLOAK_ID ?? 'grantflow-web';
+const KEYCLOAK_SECRET = process.env.KEYCLOAK_SECRET ?? '';
+const KEYCLOAK_ISSUER = process.env.KEYCLOAK_ISSUER ?? 'http://localhost:8080/realms/grantflow';
+
+// Sprint F1.1 — debug logs pour diagnostiquer les unauthorized_client.
+// Imprimé une fois au démarrage du serveur Next.js (chaque appel handler
+// recharge ce module). Préfixe les premiers 4 caractères du secret pour
+// que l'utilisateur confirme que le secret en .env.local est bien celui
+// renvoyé par Keycloak après régénération. JAMAIS en prod.
+if (process.env.NODE_ENV !== 'production' && typeof window === 'undefined') {
+  const secretPrefix = KEYCLOAK_SECRET ? KEYCLOAK_SECRET.slice(0, 4) : '(empty)';
+  const secretLen = KEYCLOAK_SECRET.length;
+  // eslint-disable-next-line no-console
+  console.log(
+    `[next-auth][debug] KEYCLOAK_ID=${KEYCLOAK_ID}, ` +
+      `secret prefix=${secretPrefix}... (len=${secretLen}), ` +
+      `KEYCLOAK_ISSUER=${KEYCLOAK_ISSUER}`,
+  );
+  if (!KEYCLOAK_SECRET) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[next-auth][debug] KEYCLOAK_SECRET est vide — le login Keycloak retournera ' +
+        'unauthorized_client. Voir docs/keycloak-setup.md #troubleshooting.',
+    );
+  }
+}
+
 export const { auth, handlers, signIn, signOut } = NextAuth({
   providers: [
     Keycloak({
-      clientId: process.env.KEYCLOAK_ID ?? 'grantflow-web',
-      clientSecret: process.env.KEYCLOAK_SECRET ?? '',
-      issuer: process.env.KEYCLOAK_ISSUER ?? 'http://localhost:8080/realms/grantflow',
+      clientId: KEYCLOAK_ID,
+      clientSecret: KEYCLOAK_SECRET,
+      issuer: KEYCLOAK_ISSUER,
     }),
   ],
   // JWT-only — pas de DB. Le token next-auth porte l'access_token Keycloak.

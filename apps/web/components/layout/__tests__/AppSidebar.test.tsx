@@ -1,10 +1,17 @@
 import { render, screen } from '@testing-library/react';
-import { AppSidebar } from '../AppSidebar';
 
 let mockPathname = '/dashboard';
 jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }));
+
+// Stub SystemStatus pour ne pas tirer TanStack Query dans ce test
+jest.mock('../SystemStatus', () => ({
+  SystemStatus: () => <div data-testid="system-status-stub" />,
+}));
+
+// Import APRÈS jest.mock (les mocks sont hoistés mais l'import résolu après évaluation)
+import { AppSidebar } from '../AppSidebar';
 
 describe('AppSidebar', () => {
   it('renders the 5 navigation entries', () => {
@@ -37,5 +44,11 @@ describe('AppSidebar', () => {
     render(<AppSidebar />);
     const dashboardLink = screen.getByText('Dashboard').closest('a');
     expect(dashboardLink).not.toHaveAttribute('aria-current', 'page');
+  });
+
+  it('renders the SystemStatus bloc at the bottom (sprint F1.1)', () => {
+    mockPathname = '/dashboard';
+    render(<AppSidebar />);
+    expect(screen.getByTestId('system-status-stub')).toBeInTheDocument();
   });
 });

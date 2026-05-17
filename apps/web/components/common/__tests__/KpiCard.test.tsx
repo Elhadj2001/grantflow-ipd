@@ -33,4 +33,25 @@ describe('KpiCard', () => {
     const { container } = render(<KpiCard label="X" value="1" accent="navy" />);
     expect(container.querySelector('.bg-navy')).not.toBeNull();
   });
+
+  it('renders skeleton progress bar when no progress prop', () => {
+    render(<KpiCard label="X" value="1" />);
+    expect(screen.getByTestId('kpi-skeleton')).toBeInTheDocument();
+    const bar = screen.getByRole('progressbar');
+    expect(bar).not.toHaveAttribute('aria-valuenow');
+  });
+
+  it('renders real progress bar with aria-valuenow when progress=42', () => {
+    render(<KpiCard label="X" value="1" progress={42} />);
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-valuenow', '42');
+    expect(screen.getByTestId('kpi-progress')).toHaveStyle({ width: '42%' });
+  });
+
+  it('clamps progress to [0..100]', () => {
+    const { rerender } = render(<KpiCard label="X" value="1" progress={150} />);
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+    rerender(<KpiCard label="X" value="1" progress={-20} />);
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+  });
 });
