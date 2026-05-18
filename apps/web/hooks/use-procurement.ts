@@ -26,6 +26,8 @@ import {
   sendPurchaseOrder,
   submitPurchaseRequest,
   updateGrLine,
+  updateGrLines,
+  getPoRemaining,
   updatePurchaseRequest,
   acknowledgePurchaseOrder,
   type CreateGrFromPoInput,
@@ -36,6 +38,7 @@ import {
   type ListPoQuery,
   type ListPrQuery,
   type PatchGrLineInput,
+  type PoRemainingLine,
   type PurchaseOrderDetail,
   type PurchaseRequestDetail,
   type UpdatePurchaseRequestInput,
@@ -340,6 +343,30 @@ export function useUpdateGrLine(grId: string) {
       qc.invalidateQueries({ queryKey: procurementKeys.gr(grId) });
     },
     onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+/** Batch update — utilisé par /reception-rapide pour patcher toutes les
+ *  lignes scannées d'un coup à la validation finale. */
+export function useUpdateGrLines(grId: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<GoodsReceiptDetail, ApiError, PatchGrLineInput[]>({
+    mutationFn: (lines) => updateGrLines(grId, lines, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: procurementKeys.gr(grId) });
+    },
+    onError: (err) => mapApiErrorToToast(err),
+  });
+}
+
+/** Quantités restantes par poLine — utile pour la progression du scanner. */
+export function usePoRemaining(poId: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery<PoRemainingLine[]>({
+    queryKey: [...procurementKeys.po(poId ?? '__none__'), 'remaining'],
+    enabled: sessionReady && !!poId,
+    queryFn: () => getPoRemaining(poId!, { accessToken }),
   });
 }
 
