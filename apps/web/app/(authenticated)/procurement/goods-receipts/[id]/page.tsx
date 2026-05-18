@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, Trash2, XCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Printer, Trash2, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { DateDisplay } from '@/components/common/DateDisplay';
@@ -115,6 +115,17 @@ export default function GoodsReceiptDetailPage() {
                 <CheckCircle2 className="mr-2 h-4 w-4" /> Compléter la réception
               </Button>
             )}
+            {(data.status === 'complete' || data.status === 'partial') &&
+              permissions.canReceive() && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/procurement/goods-receipts/${data.id}/labels`)}
+                  data-testid="action-labels"
+                >
+                  <Printer className="mr-2 h-4 w-4" /> Étiquettes QR
+                </Button>
+              )}
             {canReject && (
               <Button variant="destructive" size="sm" onClick={() => setDialog('reject')}>
                 <XCircle className="mr-2 h-4 w-4" /> Rejeter livraison

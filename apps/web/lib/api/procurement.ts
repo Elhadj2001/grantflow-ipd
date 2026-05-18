@@ -478,6 +478,43 @@ export function updateGrLine(
   });
 }
 
+/**
+ * Batch update plusieurs lignes en un appel — utilisé par /reception-rapide
+ * pour patcher toutes les lignes scannées d'un coup à la validation.
+ * Backend : POST /goods-receipts/:id/lines avec body `{ lines: [...] }`.
+ */
+export function updateGrLines(
+  grId: string,
+  lines: PatchGrLineInput[],
+  opts: CallOpts = {},
+): Promise<GoodsReceiptDetail> {
+  return apiFetch<GoodsReceiptDetail>(`/goods-receipts/${grId}/lines`, {
+    method: 'POST',
+    json: { lines },
+    accessToken: opts.accessToken,
+  });
+}
+
+/** Quantités restantes à recevoir par poLine. */
+export interface PoRemainingLine {
+  poLineId: string;
+  lineNumber: number;
+  description: string;
+  unit: string;
+  ordered: number;
+  received: number;
+  remaining: number;
+}
+
+export function getPoRemaining(
+  poId: string,
+  opts: CallOpts = {},
+): Promise<PoRemainingLine[]> {
+  return apiFetch<PoRemainingLine[]>(`/purchase-orders/${poId}/remaining`, {
+    accessToken: opts.accessToken,
+  });
+}
+
 export function completeGoodsReceipt(
   id: string,
   opts: CallOpts = {},

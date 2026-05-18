@@ -7,6 +7,7 @@ import { PurchaseOrderService } from './services/purchase-order.service';
 import { PoPdfService } from './services/po-pdf.service';
 import { GoodsReceiptController } from './goods-receipt.controller';
 import { GoodsReceiptService } from './services/goods-receipt.service';
+import { GrLabelsService } from './services/gr-labels.service';
 import { MailService } from '../common/services/mail.service';
 import { StorageService } from '../common/services/storage.service';
 import { AccountingModule } from '../accounting/accounting.module';
@@ -20,6 +21,7 @@ import { AccountingModule } from '../accounting/accounting.module';
     PurchaseOrderService,
     PoPdfService,
     GoodsReceiptService,
+    GrLabelsService,
     MailService,
     StorageService,
   ],
