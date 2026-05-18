@@ -531,6 +531,56 @@ export class GoodsReceiptService {
     return gr;
   }
 
+  /**
+   * Génère un PDF d'étiquettes QR pour le GR (sprint F-MAG).
+   *
+   * Le service `GrLabelsService` est passé en argument pour éviter
+   * une dépendance circulaire / un nouveau provider à enregistrer.
+   * Le contrôleur fournit l'instance via DI.
+   */
+  async buildLabelsPdf(
+    actor: AuthenticatedUser,
+    grId: string,
+    format: 'grid-4x4' | 'individual',
+    cartonCountPerLine: number,
+    labelsSvc: {
+      generate: (payload: import('./gr-labels.service').GrLabelsPayload, format: 'grid-4x4' | 'individual') => Promise<Buffer>;
+    },
+  ): Promise<Buffer> {
+    const gr = await this.findOne(actor, grId);
+    const po = await this.prisma.purchaseOrder.findUnique({
+      where: { id: gr.poId },
+      include: { lines: { orderBy: { lineNumber: 'asc' } }, supplier: true },
+    });
+    if (!po) throw new EntityNotFoundException('PurchaseOrder', { id: gr.poId });
+
+    // Map poLineId → description (les lignes GR référencent poLineId)
+    const poLineMap = new Map(po.lines.map((l) => [l.id, l]));
+
+    return labelsSvc.generate(
+      {
+        grId: gr.id,
+        grNumber: gr.grNumber,
+        poNumber: po.poNumber,
+        supplierName: po.supplier.name,
+        receiptDate: gr.receiptDate ?? new Date(),
+        cartonCountPerLine,
+        lines: gr.lines.map((l, idx) => {
+          const poLine = poLineMap.get(l.poLineId);
+          return {
+            lineId: l.id,
+            lineNumber: poLine?.lineNumber ?? idx + 1,
+            description: poLine?.description ?? '—',
+            batchNumber: l.batchNumber,
+            expiryDate: l.expiryDate,
+            coldChainRequired: gr.coldChainRequired,
+          };
+        }),
+      },
+      format,
+    );
+  }
+
   // ------------------------------------------------------------------
   // PO views
   // ------------------------------------------------------------------

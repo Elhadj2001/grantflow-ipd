@@ -2,12 +2,15 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
@@ -15,6 +18,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -22,6 +26,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { GoodsReceiptService } from './services/goods-receipt.service';
+import { GrLabelsService } from './services/gr-labels.service';
 import {
   CancelGrDto,
   CreateGrFromPoDto,
@@ -29,6 +34,7 @@ import {
   UpdateGrDto,
   UpdateGrLinesDto,
 } from './dto/create-gr.dto';
+import { GrLabelsQueryDto } from './dto/gr-labels.dto';
 import { GrQueryDto } from './dto/gr-query.dto';
 
 @ApiBearerAuth()
@@ -37,7 +43,10 @@ import { GrQueryDto } from './dto/gr-query.dto';
 @ApiForbiddenResponse({ description: 'Insufficient role (AUTH.FORBIDDEN_ROLE)' })
 @Controller()
 export class GoodsReceiptController {
-  constructor(private readonly svc: GoodsReceiptService) {}
+  constructor(
+    private readonly svc: GoodsReceiptService,
+    private readonly labelsSvc: GrLabelsService,
+  ) {}
 
   // ------------------------------------------------------------------
   // Create
@@ -165,6 +174,38 @@ export class GoodsReceiptController {
   // ------------------------------------------------------------------
   // PO-scoped views
   // ------------------------------------------------------------------
+
+  // ------------------------------------------------------------------
+  // Labels QR (sprint F-MAG)
+  // ------------------------------------------------------------------
+
+  @Get('goods-receipts/:id/labels.pdf')
+  @Roles('MAGASINIER', 'ACHETEUR', 'SUPER_ADMIN')
+  @ApiProduces('application/pdf')
+  @Header('Content-Type', 'application/pdf')
+  @ApiOperation({
+    summary: 'Générer des étiquettes QR (PDF) pour les lignes du GR',
+    description:
+      'Format `grid-4x4` (16 étiquettes / page A4) ou `individual` (1 / page). ' +
+      'Paramètre `count` = nombre de cartons par ligne (1-64). Chaque QR encode ' +
+      '`GRF://<grId>/<lineId>/<carton>` réutilisable plus tard par /inventaire-scan.',
+  })
+  @ApiNotFoundResponse({ description: 'GR not found' })
+  async labelsPdf(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: GrLabelsQueryDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const buffer = await this.svc.buildLabelsPdf(user, id, query.format, query.count, this.labelsSvc);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="labels-${id.slice(0, 8)}.pdf"`,
+    );
+    res.setHeader('Content-Length', buffer.length.toString());
+    res.end(buffer);
+  }
 
   @Get('purchase-orders/:poId/receipts')
   @ApiOperation({ summary: 'Historique des GR pour un PO' })
