@@ -3,11 +3,14 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
@@ -15,6 +18,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -24,6 +28,7 @@ import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentRunService } from './services/payment-run.service';
 import {
+  AcknowledgeIbanAlertsDto,
   AddInvoicesToRunDto,
   ApprovePaymentRunDto,
   CancelPaymentRunDto,
@@ -199,6 +204,97 @@ export class PaymentRunController {
   ) {
     const actor = await this.resolveActor(user);
     return this.svc.reject(actor, id, dto.reason);
+  }
+
+  // ------------------------------------------------------------------
+  // Sprint F4a — Anti-fraude IBAN + SEPA pain.001
+  // ------------------------------------------------------------------
+
+  @Get('payment-runs/:id/iban-alerts')
+  @ApiOperation({
+    summary: 'Liste les alertes IBAN snapshotées au prepare (anti-fraude)',
+    description:
+      'Retourne le snapshot ibanAlerts persisté. Vide tant que le run n\'est pas prepared. ' +
+      'Chaque alerte indique le fournisseur dont l\'IBAN a changé < 30j avant le run.',
+  })
+  async ibanAlerts(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.svc.listIbanAlerts(id);
+  }
+
+  @Post('payment-runs/:id/acknowledge-iban-alerts')
+  @Roles('DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Acknowledger toutes les alertes IBAN avec un motif (DAF)',
+    description:
+      'Débloque l\'approbation du run. Motif obligatoire (min 5 chars). ' +
+      'identityVerified : checkbox de confirmation visuelle, tracée dans l\'audit.',
+  })
+  @ApiConflictResponse({ description: 'PAYMENT_RUN_REJECT_REASON_REQUIRED si motif < 5 chars' })
+  async acknowledgeIbanAlerts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: AcknowledgeIbanAlertsDto,
+  ) {
+    const actor = await this.resolveActor(user);
+    const reason = dto.identityVerified
+      ? `${dto.reason} [identité bénéficiaire vérifiée]`
+      : dto.reason;
+    return this.svc.acknowledgeIbanAlerts(actor, id, reason);
+  }
+
+  @Post('payment-runs/:id/generate-sepa')
+  @Roles('TRESORIER', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Générer le XML pain.001.001.03 et le persister',
+    description:
+      'Pré-conditions : status ∈ {prepared, executed}, bankAccount avec IBAN/BIC, ' +
+      'tous les fournisseurs avec IBAN. Le XML est stocké inline dans ap.payment_run.sepa_xml.',
+  })
+  @ApiConflictResponse({
+    description: 'SEPA_RUN_NOT_READY / SEPA_GENERATION_FAILED / PAYMENT_RUN_EMPTY',
+  })
+  async generateSepa(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    const actor = await this.resolveActor(user);
+    return this.svc.generateSepa(actor, id);
+  }
+
+  @Get('payment-runs/:id/sepa')
+  @ApiProduces('application/xml')
+  @Header('Content-Type', 'application/xml')
+  @ApiOperation({
+    summary: 'Télécharger le XML SEPA (stream)',
+    description: 'Retourne 409 SEPA_NOT_GENERATED si pas encore généré.',
+  })
+  @ApiNotFoundResponse({ description: 'Run not found' })
+  async downloadSepa(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { runNumber, xml } = await this.svc.downloadSepa(id);
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="GRANTFLOW-pain001-${runNumber}-${date}.xml"`,
+    );
+    res.end(xml);
+  }
+
+  @Post('payment-runs/:id/mark-sepa-sent')
+  @Roles('TRESORIER', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Marquer le SEPA comme envoyé à la banque (action manuelle)',
+  })
+  @ApiConflictResponse({ description: 'SEPA_NOT_GENERATED' })
+  async markSepaSent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    const actor = await this.resolveActor(user);
+    return this.svc.markSepaAsSent(actor, id);
   }
 
   @Post('payment-runs/:id/cancel')

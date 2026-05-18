@@ -60,6 +60,20 @@ export const CancelPaymentRunSchema = z
   .strict();
 export class CancelPaymentRunDto extends createZodDto(CancelPaymentRunSchema) {}
 
+/** Sprint F4a — acknowledge des alertes IBAN par le DAF, motif obligatoire. */
+export const AcknowledgeIbanAlertsSchema = z
+  .object({
+    reason: z.string().min(5).max(500),
+    /**
+     * Confirmation explicite que le DAF a vérifié l'identité du
+     * bénéficiaire par un canal indépendant (téléphone). Sert d'audit
+     * trail visuel — pas de réelle vérif automatique possible.
+     */
+    identityVerified: z.boolean().default(false),
+  })
+  .strict();
+export class AcknowledgeIbanAlertsDto extends createZodDto(AcknowledgeIbanAlertsSchema) {}
+
 export const PAYMENT_RUN_STATUSES = [
   'draft',
   'prepared',

@@ -955,6 +955,10 @@ model PaymentRun {
   rejectionReason     String?   @map("rejection_reason")
   /// Snapshot des alertes IBAN persistées au prepare (sprint F4a anti-fraude).
   ibanAlerts          Json?     @map("iban_alerts") @db.JsonB
+  /// XML pain.001.001.03 (sprint F4a, inline TEXT). Null tant que pas généré.
+  sepaXml             String?   @map("sepa_xml")
+  sepaGeneratedAt     DateTime? @map("sepa_generated_at") @db.Timestamptz(6)
+  sepaSentAt          DateTime? @map("sepa_sent_at") @db.Timestamptz(6)
   approvedAt          DateTime? @map("approved_at") @db.Timestamptz(6)
   executedAt          DateTime? @map("executed_at") @db.Timestamptz(6)
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

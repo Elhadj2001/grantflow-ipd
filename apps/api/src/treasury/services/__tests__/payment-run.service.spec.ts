@@ -144,9 +144,22 @@ describe('PaymentRunService', () => {
       postPayment: jest.fn(),
       listEntriesForPayment: jest.fn(),
     };
+    // Sprint F4a — IbanFraudService + SepaService injectés
+    const ibanFraud = {
+      computeAlertsForRun: jest.fn().mockResolvedValue([]),
+      countUnacknowledged: jest.fn().mockReturnValue(0),
+      acknowledgeAll: jest.fn((alerts: unknown[]) => alerts),
+      maskIban: jest.fn((s: string) => s),
+    };
+    const sepa = {
+      generate: jest.fn().mockReturnValue('<Document/>'),
+      validateStructure: jest.fn().mockReturnValue({ valid: true, missing: [] }),
+    };
     svc = new PaymentRunService(
       prisma as unknown as PrismaService,
       posting as unknown as PostingService,
+      ibanFraud as unknown as import('../iban-fraud.service').IbanFraudService,
+      sepa as unknown as import('../sepa.service').SepaService,
     );
   });
 

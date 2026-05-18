@@ -6,6 +6,7 @@ import {
   BankAccountInactiveException,
   BankAccountNotFoundException,
   EntityNotFoundException,
+  IbanAlertsNotAcknowledgedException,
   InvoiceAlreadyInRunException,
   InvoiceNotPayableException,
   MissingIbanException,
@@ -18,9 +19,13 @@ import {
   PaymentRunNotPreparableException,
   PaymentRunNotRejectableException,
   PaymentRunRejectReasonRequiredException,
+  SepaNotGeneratedException,
+  SepaRunNotReadyException,
 } from '../../common/exceptions/business.exception';
 import { isValidIban } from '../../referential/supplier/iban-bic.util';
 import { PostingService, type PostingActor } from '../../accounting/services/posting.service';
+import { IbanFraudService, type IbanAlert } from './iban-fraud.service';
+import { SepaService } from './sepa.service';
 import type {
   AddInvoicesToRunDto,
   CreatePaymentRunDto,
@@ -60,6 +65,8 @@ export class PaymentRunService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly posting: PostingService,
+    private readonly ibanFraud: IbanFraudService,
+    private readonly sepa: SepaService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -351,6 +358,9 @@ export class PaymentRunService {
       throw new MissingIbanException(missingIban);
     }
 
+    // Sprint F4a — anti-fraude : snapshot des alertes IBAN au moment du prepare
+    const ibanAlerts = await this.ibanFraud.computeAlertsForRun(runId);
+
     const updated = await this.prisma.paymentRun.update({
       where: { id: runId },
       data: {
@@ -358,6 +368,10 @@ export class PaymentRunService {
         preparationWarnings:
           warnings.length > 0
             ? (warnings as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+        ibanAlerts:
+          ibanAlerts.length > 0
+            ? (ibanAlerts as unknown as Prisma.InputJsonValue)
             : Prisma.JsonNull,
       },
     });
@@ -384,6 +398,13 @@ export class PaymentRunService {
     const run = await this.ensureExists(runId);
     if (run.status !== 'prepared') {
       throw new PaymentRunNotApprovableException(runId, run.status);
+    }
+    // Sprint F4a — anti-fraude : refuse l'approbation tant que les alertes
+    // IBAN ne sont pas toutes acknowledgées (séparation des tâches DAF).
+    const alerts = (run.ibanAlerts ?? null) as IbanAlert[] | null;
+    const unack = this.ibanFraud.countUnacknowledged(alerts);
+    if (unack > 0) {
+      throw new IbanAlertsNotAcknowledgedException(runId, unack);
     }
     if (!run.bankAccountId) {
       throw new EntityNotFoundException('BankAccount', { runId, hint: 'No bankAccount linked' });
@@ -477,6 +498,141 @@ export class PaymentRunService {
       });
     });
     this.logger.warn({ runId, actor: actor.email, reason }, 'payment run rejected');
+    return updated;
+  }
+
+  // ------------------------------------------------------------------
+  // Sprint F4a — Anti-fraude IBAN + SEPA pain.001
+  // ------------------------------------------------------------------
+
+  /** Liste les alertes IBAN snapshotées au prepare. */
+  async listIbanAlerts(runId: string): Promise<IbanAlert[]> {
+    const run = await this.ensureExists(runId);
+    return (run.ibanAlerts ?? []) as unknown as IbanAlert[];
+  }
+
+  /**
+   * Acknowledge toutes les alertes IBAN d'un run avec un motif. Réservé
+   * au DAF (RBAC enforcé côté controller). Mute l'objet JSON en place.
+   * L'audit log standard trace l'opération.
+   */
+  async acknowledgeIbanAlerts(
+    actor: PostingActor,
+    runId: string,
+    reason: string,
+  ): Promise<PaymentRun> {
+    if (!reason || reason.trim().length < 5) {
+      throw new PaymentRunRejectReasonRequiredException();
+    }
+    const run = await this.ensureExists(runId);
+    const alerts = (run.ibanAlerts ?? []) as unknown as IbanAlert[];
+    if (alerts.length === 0) return run;
+
+    const acked = this.ibanFraud.acknowledgeAll(alerts, {
+      email: actor.email,
+      reason: reason.trim(),
+    });
+
+    const updated = await this.prisma.paymentRun.update({
+      where: { id: runId },
+      data: { ibanAlerts: acked as unknown as Prisma.InputJsonValue },
+    });
+    this.logger.warn(
+      { runId, actor: actor.email, reason, alertCount: alerts.length },
+      'IBAN alerts acknowledged by DAF',
+    );
+    return updated;
+  }
+
+  /**
+   * Génère le XML SEPA pain.001.001.03 pour le run et le persiste dans
+   * `sepa_xml`. Pré-conditions :
+   *  - status ∈ {prepared, executed}
+   *  - bankAccount avec IBAN/BIC
+   *  - tous les fournisseurs avec IBAN/BIC valides
+   */
+  async generateSepa(
+    actor: PostingActor,
+    runId: string,
+  ): Promise<{ runNumber: string; generatedAt: Date; size: number }> {
+    const run = await this.ensureExists(runId);
+    if (run.status !== 'prepared' && run.status !== 'executed') {
+      throw new SepaRunNotReadyException(runId, run.status);
+    }
+    if (!run.bankAccountId) {
+      throw new EntityNotFoundException('BankAccount', { runId });
+    }
+    const bankAccount = await this.loadBankAccount(run.bankAccountId);
+
+    const payments = await this.prisma.payment.findMany({
+      where: { paymentRunId: runId },
+      include: {
+        invoice: {
+          include: { supplier: { select: { name: true, iban: true, bic: true } } },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (payments.length === 0) throw new PaymentRunEmptyException(runId);
+
+    const xml = this.sepa.generate({
+      messageId: run.runNumber,
+      createdAt: new Date(),
+      executionDate: run.runDate,
+      debtor: {
+        name: 'Institut Pasteur de Dakar',
+        // BankAccount.accountNumber tient lieu d'IBAN dans notre modèle
+        // (schéma ref.bank_account — pas de colonne iban dédiée).
+        iban: bankAccount.accountNumber,
+        bic: bankAccount.bic ?? '',
+      },
+      transactions: payments.map((p) => ({
+        endToEndId: `${run.runNumber}-${p.id.slice(0, 8)}`,
+        amount: Number(p.amount).toFixed(2),
+        currency: p.currency,
+        creditor: {
+          name: p.invoice.supplier.name,
+          iban: p.invoice.supplier.iban ?? '',
+          bic: p.invoice.supplier.bic ?? '',
+        },
+        remittanceInfo: `Facture ${p.invoice.invoiceNumber}`,
+      })),
+    });
+
+    const now = new Date();
+    await this.prisma.paymentRun.update({
+      where: { id: runId },
+      data: {
+        sepaXml: xml,
+        sepaGeneratedAt: now,
+        sepaFileKey: `inline:${run.runNumber}`,
+      },
+    });
+
+    this.logger.log(
+      { runId, runNumber: run.runNumber, actor: actor.email, size: xml.length },
+      'SEPA pain.001.001.03 generated and persisted',
+    );
+
+    return { runNumber: run.runNumber, generatedAt: now, size: xml.length };
+  }
+
+  /** Retourne le XML SEPA stocké pour téléchargement. */
+  async downloadSepa(runId: string): Promise<{ runNumber: string; xml: string }> {
+    const run = await this.ensureExists(runId);
+    if (!run.sepaXml) throw new SepaNotGeneratedException(runId);
+    return { runNumber: run.runNumber, xml: run.sepaXml };
+  }
+
+  /** Marque le SEPA comme envoyé à la banque (action manuelle Trésorier). */
+  async markSepaAsSent(actor: PostingActor, runId: string): Promise<PaymentRun> {
+    const run = await this.ensureExists(runId);
+    if (!run.sepaXml) throw new SepaNotGeneratedException(runId);
+    const updated = await this.prisma.paymentRun.update({
+      where: { id: runId },
+      data: { sepaSentAt: new Date() },
+    });
+    this.logger.log({ runId, actor: actor.email }, 'SEPA marked as sent to bank');
     return updated;
   }
 

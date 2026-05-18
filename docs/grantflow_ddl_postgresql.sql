@@ -1348,14 +1348,23 @@ WHERE s.iban IS NOT NULL
   );
 
 -- ---------------------------------------------------------------------
--- 2) PaymentRun — colonne d'alertes IBAN persistées au prepare
+-- 2) PaymentRun — alertes IBAN + XML SEPA persistés
 -- ---------------------------------------------------------------------
 ALTER TABLE ap.payment_run
-  ADD COLUMN IF NOT EXISTS iban_alerts JSONB;
+  ADD COLUMN IF NOT EXISTS iban_alerts JSONB,
+  ADD COLUMN IF NOT EXISTS sepa_xml TEXT,
+  ADD COLUMN IF NOT EXISTS sepa_generated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS sepa_sent_at TIMESTAMPTZ;
 
 COMMENT ON COLUMN ap.payment_run.iban_alerts IS
   'Snapshot des alertes IBAN au moment du prepare (sprint F4a anti-fraude). ' ||
   'JSON : [{ supplierId, supplierName, currentIban, previousIban, changedAt, daysSinceChange, acknowledged, acknowledgedBy, acknowledgedAt, acknowledgeReason }]';
+COMMENT ON COLUMN ap.payment_run.sepa_xml IS
+  'XML pain.001.001.03 généré (TEXT car < 10kB par run typique). Stockage inline pour éviter dépendance MinIO au F4a.';
+COMMENT ON COLUMN ap.payment_run.sepa_generated_at IS
+  'Date/heure de génération du SEPA (sprint F4a)';
+COMMENT ON COLUMN ap.payment_run.sepa_sent_at IS
+  'Date/heure d''envoi du SEPA à la banque (marqué manuellement par le trésorier)';
 
 -- ---------------------------------------------------------------------
 -- 3) Payment — multidevises : conserver la facture originale
