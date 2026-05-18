@@ -1302,6 +1302,89 @@ BEFORE DELETE ON reporting.financial_statement
 FOR EACH ROW EXECUTE FUNCTION reporting.protect_locked_statement();
 
 -- =====================================================================
+--  SPRINT F4a — SEPA pain.001 + anti-fraude IBAN + multidevises FX
+-- =====================================================================
+-- Patches idempotents (CLAUDE.md §9 — DDL-first, pas de prisma migrate).
+-- Réapplicables sans risque sur une base existante.
+
+-- ---------------------------------------------------------------------
+-- 1) Historique IBAN fournisseur (anti-fraude PaymentRun)
+-- ---------------------------------------------------------------------
+-- À chaque mise à jour de supplier.iban/bic/bank_name, on clôture la
+-- ligne courante (effective_to=now()) et on insère la nouvelle. La
+-- ligne courante par supplier est garantie unique via index partiel.
+CREATE TABLE IF NOT EXISTS ref.supplier_iban_history (
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    supplier_id    UUID NOT NULL REFERENCES ref.supplier(id) ON DELETE CASCADE,
+    iban           TEXT,
+    bic            TEXT,
+    bank_name      TEXT,
+    effective_from TIMESTAMPTZ NOT NULL DEFAULT now(),
+    effective_to   TIMESTAMPTZ,
+    changed_by     UUID REFERENCES auth.app_user(id),
+    change_reason  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_iban_history_supplier
+    ON ref.supplier_iban_history(supplier_id);
+
+-- Une seule ligne courante par supplier (effective_to IS NULL).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_iban_history_current
+    ON ref.supplier_iban_history(supplier_id)
+    WHERE effective_to IS NULL;
+
+COMMENT ON TABLE ref.supplier_iban_history IS
+  'Historique des changements d''IBAN fournisseur (anti-fraude PaymentRun, sprint F4a)';
+
+-- Seed initial : pour chaque supplier ayant déjà un IBAN, créer la ligne
+-- "courante" si elle n'existe pas. Idempotent — re-exécutable.
+INSERT INTO ref.supplier_iban_history (supplier_id, iban, bic, bank_name)
+SELECT s.id, s.iban, s.bic, s.bank_name
+FROM ref.supplier s
+WHERE s.iban IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM ref.supplier_iban_history h
+    WHERE h.supplier_id = s.id AND h.effective_to IS NULL
+  );
+
+-- ---------------------------------------------------------------------
+-- 2) PaymentRun — colonne d'alertes IBAN persistées au prepare
+-- ---------------------------------------------------------------------
+ALTER TABLE ap.payment_run
+  ADD COLUMN IF NOT EXISTS iban_alerts JSONB;
+
+COMMENT ON COLUMN ap.payment_run.iban_alerts IS
+  'Snapshot des alertes IBAN au moment du prepare (sprint F4a anti-fraude). ' ||
+  'JSON : [{ supplierId, supplierName, currentIban, previousIban, changedAt, daysSinceChange, acknowledged, acknowledgedBy, acknowledgedAt, acknowledgeReason }]';
+
+-- ---------------------------------------------------------------------
+-- 3) Payment — multidevises : conserver la facture originale
+-- ---------------------------------------------------------------------
+-- Si une facture EUR est payée depuis un compte XOF, le payment stocke
+-- amount=montant XOF effectivement débité, original_amount=montant EUR
+-- facturé, exchange_rate=taux appliqué. Permet de calculer correctement
+-- l'écart FX (666 perte / 766 gain).
+ALTER TABLE ap.payment
+  ADD COLUMN IF NOT EXISTS original_amount   NUMERIC(18,2),
+  ADD COLUMN IF NOT EXISTS original_currency CHAR(3),
+  ADD COLUMN IF NOT EXISTS exchange_rate     NUMERIC(18,8);
+
+COMMENT ON COLUMN ap.payment.original_amount IS
+  'Montant facture original en devise étrangère (sprint F4a multidevises)';
+COMMENT ON COLUMN ap.payment.original_currency IS
+  'Devise du montant original (ex EUR), distinct de currency (devise du compte payeur)';
+COMMENT ON COLUMN ap.payment.exchange_rate IS
+  'Taux de change appliqué lors du paiement (récupéré dans ref.exchange_rate)';
+
+-- ---------------------------------------------------------------------
+-- 4) Comptes SYSCEBNL 666/766 (multidevises FX)
+-- ---------------------------------------------------------------------
+INSERT INTO ref.gl_account (code, label, class, is_movement, syscebnl_specific) VALUES
+  ('666', 'Pertes de change', '6', true, false),
+  ('766', 'Gains de change',  '7', true, false)
+ON CONFLICT (code) DO NOTHING;
+
+-- =====================================================================
 --  FIN DU SCRIPT — Vérifications rapides
 -- =====================================================================
 -- SELECT COUNT(*) AS nb_tables FROM information_schema.tables

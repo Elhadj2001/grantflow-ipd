@@ -1466,6 +1466,99 @@ export class BankAccountInactiveException extends BusinessException {
   }
 }
 
+// ===== Sprint F4a — SEPA pain.001 + anti-fraude IBAN + multidevises FX =====
+
+/**
+ * 500 — la génération du fichier SEPA pain.001.001.03 a échoué côté
+ * service (xmlbuilder2, données manquantes, etc.). Le message technique
+ * reste dans les logs serveur ; le code reste stable pour i18n.
+ */
+export class SepaGenerationFailedException extends BusinessException {
+  constructor(runId: string, reason: string) {
+    super(
+      ErrorCode.BUSINESS.SEPA_GENERATION_FAILED,
+      HttpStatus.INTERNAL_SERVER_ERROR,
+      `SEPA generation failed: ${reason}`,
+      { runId, reason },
+    );
+  }
+}
+
+/** 409 — tentative de téléchargement d'un SEPA non encore généré. */
+export class SepaNotGeneratedException extends BusinessException {
+  constructor(runId: string) {
+    super(
+      ErrorCode.BUSINESS.SEPA_NOT_GENERATED,
+      HttpStatus.CONFLICT,
+      `SEPA file not generated yet for this PaymentRun`,
+      { runId },
+    );
+  }
+}
+
+/**
+ * 409 — pré-condition non remplie pour générer le SEPA : run pas dans
+ * un statut compatible (draft / prepared) ou aucun paiement attaché.
+ */
+export class SepaRunNotReadyException extends BusinessException {
+  constructor(runId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.SEPA_RUN_NOT_READY,
+      HttpStatus.CONFLICT,
+      `PaymentRun not ready for SEPA generation (status=${status})`,
+      { runId, status },
+    );
+  }
+}
+
+/**
+ * 409 — approbation d'un PaymentRun bloquée par des alertes IBAN actives.
+ * Le DAF doit acknowledger via `POST /payment-runs/:id/acknowledge-iban-alerts`
+ * avant l'approbation. Le motif est obligatoire et tracé dans l'audit.
+ */
+export class IbanAlertsNotAcknowledgedException extends BusinessException {
+  constructor(runId: string, alertCount: number) {
+    super(
+      ErrorCode.BUSINESS.IBAN_ALERTS_NOT_ACKNOWLEDGED,
+      HttpStatus.CONFLICT,
+      `PaymentRun has ${alertCount} unacknowledged IBAN alert(s)`,
+      { runId, alertCount },
+    );
+  }
+}
+
+/**
+ * 409 — multidevise : aucun taux ref.exchange_rate pour la paire
+ * (invoice.currency → bankAccount.currency) à la date de paiement.
+ */
+export class ExchangeRateForPaymentMissingException extends BusinessException {
+  constructor(fromCurrency: string, toCurrency: string, paymentDate: string) {
+    super(
+      ErrorCode.BUSINESS.EXCHANGE_RATE_FOR_PAYMENT_MISSING,
+      HttpStatus.CONFLICT,
+      `No exchange rate ${fromCurrency}→${toCurrency} at ${paymentDate}`,
+      { fromCurrency, toCurrency, paymentDate },
+    );
+  }
+}
+
+/**
+ * 409 — sanity check : l'écart FX entre le montant facture (en devise
+ * étrangère convertie au taux de la facture) et le montant payé
+ * effectif (en devise du compte) dépasse 10%. Bloque pour forcer
+ * une intervention humaine (saisie manuelle de taux, vérification).
+ */
+export class FxDiffTooLargeException extends BusinessException {
+  constructor(invoiceId: string, fxDiffPct: number) {
+    super(
+      ErrorCode.BUSINESS.FX_DIFF_TOO_LARGE,
+      HttpStatus.CONFLICT,
+      `FX difference ${fxDiffPct.toFixed(2)}% exceeds 10% threshold`,
+      { invoiceId, fxDiffPct },
+    );
+  }
+}
+
 // ===== Sprint 6.1 — Reporting bailleur =====
 
 /** 404 — template de rapport bailleur inconnu. */
