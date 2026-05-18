@@ -2,14 +2,16 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PackageCheck } from 'lucide-react';
+import { PackageCheck, Truck } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/common/DataTable';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { DateDisplay } from '@/components/common/DateDisplay';
 import { EmptyState } from '@/components/common/EmptyState';
 import { FilterBar } from '@/components/common/FilterBar';
+import { Button } from '@/components/ui/button';
 import { useListGRs } from '@/hooks/use-procurement';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { GoodsReceipt, GrStatus } from '@/lib/api/procurement';
 
 const PAGE_SIZE = 20;
@@ -23,6 +25,7 @@ const STATUS_VALUES: Array<{ value: GrStatus; label: string }> = [
 
 export default function GoodsReceiptsListPage() {
   const router = useRouter();
+  const permissions = usePermissions();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<GrStatus | undefined>();
 
@@ -52,7 +55,20 @@ export default function GoodsReceiptsListPage() {
 
   return (
     <>
-      <PageHeader title="Réceptions de marchandise" subtitle="Service fait constaté par le magasinier" />
+      <PageHeader
+        title="Réceptions de marchandise"
+        subtitle="Service fait constaté par le magasinier"
+        actions={
+          permissions.canReceive() ? (
+            <Button
+              onClick={() => router.push('/procurement/reception-rapide')}
+              data-testid="open-reception-rapide"
+            >
+              <Truck className="mr-2 h-4 w-4" /> Réception rapide
+            </Button>
+          ) : undefined
+        }
+      />
       <div className="space-y-4 p-8">
         <FilterBar
           filters={{ status: statusFilter }}
