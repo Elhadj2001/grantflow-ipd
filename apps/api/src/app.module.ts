@@ -22,6 +22,7 @@ import { CashBoxModule } from './referential/cash-box/cash-box.module';
 import { TreasuryModule } from './treasury/treasury.module';
 import { ReportingModule } from './reporting/reporting.module';
 import { AccountingModule } from './accounting/accounting.module';
+import { PilotageModule } from './pilotage/pilotage.module';
 
 const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -86,6 +87,7 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     TreasuryModule,
     ReportingModule,
     AccountingModule,
+    PilotageModule,
     // À ajouter au fil des sprints :
     // ApModule,
     // GlModule,
