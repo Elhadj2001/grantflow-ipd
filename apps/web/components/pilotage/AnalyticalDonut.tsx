@@ -81,6 +81,7 @@ export function AnalyticalDonut({
       <div
         data-testid="analytical-donut"
         data-empty="true"
+        data-selected={selected ?? ''}
         className={cn(
           'flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 p-8 text-sm text-slate-muted',
           className,
@@ -95,6 +96,7 @@ export function AnalyticalDonut({
   return (
     <div
       data-testid="analytical-donut"
+      data-empty="false"
       data-selected={selected ?? ''}
       className={cn('rounded-lg border bg-white p-4 shadow-sm', className)}
     >
