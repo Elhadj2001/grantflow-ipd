@@ -148,4 +148,61 @@ describe('usePermissions', () => {
     expect(p.canPostInvoice()).toBe(false);
     expect(p.canViewJournalEntry()).toBe(false);
   });
+
+  // ------------------------------------------------------------------
+  // Sprint F4b — Treasury
+  // ------------------------------------------------------------------
+
+  it('TRESORIER can create/prepare/generate SEPA but NOT approve (séparation)', () => {
+    const p = withRoles(['TRESORIER']);
+    expect(p.canViewPaymentRun()).toBe(true);
+    expect(p.canCreatePaymentRun()).toBe(true);
+    expect(p.canPreparePaymentRun()).toBe(true);
+    expect(p.canGenerateSepa()).toBe(true);
+    expect(p.canMarkSepaSent()).toBe(true);
+    expect(p.canApprovePaymentRun()).toBe(false);
+    expect(p.canAcknowledgeIbanAlerts()).toBe(false);
+  });
+
+  it('DAF can approve + acknowledge IBAN (séparation enforced)', () => {
+    const p = withRoles(['DAF']);
+    expect(p.canApprovePaymentRun()).toBe(true);
+    expect(p.canAcknowledgeIbanAlerts()).toBe(true);
+    expect(p.canCreatePaymentRun()).toBe(true);
+    expect(p.canPreparePaymentRun()).toBe(true);
+    expect(p.canGenerateSepa()).toBe(true);
+  });
+
+  it('CONTROLEUR can view but not act on payment runs', () => {
+    const p = withRoles(['CONTROLEUR']);
+    expect(p.canViewPaymentRun()).toBe(true);
+    expect(p.canCreatePaymentRun()).toBe(false);
+    expect(p.canApprovePaymentRun()).toBe(false);
+    expect(p.canAcknowledgeIbanAlerts()).toBe(false);
+  });
+
+  it('COMPTABLE can view payment runs (lecture seule)', () => {
+    const p = withRoles(['COMPTABLE']);
+    expect(p.canViewPaymentRun()).toBe(true);
+    expect(p.canCreatePaymentRun()).toBe(false);
+    expect(p.canApprovePaymentRun()).toBe(false);
+  });
+
+  it('SUPER_ADMIN can do every treasury action', () => {
+    const p = withRoles(['SUPER_ADMIN']);
+    expect(p.canCreatePaymentRun()).toBe(true);
+    expect(p.canPreparePaymentRun()).toBe(true);
+    expect(p.canApprovePaymentRun()).toBe(true);
+    expect(p.canGenerateSepa()).toBe(true);
+    expect(p.canMarkSepaSent()).toBe(true);
+    expect(p.canAcknowledgeIbanAlerts()).toBe(true);
+  });
+
+  it('no roles → no treasury capabilities', () => {
+    const p = withRoles([]);
+    expect(p.canViewPaymentRun()).toBe(false);
+    expect(p.canCreatePaymentRun()).toBe(false);
+    expect(p.canApprovePaymentRun()).toBe(false);
+    expect(p.canAcknowledgeIbanAlerts()).toBe(false);
+  });
 });
