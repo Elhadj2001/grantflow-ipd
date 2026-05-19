@@ -49,6 +49,22 @@ export interface Permissions {
   canViewInvoice: () => boolean;
   /** Consulter une écriture comptable. */
   canViewJournalEntry: () => boolean;
+
+  // ------------------ Treasury (sprint F4b) ------------------
+  /** Voir les payment runs (lecture). */
+  canViewPaymentRun: () => boolean;
+  /** Créer un payment run (regrouper factures à payer) — TRESORIER / DAF / SUPER_ADMIN. */
+  canCreatePaymentRun: () => boolean;
+  /** Préparer (snapshot IBAN + statut prepared) — TRESORIER / DAF / SUPER_ADMIN. */
+  canPreparePaymentRun: () => boolean;
+  /** Approuver et exécuter (séparation des tâches) — DAF / SUPER_ADMIN. */
+  canApprovePaymentRun: () => boolean;
+  /** Générer le XML SEPA pain.001 — TRESORIER / DAF / SUPER_ADMIN. */
+  canGenerateSepa: () => boolean;
+  /** Marquer le SEPA comme envoyé à la banque. */
+  canMarkSepaSent: () => boolean;
+  /** Acknowledger les alertes IBAN (anti-fraude) — DAF / SUPER_ADMIN. */
+  canAcknowledgeIbanAlerts: () => boolean;
 }
 
 /**
@@ -118,6 +134,18 @@ export function usePermissions(): Permissions {
         ),
       canViewJournalEntry: () =>
         hasAny('COMPTABLE', 'DAF', 'CONTROLEUR', 'SUPER_ADMIN'),
+
+      // Treasury — F4b
+      canViewPaymentRun: () =>
+        hasAny('TRESORIER', 'DAF', 'CONTROLEUR', 'COMPTABLE', 'SUPER_ADMIN'),
+      canCreatePaymentRun: () => hasAny('TRESORIER', 'DAF', 'SUPER_ADMIN'),
+      canPreparePaymentRun: () => hasAny('TRESORIER', 'DAF', 'SUPER_ADMIN'),
+      // Séparation des tâches : seul le DAF peut approuver (et donc
+      // exécuter), même si le TRESORIER a préparé.
+      canApprovePaymentRun: () => hasAny('DAF', 'SUPER_ADMIN'),
+      canGenerateSepa: () => hasAny('TRESORIER', 'DAF', 'SUPER_ADMIN'),
+      canMarkSepaSent: () => hasAny('TRESORIER', 'DAF', 'SUPER_ADMIN'),
+      canAcknowledgeIbanAlerts: () => hasAny('DAF', 'SUPER_ADMIN'),
     };
   }, [roles]);
 }
