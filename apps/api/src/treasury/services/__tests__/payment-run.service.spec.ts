@@ -94,7 +94,6 @@ describe('PaymentRunService', () => {
       runNumber: 'PAY-2026-0001',
       runDate: new Date('2026-05-16'),
       currency: 'XOF',
-      bankAccountLegacy: null,
       bankAccountId: bankAccountXof.id,
       preparedBy: actor.id,
       approvedBy: null,
