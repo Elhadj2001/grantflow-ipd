@@ -270,31 +270,33 @@ model AppUser {
   updatedAt    DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   roles                        UserRole[]
-  delegationsGiven             Delegation[]         @relation("DelegationDelegator")
-  delegationsReceived          Delegation[]         @relation("DelegationDelegate")
+  delegationsGiven             Delegation[]          @relation("DelegationDelegator")
+  delegationsReceived          Delegation[]          @relation("DelegationDelegate")
   projectsAsPi                 Project[]
   prsRequested                 PurchaseRequest[]
   approvalSteps                ApprovalStep[]
   purchaseOrdersAsBuyer        PurchaseOrder[]
-  goodsReceiptsReceived        GoodsReceipt[]       @relation("GrReceivedBy")
-  goodsReceiptsRejected        GoodsReceipt[]       @relation("GrRejectedBy")
-  goodsReceiptsCancelled       GoodsReceipt[]       @relation("GrCancelledBy")
-  goodsReceiptsCompleted       GoodsReceipt[]       @relation("GrCompletedBy")
-  paymentRunsPrepared          PaymentRun[]         @relation("PaymentRunPreparer")
-  paymentRunsApproved          PaymentRun[]         @relation("PaymentRunApprover")
-  fiscalPeriodsClosed          FiscalPeriod[]       @relation("FiscalPeriodClosedBy")
-  fiscalPeriodsReopened        FiscalPeriod[]       @relation("FiscalPeriodReopenedBy")
+  goodsReceiptsReceived        GoodsReceipt[]        @relation("GrReceivedBy")
+  goodsReceiptsRejected        GoodsReceipt[]        @relation("GrRejectedBy")
+  goodsReceiptsCancelled       GoodsReceipt[]        @relation("GrCancelledBy")
+  goodsReceiptsCompleted       GoodsReceipt[]        @relation("GrCompletedBy")
+  paymentRunsPrepared          PaymentRun[]          @relation("PaymentRunPreparer")
+  paymentRunsApproved          PaymentRun[]          @relation("PaymentRunApprover")
+  fiscalPeriodsClosed          FiscalPeriod[]        @relation("FiscalPeriodClosedBy")
+  fiscalPeriodsReopened        FiscalPeriod[]        @relation("FiscalPeriodReopenedBy")
   journalEntriesPosted         JournalEntry[]
   reportRunsGenerated          ReportRun[]
   cashBoxesCustodian           CashBox[]
   cashSettlementsDone          CashSettlement[]
-  invoicesMatched              Invoice[]            @relation("InvoiceMatchedBy")
-  donorReportsGenerated        DonorReport[]        @relation("DonorReportGeneratedBy")
-  donorReportsLocked           DonorReport[]        @relation("DonorReportLockedBy")
-  donorReportsSent             DonorReport[]        @relation("DonorReportSentBy")
-  periodCloseEvents            PeriodCloseEvent[]   @relation("PeriodCloseEventUser")
-  financialStatementsGenerated FinancialStatement[] @relation("FinancialStatementGeneratedBy")
-  financialStatementsLocked    FinancialStatement[] @relation("FinancialStatementLockedBy")
+  invoicesMatched              Invoice[]             @relation("InvoiceMatchedBy")
+  donorReportsGenerated        DonorReport[]         @relation("DonorReportGeneratedBy")
+  donorReportsLocked           DonorReport[]         @relation("DonorReportLockedBy")
+  donorReportsSent             DonorReport[]         @relation("DonorReportSentBy")
+  periodCloseEvents            PeriodCloseEvent[]    @relation("PeriodCloseEventUser")
+  financialStatementsGenerated FinancialStatement[]  @relation("FinancialStatementGeneratedBy")
+  financialStatementsLocked    FinancialStatement[]  @relation("FinancialStatementLockedBy")
+  // Sprint F4a — anti-fraude IBAN
+  supplierIbanChanges          SupplierIbanHistory[] @relation("SupplierIbanHistoryChanger")
 
   @@index([status], map: "idx_user_status")
   @@map("app_user")
@@ -531,8 +533,32 @@ model Supplier {
 
   purchaseOrders PurchaseOrder[]
   invoices       Invoice[]
+  // Historique IBAN (sprint F4a anti-fraude)
+  ibanHistory    SupplierIbanHistory[]
 
   @@map("supplier")
+  @@schema("ref")
+}
+
+/// Historique des changements d'IBAN fournisseur (sprint F4a — anti-fraude).
+/// Une ligne « courante » par supplier (effective_to=NULL), garantie par index
+/// partiel unique côté Postgres. Les anciennes lignes ont effective_to renseigné.
+model SupplierIbanHistory {
+  id            String    @id @default(uuid()) @db.Uuid
+  supplierId    String    @map("supplier_id") @db.Uuid
+  iban          String?
+  bic           String?
+  bankName      String?   @map("bank_name")
+  effectiveFrom DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz(6)
+  changedBy     String?   @map("changed_by") @db.Uuid
+  changeReason  String?   @map("change_reason")
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  changer  AppUser? @relation("SupplierIbanHistoryChanger", fields: [changedBy], references: [id])
+
+  @@index([supplierId], map: "idx_supplier_iban_history_supplier")
+  @@map("supplier_iban_history")
   @@schema("ref")
 }
 
@@ -927,6 +953,12 @@ model PaymentRun {
   sepaFileKey         String?   @map("sepa_file_key")
   preparationWarnings Json?     @map("preparation_warnings") @db.JsonB
   rejectionReason     String?   @map("rejection_reason")
+  /// Snapshot des alertes IBAN persistées au prepare (sprint F4a anti-fraude).
+  ibanAlerts          Json?     @map("iban_alerts") @db.JsonB
+  /// XML pain.001.001.03 (sprint F4a, inline TEXT). Null tant que pas généré.
+  sepaXml             String?   @map("sepa_xml")
+  sepaGeneratedAt     DateTime? @map("sepa_generated_at") @db.Timestamptz(6)
+  sepaSentAt          DateTime? @map("sepa_sent_at") @db.Timestamptz(6)
   approvedAt          DateTime? @map("approved_at") @db.Timestamptz(6)
   executedAt          DateTime? @map("executed_at") @db.Timestamptz(6)
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -942,17 +974,22 @@ model PaymentRun {
 }
 
 model Payment {
-  id            String        @id @default(uuid()) @db.Uuid
-  paymentRunId  String?       @map("payment_run_id") @db.Uuid
-  invoiceId     String        @map("invoice_id") @db.Uuid
-  amount        Decimal       @db.Decimal(18, 2)
-  currency      String        @db.Char(3)
-  method        PaymentMethod
-  paymentDate   DateTime      @map("payment_date") @db.Date
-  status        PaymentStatus @default(queued)
-  bankReference String?       @map("bank_reference")
-  fxGainLoss    Decimal?      @default(0) @map("fx_gain_loss") @db.Decimal(18, 2)
-  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  id               String        @id @default(uuid()) @db.Uuid
+  paymentRunId     String?       @map("payment_run_id") @db.Uuid
+  invoiceId        String        @map("invoice_id") @db.Uuid
+  amount           Decimal       @db.Decimal(18, 2)
+  currency         String        @db.Char(3)
+  /// Sprint F4a — multidevises : montant original en devise étrangère
+  /// (ex EUR) si distinct de `currency` (devise du compte payeur, ex XOF).
+  originalAmount   Decimal?      @map("original_amount") @db.Decimal(18, 2)
+  originalCurrency String?       @map("original_currency") @db.Char(3)
+  exchangeRate     Decimal?      @map("exchange_rate") @db.Decimal(18, 8)
+  method           PaymentMethod
+  paymentDate      DateTime      @map("payment_date") @db.Date
+  status           PaymentStatus @default(queued)
+  bankReference    String?       @map("bank_reference")
+  fxGainLoss       Decimal?      @default(0) @map("fx_gain_loss") @db.Decimal(18, 2)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   paymentRun PaymentRun? @relation(fields: [paymentRunId], references: [id])
   invoice    Invoice     @relation(fields: [invoiceId], references: [id])

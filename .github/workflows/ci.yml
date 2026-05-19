@@ -148,3 +148,19 @@ jobs:
             echo "::error::Au moins un trigger critique manque (audit, balance, period)"
             exit 1
           fi
+
+      # Sprint F4a — validation XML well-formedness sur la fixture SEPA.
+      # xmllint est disponible nativement sur ubuntu-latest (paquet libxml2).
+      # Pas de validation XSD ISO 20022 ici (XSD nécessite un téléchargement
+      # depuis iso20022.org — manuel au 1er paiement réel). On vérifie au
+      # minimum que la fixture est un XML bien formé et contient les nœuds
+      # attendus du pain.001.001.03.
+      - name: Vérifier la fixture SEPA (XML well-formed)
+        run: |
+          xmllint --noout tests/fixtures/sepa-pain001-sample.xml
+          grep -q "urn:iso:std:iso:20022:tech:xsd:pain.001.001.03" \
+            tests/fixtures/sepa-pain001-sample.xml \
+            || { echo "::error::Namespace pain.001.001.03 manquant"; exit 1; }
+          grep -q "<CstmrCdtTrfInitn>" tests/fixtures/sepa-pain001-sample.xml \
+            || { echo "::error::Élément racine CstmrCdtTrfInitn manquant"; exit 1; }
+          echo "Fixture SEPA pain.001.001.03 : structure OK"

@@ -23,6 +23,11 @@ describe('SupplierService', () => {
       create: jest.Mock;
       update: jest.Mock;
     };
+    supplierIbanHistory: {
+      create: jest.Mock;
+      updateMany: jest.Mock;
+      findFirst: jest.Mock;
+    };
     purchaseOrder: { count: jest.Mock };
     $transaction: jest.Mock;
     $queryRaw: jest.Mock;
@@ -76,8 +81,20 @@ describe('SupplierService', () => {
         create: jest.fn(),
         update: jest.fn(),
       },
+      supplierIbanHistory: {
+        create: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findFirst: jest.fn(),
+      },
       purchaseOrder: { count: jest.fn() },
-      $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
+      // Supporte les deux formes : array (Promise.all) ou callback (tx)
+      $transaction: jest.fn((opsOrCb: unknown) => {
+        if (typeof opsOrCb === 'function') {
+          // Callback form : exécute avec le mock prisma comme tx
+          return (opsOrCb as (tx: typeof prisma) => Promise<unknown>)(prisma);
+        }
+        return Promise.all(opsOrCb as unknown[]);
+      }),
       $queryRaw: jest.fn(),
     };
     svc = new SupplierService(prisma as unknown as PrismaService);
@@ -186,6 +203,77 @@ describe('SupplierService', () => {
         new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: '5' }),
       );
       await expect(svc.create(dto())).rejects.toBeInstanceOf(DuplicateCodeException);
+    });
+
+    // Sprint F4a — hook IBAN history
+    it('inserts initial supplier_iban_history row when iban provided at create', async () => {
+      const withIban = { ...fakeSupplier, iban: 'FR7630006000011234567890189', bic: 'AGRIFRPP', bankName: 'CA' };
+      prisma.supplier.create.mockResolvedValue(withIban);
+      await svc.create(dto({ iban: withIban.iban, bic: withIban.bic, bankName: withIban.bankName }));
+      expect(prisma.supplierIbanHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          supplierId: withIban.id,
+          iban: withIban.iban,
+          bic: withIban.bic,
+          bankName: withIban.bankName,
+        }),
+      });
+    });
+
+    it('does NOT insert iban_history if iban not provided at create', async () => {
+      prisma.supplier.create.mockResolvedValue(fakeSupplier); // iban: null
+      await svc.create(dto());
+      expect(prisma.supplierIbanHistory.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // Sprint F4a — anti-fraude : historisation des changements d'IBAN
+  describe('historizeIbanIfChanged hook (update)', () => {
+    it('closes previous row + inserts new one when IBAN changes', async () => {
+      const before = { ...fakeSupplier, iban: 'OLD_IBAN', bic: 'OLD_BIC', bankName: 'OldBank' };
+      const after = { ...before, iban: 'NEW_IBAN', bic: 'NEW_BIC', bankName: 'NewBank' };
+      prisma.supplier.findUnique.mockResolvedValue(before);
+      prisma.supplier.update.mockResolvedValue(after);
+
+      await svc.update(fakeSupplier.id, { iban: 'NEW_IBAN', bic: 'NEW_BIC', bankName: 'NewBank' } as never);
+
+      // Ligne courante clôturée
+      expect(prisma.supplierIbanHistory.updateMany).toHaveBeenCalledWith({
+        where: { supplierId: fakeSupplier.id, effectiveTo: null },
+        data: { effectiveTo: expect.any(Date) },
+      });
+      // Nouvelle ligne courante
+      expect(prisma.supplierIbanHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          supplierId: fakeSupplier.id,
+          iban: 'NEW_IBAN',
+          bic: 'NEW_BIC',
+          bankName: 'NewBank',
+        }),
+      });
+    });
+
+    it('no-op when IBAN unchanged', async () => {
+      const before = { ...fakeSupplier, iban: 'SAME', bic: 'SAME_BIC', bankName: 'SameBank' };
+      prisma.supplier.findUnique.mockResolvedValue(before);
+      prisma.supplier.update.mockResolvedValue(before); // pas de changement
+
+      await svc.update(fakeSupplier.id, { name: 'Renamed' } as never);
+
+      expect(prisma.supplierIbanHistory.updateMany).not.toHaveBeenCalled();
+      expect(prisma.supplierIbanHistory.create).not.toHaveBeenCalled();
+    });
+
+    it('closes row but does NOT insert new one if iban cleared (set to null)', async () => {
+      const before = { ...fakeSupplier, iban: 'FR76', bic: null, bankName: null };
+      const after = { ...before, iban: null };
+      prisma.supplier.findUnique.mockResolvedValue(before);
+      prisma.supplier.update.mockResolvedValue(after);
+
+      await svc.update(fakeSupplier.id, { iban: null } as never);
+
+      expect(prisma.supplierIbanHistory.updateMany).toHaveBeenCalled();
+      expect(prisma.supplierIbanHistory.create).not.toHaveBeenCalled();
     });
   });
 
