@@ -36,7 +36,12 @@ const NAV: NavItem[] = [
     icon: Calculator,
     matchPrefix: '/accounting',
   },
-  { href: '/treasury', label: 'Trésorerie', icon: Wallet, disabled: true },
+  {
+    href: '/treasury/payment-runs',
+    label: 'Trésorerie',
+    icon: Wallet,
+    matchPrefix: '/treasury',
+  },
   { href: '/reporting', label: 'Reporting', icon: FileBarChart, disabled: true },
 ];
 

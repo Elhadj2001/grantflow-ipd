@@ -30,21 +30,29 @@ describe('AppSidebar', () => {
     expect(dashboardLink?.className).toMatch(/border-l-ipd/);
   });
 
-  it('disables Trésorerie / Reporting (F2 activates Achats, F3 activates Comptabilité)', () => {
+  it('disables Reporting (F2/F3/F4b activent Achats/Comptabilité/Trésorerie)', () => {
     mockPathname = '/dashboard';
     render(<AppSidebar />);
-    ['Trésorerie', 'Reporting'].forEach((label) => {
-      const el = screen.getByText(label).closest('[aria-disabled="true"]');
-      expect(el).not.toBeNull();
-    });
+    const reporting = screen.getByText('Reporting').closest('[aria-disabled="true"]');
+    expect(reporting).not.toBeNull();
     // Achats actif depuis F2
     const achats = screen.getByText('Achats').closest('a');
-    expect(achats).not.toBeNull();
     expect(achats).toHaveAttribute('href', '/procurement/purchase-requests');
     // Comptabilité actif depuis F3
     const compta = screen.getByText('Comptabilité').closest('a');
-    expect(compta).not.toBeNull();
     expect(compta).toHaveAttribute('href', '/accounting/invoices');
+    // Trésorerie actif depuis F4b
+    const treso = screen.getByText('Trésorerie').closest('a');
+    expect(treso).not.toBeNull();
+    expect(treso).toHaveAttribute('href', '/treasury/payment-runs');
+  });
+
+  it('marks Trésorerie active when on a /treasury/* path (sprint F4b)', () => {
+    mockPathname = '/treasury/payment-runs/abc';
+    render(<AppSidebar />);
+    const link = screen.getByText('Trésorerie').closest('a');
+    expect(link).toHaveAttribute('aria-current', 'page');
+    expect(link?.className).toMatch(/border-l-ipd/);
   });
 
   it('marks Comptabilité active when on a /accounting/* path (sprint F3)', () => {
