@@ -55,9 +55,9 @@ const NAV: SidebarNavItem[] = [
   },
   {
     // Pilotage : sprint F-PILOTAGE — visible pour CG/DAF/SUPER_ADMIN
-    // (portefeuille) et PI (Mes Projets). On entre par défaut sur
-    // /pilotage/conventions ; les PI seront redirigés côté page.
-    href: '/pilotage/conventions',
+    // (portefeuille) et PI (Mes Projets). L'entrée pointe sur /pilotage,
+    // qui redirige côté client vers /conventions (CG) ou /my-projects (PI).
+    href: '/pilotage',
     label: 'Pilotage',
     icon: Target,
     matchPrefix: '/pilotage',
