@@ -65,6 +65,32 @@ export interface Permissions {
   canMarkSepaSent: () => boolean;
   /** Acknowledger les alertes IBAN (anti-fraude) — DAF / SUPER_ADMIN. */
   canAcknowledgeIbanAlerts: () => boolean;
+
+  // ------------------ Pilotage (sprint F-PILOTAGE) ------------------
+  /** Portefeuille global des conventions — CG / DAF / SUPER_ADMIN. */
+  canViewGrantPortfolio: () => boolean;
+  /**
+   * Détail d'un grant. CG/DAF/SA voient tout. PI ne voit que les grants
+   * de SES projets (cross-PI safety) — `piUserIdOfGrant` (project.piUserId)
+   * doit alors matcher l'utilisateur courant.
+   *
+   * `currentUserId` est l'app_user.id (pas le keycloak `sub`) — souvent
+   * récupéré depuis session.appUserId si exposé, ou `null` côté front et
+   * appliqué par le serveur en cas de doute. Cette vérification UI est
+   * un voile : la sécurité réelle est `assertCanViewGrant` côté backend.
+   */
+  canViewGrant: (piUserIdOfGrant?: string | null, currentUserId?: string | null) => boolean;
+  /** Vue analytique globale (cross-conventions) — CG / DAF / SUPER_ADMIN. */
+  canViewAnalytics: () => boolean;
+  /** Paramétrer une convention (créer / éditer) — CG / SUPER_ADMIN. */
+  canParameterGrant: () => boolean;
+  /**
+   * Éditer un grant déjà existant. Verrouillé si transactions actives
+   * (passé en argument depuis la page).
+   */
+  canEditGrant: (hasTransactions: boolean) => boolean;
+  /** Page "Mes Projets" — PI uniquement. */
+  canViewMyProjects: () => boolean;
 }
 
 /**
@@ -146,6 +172,26 @@ export function usePermissions(): Permissions {
       canGenerateSepa: () => hasAny('TRESORIER', 'DAF', 'SUPER_ADMIN'),
       canMarkSepaSent: () => hasAny('TRESORIER', 'DAF', 'SUPER_ADMIN'),
       canAcknowledgeIbanAlerts: () => hasAny('DAF', 'SUPER_ADMIN'),
+
+      // Pilotage — F-PILOTAGE
+      canViewGrantPortfolio: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canViewGrant: (piUserIdOfGrant, currentUserId) => {
+        if (hasAny('SUPER_ADMIN', 'DAF', 'CONTROLEUR')) return true;
+        if (!hasAny('PI')) return false;
+        // PI : autorisé seulement si owner du projet. Si l'info n'est
+        // pas dispo (page de routage sans grant chargé), on laisse le
+        // backend trancher — UI laisse passer optimistiquement, mais
+        // l'API renvoie 403.
+        if (!piUserIdOfGrant || !currentUserId) return true;
+        return piUserIdOfGrant === currentUserId;
+      },
+      canViewAnalytics: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canParameterGrant: () => hasAny('CONTROLEUR', 'SUPER_ADMIN'),
+      canEditGrant: (hasTransactions) => {
+        if (!hasAny('CONTROLEUR', 'SUPER_ADMIN')) return false;
+        return !hasTransactions || hasAny('SUPER_ADMIN');
+      },
+      canViewMyProjects: () => hasAny('PI', 'SUPER_ADMIN'),
     };
   }, [roles]);
 }
