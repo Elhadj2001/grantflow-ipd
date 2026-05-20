@@ -64,11 +64,13 @@ describe('AppSidebar', () => {
     expect(dashboardLink?.className).toMatch(/border-l-ipd/);
   });
 
-  it('disables Reporting (F2/F3/F4b activent Achats/Comptabilité/Trésorerie)', () => {
+  it('Reporting activé en F5a — lien vers /reporting', () => {
     mockPathname = '/dashboard';
+    mockRoles = ['SUPER_ADMIN'];
     render(<AppSidebar />);
-    const reporting = screen.getByText('Reporting').closest('[aria-disabled="true"]');
+    const reporting = screen.getByText('Reporting').closest('a');
     expect(reporting).not.toBeNull();
+    expect(reporting).toHaveAttribute('href', '/reporting');
     // Achats actif depuis F2
     const achats = screen.getByText('Achats').closest('a');
     expect(achats).toHaveAttribute('href', '/procurement/purchase-requests');
@@ -79,6 +81,27 @@ describe('AppSidebar', () => {
     const treso = screen.getByText('Trésorerie').closest('a');
     expect(treso).not.toBeNull();
     expect(treso).toHaveAttribute('href', '/treasury/payment-runs');
+  });
+
+  it('Reporting visible pour CONTROLEUR (sprint F5a)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Reporting')).toBeInTheDocument();
+  });
+
+  it('Reporting visible pour BAILLEUR (sprint F5a, lecture seule)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['BAILLEUR'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Reporting')).toBeInTheDocument();
+  });
+
+  it('Reporting masqué pour COMPTABLE seul', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['COMPTABLE'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Reporting')).toBeNull();
   });
 
   it('marks Trésorerie active when on a /treasury/* path (sprint F4b)', () => {
