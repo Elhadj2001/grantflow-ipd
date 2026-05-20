@@ -66,6 +66,31 @@ export interface Permissions {
   /** Acknowledger les alertes IBAN (anti-fraude) — DAF / SUPER_ADMIN. */
   canAcknowledgeIbanAlerts: () => boolean;
 
+  // ------------------ Reporting bailleur (sprint F5a) ------------------
+  /**
+   * Voir les rapports bailleur et templates (lecture). BAILLEUR a un
+   * accès limité (filtrage UI sur status=sent uniquement), géré par
+   * `filterReportsForBailleur` côté lib.
+   */
+  canViewReporting: () => boolean;
+  /** Créer un nouveau rapport bailleur (POST /donor-reports). */
+  canCreateDonorReport: () => boolean;
+  /** Créer ou éditer un template (POST /templates + addMappings). */
+  canManageDonorTemplate: () => boolean;
+  /** Lock un rapport draft → locked (génère PDF/Excel). */
+  canLockDonorReport: () => boolean;
+  /**
+   * Envoyer un rapport au bailleur (lock → sent). Séparation des tâches :
+   * seul le DAF (ou SUPER_ADMIN) peut autoriser l'envoi.
+   */
+  canSendDonorReport: () => boolean;
+  /**
+   * Supprimer un template — réservé SUPER_ADMIN (pas d'endpoint backend
+   * pour l'instant, action désactivée dans tous les cas mais le helper
+   * permet de prévoir l'UX future).
+   */
+  canDeleteDonorTemplate: () => boolean;
+
   // ------------------ Pilotage (sprint F-PILOTAGE) ------------------
   /** Portefeuille global des conventions — CG / DAF / SUPER_ADMIN. */
   canViewGrantPortfolio: () => boolean;
@@ -172,6 +197,17 @@ export function usePermissions(): Permissions {
       canGenerateSepa: () => hasAny('TRESORIER', 'DAF', 'SUPER_ADMIN'),
       canMarkSepaSent: () => hasAny('TRESORIER', 'DAF', 'SUPER_ADMIN'),
       canAcknowledgeIbanAlerts: () => hasAny('DAF', 'SUPER_ADMIN'),
+
+      // Reporting — F5a
+      canViewReporting: () =>
+        hasAny('CONTROLEUR', 'DAF', 'BAILLEUR', 'SUPER_ADMIN'),
+      canCreateDonorReport: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canManageDonorTemplate: () => hasAny('CONTROLEUR', 'SUPER_ADMIN'),
+      canLockDonorReport: () =>
+        hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      // Séparation des tâches : DAF déclenche l'envoi (≠ CG qui prépare)
+      canSendDonorReport: () => hasAny('DAF', 'SUPER_ADMIN'),
+      canDeleteDonorTemplate: () => hasAny('SUPER_ADMIN'),
 
       // Pilotage — F-PILOTAGE
       canViewGrantPortfolio: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
