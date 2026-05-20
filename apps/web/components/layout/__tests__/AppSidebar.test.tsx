@@ -1,8 +1,20 @@
 import { render, screen } from '@testing-library/react';
+import type { GrantflowRole } from '@/lib/auth';
 
 let mockPathname = '/dashboard';
+let mockRoles: GrantflowRole[] = ['SUPER_ADMIN'];
+
 jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+}));
+
+// Sprint F-PILOTAGE : AppSidebar utilise désormais usePermissions →
+// importe next-auth/react. On stubbe useSession pour éviter l'ESM import.
+jest.mock('next-auth/react', () => ({
+  useSession: () => ({
+    data: { roles: mockRoles, expires: '2099' },
+    status: 'authenticated',
+  }),
 }));
 
 // Stub SystemStatus pour ne pas tirer TanStack Query dans ce test
@@ -14,12 +26,34 @@ jest.mock('../SystemStatus', () => ({
 import { AppSidebar } from '../AppSidebar';
 
 describe('AppSidebar', () => {
-  it('renders the 5 navigation entries', () => {
+  it('renders the navigation entries (SUPER_ADMIN voit tout dont Pilotage)', () => {
     mockPathname = '/dashboard';
+    mockRoles = ['SUPER_ADMIN'];
     render(<AppSidebar />);
-    ['Dashboard', 'Achats', 'Comptabilité', 'Trésorerie', 'Reporting'].forEach((label) =>
-      expect(screen.getByText(label)).toBeInTheDocument(),
+    ['Dashboard', 'Achats', 'Comptabilité', 'Trésorerie', 'Pilotage', 'Reporting'].forEach(
+      (label) => expect(screen.getByText(label)).toBeInTheDocument(),
     );
+  });
+
+  it('Pilotage visible pour CONTROLEUR (sprint F-PILOTAGE)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Pilotage')).toBeInTheDocument();
+  });
+
+  it('Pilotage visible pour PI (sprint F-PILOTAGE)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['PI'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Pilotage')).toBeInTheDocument();
+  });
+
+  it('Pilotage masqué pour rôles sans accès (ex. DEMANDEUR seul)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['DEMANDEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Pilotage')).toBeNull();
   });
 
   it('marks Dashboard active on /dashboard with ipd accent', () => {

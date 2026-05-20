@@ -29,6 +29,7 @@ const FIVE_MIN = 5 * 60 * 1000;
 const referentialKeys = {
   all: ['referential'] as const,
   projects: (q: ListProjectsQuery) => [...referentialKeys.all, 'projects', q] as const,
+  grants: (q: ListGrantsQuery) => [...referentialKeys.all, 'grants', 'list', q] as const,
   grantsByProject: (projectId: string) =>
     [...referentialKeys.all, 'grants', 'byProject', projectId] as const,
   grantDashboard: (grantId: string) =>
@@ -58,6 +59,28 @@ export function useProjectsList(query: ListProjectsQuery = {}) {
     queryFn: async () => {
       try {
         return await listProjects(effective, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
+
+// =====================================================================
+//  Grants — liste générique paginée (portefeuille / analytics)
+// =====================================================================
+
+export function useGrantsList(query: ListGrantsQuery = {}) {
+  const { accessToken, sessionReady } = useToken();
+  const effective: ListGrantsQuery = { pageSize: 50, ...query };
+  return useQuery<ListResponse<Grant>>({
+    queryKey: referentialKeys.grants(effective),
+    enabled: sessionReady,
+    staleTime: FIVE_MIN,
+    queryFn: async () => {
+      try {
+        return await listGrants(effective, { accessToken });
       } catch (err) {
         mapApiErrorToToast(err);
         throw err;

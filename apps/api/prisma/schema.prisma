@@ -944,7 +944,6 @@ model PaymentRun {
   runNumber           String    @unique @map("run_number")
   runDate             DateTime  @default(now()) @map("run_date") @db.Date
   currency            String    @default("XOF") @db.Char(3)
-  bankAccountLegacy   String?   @map("bank_account")
   bankAccountId       String?   @map("bank_account_id") @db.Uuid
   preparedBy          String?   @map("prepared_by") @db.Uuid
   approvedBy          String?   @map("approved_by") @db.Uuid

@@ -7,10 +7,12 @@ import {
   FileBarChart,
   LayoutDashboard,
   ShoppingCart,
+  Target,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { usePermissions } from '@/hooks/use-permissions';
 import { SystemStatus } from './SystemStatus';
 
 interface NavItem {
@@ -22,7 +24,16 @@ interface NavItem {
   matchPrefix?: string;
 }
 
-const NAV: NavItem[] = [
+interface SidebarNavItem extends NavItem {
+  /**
+   * Si défini, l'item n'est rendu que si le helper renvoie true.
+   * `perms` est l'objet `usePermissions()` complet — on appelle le helper
+   * pertinent à l'intérieur (les rôles peuvent évoluer entre sprints).
+   */
+  visible?: (perms: ReturnType<typeof usePermissions>) => boolean;
+}
+
+const NAV: SidebarNavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   {
     href: '/procurement/purchase-requests',
@@ -42,6 +53,16 @@ const NAV: NavItem[] = [
     icon: Wallet,
     matchPrefix: '/treasury',
   },
+  {
+    // Pilotage : sprint F-PILOTAGE — visible pour CG/DAF/SUPER_ADMIN
+    // (portefeuille) et PI (Mes Projets). L'entrée pointe sur /pilotage,
+    // qui redirige côté client vers /conventions (CG) ou /my-projects (PI).
+    href: '/pilotage',
+    label: 'Pilotage',
+    icon: Target,
+    matchPrefix: '/pilotage',
+    visible: (p) => p.canViewGrantPortfolio() || p.canViewMyProjects(),
+  },
   { href: '/reporting', label: 'Reporting', icon: FileBarChart, disabled: true },
 ];
 
@@ -52,6 +73,8 @@ const NAV: NavItem[] = [
  */
 export function AppSidebar() {
   const pathname = usePathname();
+  const perms = usePermissions();
+  const items = NAV.filter((it) => (it.visible ? it.visible(perms) : true));
   return (
     <aside
       data-testid="app-sidebar"
@@ -59,7 +82,7 @@ export function AppSidebar() {
     >
       <nav className="flex-1 py-4">
         <ul className="space-y-1 px-2">
-          {NAV.map((item) => {
+          {items.map((item) => {
             const prefix = item.matchPrefix ?? item.href;
             const active = pathname === item.href || pathname.startsWith(prefix + '/') || pathname === prefix;
             const Icon = item.icon;

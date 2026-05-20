@@ -40,6 +40,26 @@ export interface ListProjectsQuery {
 }
 
 // =====================================================================
+//  Donors
+// =====================================================================
+
+export interface Donor {
+  id: string;
+  code: string;
+  label: string;
+  type: string;
+  country: string | null;
+  isActive: boolean;
+}
+
+export interface ListDonorsQuery {
+  q?: string;
+  isActive?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+// =====================================================================
 //  Grants
 // =====================================================================
 
@@ -173,6 +193,13 @@ type FetchOpts = Pick<ApiFetchOptions, 'accessToken'>;
 //  API calls
 // =====================================================================
 
+export async function listDonors(
+  query: ListDonorsQuery = {},
+  opts: FetchOpts = {},
+): Promise<ListResponse<Donor>> {
+  return apiFetch<ListResponse<Donor>>(`/donors${qs(query)}`, opts);
+}
+
 export async function listProjects(
   query: ListProjectsQuery = {},
   opts: FetchOpts = {},
@@ -197,6 +224,49 @@ export async function getGrant(id: string, opts: FetchOpts = {}): Promise<Grant>
 
 export async function getGrantDashboard(id: string, opts: FetchOpts = {}): Promise<GrantDashboard> {
   return apiFetch<GrantDashboard>(`/grants/${id}/dashboard`, opts);
+}
+
+// ---------------------------------------------------------------------
+// Grants — write (CG / SUPER_ADMIN — sprint F-PILOTAGE)
+// ---------------------------------------------------------------------
+
+export interface CreateGrantInput {
+  reference: string;
+  donorId: string;
+  projectId: string;
+  amount: string;
+  currency: string;
+  overheadRate: number;
+  startDate: string;
+  endDate: string;
+  status: 'draft' | 'active';
+  signedAt?: string | null;
+  notes?: string | null;
+}
+
+export type UpdateGrantInput = Partial<CreateGrantInput>;
+
+export async function createGrant(
+  input: CreateGrantInput,
+  opts: FetchOpts = {},
+): Promise<Grant> {
+  return apiFetch<Grant>('/grants', {
+    accessToken: opts.accessToken,
+    method: 'POST',
+    json: input,
+  });
+}
+
+export async function updateGrant(
+  id: string,
+  input: UpdateGrantInput,
+  opts: FetchOpts = {},
+): Promise<Grant> {
+  return apiFetch<Grant>(`/grants/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'PATCH',
+    json: input,
+  });
 }
 
 /**
