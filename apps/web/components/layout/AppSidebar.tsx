@@ -63,7 +63,16 @@ const NAV: SidebarNavItem[] = [
     matchPrefix: '/pilotage',
     visible: (p) => p.canViewGrantPortfolio() || p.canViewMyProjects(),
   },
-  { href: '/reporting', label: 'Reporting', icon: FileBarChart, disabled: true },
+  {
+    // Reporting bailleur : sprint F5a — visible CG / DAF / BAILLEUR / SA.
+    // Point d'entrée par défaut : templates (CG/DAF). Le BAILLEUR sera
+    // redirigé vers /donor-reports (vue filtrée sent only) par la page index.
+    href: '/reporting',
+    label: 'Reporting',
+    icon: FileBarChart,
+    matchPrefix: '/reporting',
+    visible: (p) => p.canViewReporting(),
+  },
 ];
 
 /**
