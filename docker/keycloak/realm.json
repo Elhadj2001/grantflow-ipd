@@ -207,6 +207,36 @@
       "emailVerified": true,
       "credentials": [{ "type": "password", "value": "Caisse#2026-IPD", "temporary": false }],
       "realmRoles": ["CAISSIER"]
+    },
+    {
+      "username": "acheteur@pasteur.sn",
+      "email": "acheteur@pasteur.sn",
+      "firstName": "Ousmane",
+      "lastName": "BA",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Acheteur#2026", "temporary": false }],
+      "realmRoles": ["ACHETEUR"]
+    },
+    {
+      "username": "magasinier@pasteur.sn",
+      "email": "magasinier@pasteur.sn",
+      "firstName": "Cheikh",
+      "lastName": "THIAM",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Magasinier#26", "temporary": false }],
+      "realmRoles": ["MAGASINIER"]
+    },
+    {
+      "username": "bailleur@pasteur.sn",
+      "email": "bailleur@pasteur.sn",
+      "firstName": "Auditeur",
+      "lastName": "USAID",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Bailleur#2026", "temporary": false }],
+      "realmRoles": ["BAILLEUR"]
     }
   ]
 }
