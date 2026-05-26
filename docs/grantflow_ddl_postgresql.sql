@@ -954,6 +954,9 @@ INSERT INTO ref.gl_account (code, label, class, is_movement, syscebnl_specific) 
 ('408',    'Fournisseurs - Factures non parvenues (FNP)', '4', true, false),
 ('44',     'État et collectivités publiques', '4', false, false),
 ('445',    'État, TVA', '4', true, false),
+-- Sprint F5b-a Lot 3 : régularisations SYSCEBNL/SYSCOHADA (à valider par le CG, cf. CLAUDE.md §9).
+('476',    'Charges constatées d''avance (CCA)', '4', true, false),
+('477',    'Produits constatés d''avance (PCA)', '4', true, false),
 ('5',      'COMPTES FINANCIERS', '5', false, false),
 ('52',     'Banques', '5', false, false),
 ('521',    'Banques locales', '5', true, false),

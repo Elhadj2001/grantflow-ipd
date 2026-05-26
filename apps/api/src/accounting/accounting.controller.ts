@@ -22,7 +22,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PeriodCloseService } from './services/period-close.service';
 import { DedicatedFundsService } from './services/dedicated-funds.service';
 import { AccrualService } from './services/accrual.service';
+import { PrepaymentService } from './services/prepayment.service';
 import { ClosePeriodDto, ReopenPeriodDto } from './dto/period-close.dto';
+import { RunPrepaymentsDto } from './dto/prepayment.dto';
 
 @ApiTags('accounting')
 @ApiBearerAuth()
@@ -34,6 +36,7 @@ export class AccountingController {
     private readonly periodClose: PeriodCloseService,
     private readonly dedicatedFunds: DedicatedFundsService,
     private readonly accruals: AccrualService,
+    private readonly prepayments: PrepaymentService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -123,6 +126,33 @@ export class AccountingController {
   ) {
     const actor = await this.resolveActor(user);
     return this.accruals.runFnpAccruals(actor, id);
+  }
+
+  // ------------------------------------------------------------------
+  // Régularisations CCA/PCA — sprint F5b-a Lot 3
+  // (COMPTABLE / CONTROLEUR / DAF / SUPER_ADMIN)
+  // ------------------------------------------------------------------
+
+  @Post('periods/:id/prepayments')
+  @Roles('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Constate des régularisations CCA / PCA à la clôture (saisie explicite)',
+    description:
+      "Contrairement aux FNP qui se détectent automatiquement, les CCA/PCA exigent une saisie. " +
+      "Body : { entries: [{ direction: 'CCA'|'PCA', accountCode, amount, label, ... }] }. " +
+      "Chaque entry produit une OD (Débit 476/charge / Crédit 477/produit) + extourne à l'ouverture suivante. " +
+      "Lève INVALID_CLASS_PREFIX si accountCode ne matche pas la direction (CCA→6x, PCA→7x).",
+  })
+  @ApiConflictResponse({
+    description: 'BUSINESS.PERIOD_ALREADY_CLOSED / BUSINESS.GL_ACCOUNT_NOT_FOUND / BUSINESS.INVALID_CLASS_PREFIX',
+  })
+  async runPrepayments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: RunPrepaymentsDto,
+  ) {
+    const actor = await this.resolveActor(user);
+    return this.prepayments.runPrepayments(actor, id, dto.entries);
   }
 
   // ------------------------------------------------------------------
