@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   BookOpenCheck,
+  Building2,
   Calculator,
   CalendarCheck,
   FileBarChart,
@@ -103,6 +104,16 @@ const NAV: SidebarNavItem[] = [
     icon: BookOpenCheck,
     matchPrefix: '/reporting/statements',
     visible: (p) => p.canViewReporting() || p.canCreateStatement(),
+  },
+  {
+    // Sprint F5b-c : référentiel Fournisseurs (CRUD).
+    // Visible pour ACHETEUR / CONTROLEUR / DAF / SUPER_ADMIN — gating
+    // identique à @Roles backend POST /suppliers.
+    href: '/referential/suppliers',
+    label: 'Fournisseurs',
+    icon: Building2,
+    matchPrefix: '/referential/suppliers',
+    visible: (p) => p.canManageSuppliers(),
   },
 ];
 
