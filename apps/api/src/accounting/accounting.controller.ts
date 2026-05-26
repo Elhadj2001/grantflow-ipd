@@ -45,20 +45,40 @@ export class AccountingController {
   // ------------------------------------------------------------------
 
   @Get('periods')
-  @ApiOperation({ summary: 'Liste les périodes fiscales (ouvertes et closes)' })
+  @Roles('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Liste les périodes fiscales (ouvertes et closes)',
+    description:
+      'Sécurité : réservé aux rôles finance internes. Mêmes rôles que les ' +
+      'actions de clôture — le BAILLEUR et les rôles métier (DEMANDEUR, PI, ' +
+      'ACHETEUR, MAGASINIER) n\'ont pas à connaître l\'état des périodes.',
+  })
   listPeriods() {
     return this.periodClose.listPeriods();
   }
 
   @Get('periods/:id/events')
-  @ApiOperation({ summary: 'Audit trail des opérations de clôture pour une période' })
+  @Roles('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Audit trail des opérations de clôture pour une période',
+    description:
+      'Sécurité : réservé aux rôles finance internes (cf. /periods). ' +
+      'L\'audit trail peut contenir des motifs de ré-ouverture sensibles.',
+  })
   @ApiNotFoundResponse({ description: 'BUSINESS.PERIOD_NOT_FOUND' })
   listEvents(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.periodClose.listEvents(id);
   }
 
   @Get('periods/:id/checks')
-  @ApiOperation({ summary: 'Findings du dernier precheck pour la période' })
+  @Roles('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Findings du dernier precheck pour la période',
+    description:
+      'Sécurité : réservé aux rôles finance internes — les findings exposent ' +
+      'des montants FNP attendus, des écritures déséquilibrées, et d\'autres ' +
+      'données comptables non destinées au bailleur ou aux rôles métier.',
+  })
   @ApiNotFoundResponse({ description: 'BUSINESS.PERIOD_NOT_FOUND' })
   listChecks(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.periodClose.listChecks(id);
