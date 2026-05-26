@@ -8,6 +8,8 @@ import {
   CalendarCheck,
   FileBarChart,
   LayoutDashboard,
+  PackageCheck,
+  ScanBarcode,
   ShoppingCart,
   Target,
   Wallet,
@@ -47,7 +49,35 @@ const NAV: SidebarNavItem[] = [
     href: '/procurement/purchase-requests',
     label: 'Achats',
     icon: ShoppingCart,
-    matchPrefix: '/procurement',
+    // Sprint F-DASHBOARD : on resserre le matchPrefix sur les vraies
+    // sous-pages d'Achats (DA / BC / GR). Avant, `/procurement` couvrait
+    // aussi /procurement/reception-rapide et /procurement/inventaire-scan
+    // qui sont maintenant des items distincts (Réception / Inventaire).
+    matchPrefixes: [
+      '/procurement/purchase-requests',
+      '/procurement/purchase-orders',
+      '/procurement/goods-receipts',
+    ],
+  },
+  {
+    // Sprint F-DASHBOARD : exposer le workflow Réception (tablette/mobile)
+    // déjà construit dans F-PROCUREMENT mais jamais relié au menu principal.
+    // Visible uniquement MAGASINIER / SUPER_ADMIN (canReceive).
+    href: '/procurement/reception-rapide',
+    label: 'Réception',
+    icon: PackageCheck,
+    matchPrefix: '/procurement/reception-rapide',
+    visible: (p) => p.canReceive(),
+  },
+  {
+    // Page liée à la Réception : scan d'inventaire (consultation /
+    // mouvements stock). Même rôle gating que Réception — un magasinier
+    // qui réceptionne doit pouvoir scanner l'inventaire.
+    href: '/procurement/inventaire-scan',
+    label: 'Inventaire / Scan',
+    icon: ScanBarcode,
+    matchPrefix: '/procurement/inventaire-scan',
+    visible: (p) => p.canReceive(),
   },
   {
     href: '/accounting/invoices',

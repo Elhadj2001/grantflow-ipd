@@ -230,4 +230,89 @@ describe('AppSidebar', () => {
     render(<AppSidebar />);
     expect(screen.getByTestId('system-status-stub')).toBeInTheDocument();
   });
+
+  // -----------------------------------------------------------------
+  // Sprint F-DASHBOARD — Réception + Inventaire/Scan (canReceive)
+  // -----------------------------------------------------------------
+
+  it('Réception visible pour MAGASINIER → /procurement/reception-rapide', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['MAGASINIER'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Réception').closest('a');
+    expect(link).toHaveAttribute('href', '/procurement/reception-rapide');
+  });
+
+  it('Inventaire / Scan visible pour MAGASINIER → /procurement/inventaire-scan', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['MAGASINIER'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Inventaire / Scan').closest('a');
+    expect(link).toHaveAttribute('href', '/procurement/inventaire-scan');
+  });
+
+  it('Réception + Inventaire visibles pour SUPER_ADMIN', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Réception')).toBeInTheDocument();
+    expect(screen.getByText('Inventaire / Scan')).toBeInTheDocument();
+  });
+
+  it('Réception + Inventaire masqués pour DEMANDEUR (pas canReceive)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['DEMANDEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Réception')).toBeNull();
+    expect(screen.queryByText('Inventaire / Scan')).toBeNull();
+  });
+
+  it('Réception + Inventaire masqués pour BAILLEUR (pas canReceive)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['BAILLEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Réception')).toBeNull();
+    expect(screen.queryByText('Inventaire / Scan')).toBeNull();
+  });
+
+  it('Réception + Inventaire masqués pour ACHETEUR (acheteur ≠ réceptionneur)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['ACHETEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Réception')).toBeNull();
+    expect(screen.queryByText('Inventaire / Scan')).toBeNull();
+  });
+
+  it('match actif fin : sur /procurement/reception-rapide → Réception active, Achats PAS active', () => {
+    mockPathname = '/procurement/reception-rapide';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    const reception = screen.getByText('Réception').closest('a');
+    const achats = screen.getByText('Achats').closest('a');
+    expect(reception).toHaveAttribute('aria-current', 'page');
+    expect(achats).not.toHaveAttribute('aria-current', 'page');
+  });
+
+  it('match actif fin : sur /procurement/inventaire-scan → Inventaire active, Achats PAS active', () => {
+    mockPathname = '/procurement/inventaire-scan';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    const inv = screen.getByText('Inventaire / Scan').closest('a');
+    const achats = screen.getByText('Achats').closest('a');
+    expect(inv).toHaveAttribute('aria-current', 'page');
+    expect(achats).not.toHaveAttribute('aria-current', 'page');
+  });
+
+  // -----------------------------------------------------------------
+  // Sprint F-DASHBOARD — F5b-c PAS encore mergé : Fournisseurs ABSENT
+  // -----------------------------------------------------------------
+  // Garde-fou : tant que /referential/suppliers n'est pas dans main,
+  // on ne doit PAS exposer l'entrée Fournisseurs (lien mort).
+
+  it('Fournisseurs (F5b-c) ABSENT du sidebar tant que la page n\'est pas mergée', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Fournisseurs')).toBeNull();
+  });
 });
