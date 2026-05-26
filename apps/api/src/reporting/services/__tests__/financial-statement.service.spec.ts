@@ -173,9 +173,18 @@ describe('FinancialStatementService', () => {
   });
 
   describe('findOne / list', () => {
+    // Sprint F5b-a Lot 1 : findOne et list nécessitent un AuthenticatedUser.
+    // On stube un DAF (rôle privilégié, pas de restriction).
+    const dafUser = {
+      id: actor.id,
+      email: actor.email,
+      fullName: actor.fullName,
+      roles: ['DAF' as const],
+    };
+
     it('throws FinancialStatementNotFoundException when missing', async () => {
       prisma.financialStatement.findUnique.mockResolvedValue(null);
-      await expect(svc.findOne(statementId)).rejects.toBeInstanceOf(
+      await expect(svc.findOne(dafUser, statementId)).rejects.toBeInstanceOf(
         FinancialStatementNotFoundException,
       );
     });
@@ -183,16 +192,60 @@ describe('FinancialStatementService', () => {
     it('returns lines + period when found', async () => {
       const expected = { id: statementId, lines: [], period: openPeriod };
       prisma.financialStatement.findUnique.mockResolvedValue(expected);
-      const r = await svc.findOne(statementId);
+      const r = await svc.findOne(dafUser, statementId);
       expect(r).toBe(expected);
     });
 
     it('list filters by periodId + type', async () => {
       prisma.financialStatement.findMany.mockResolvedValue([]);
-      await svc.list(periodId, 'TER');
+      await svc.list(dafUser, periodId, 'TER');
       expect(prisma.financialStatement.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { periodId, type: 'TER' } }),
       );
+    });
+
+    // ----- RBAC BAILLEUR (sprint F5b-a Lot 1) -----
+
+    const bailleurUser = {
+      id: 'bbb',
+      email: 'audit@usaid.gov',
+      fullName: 'USAID Audit',
+      roles: ['BAILLEUR' as const],
+    };
+
+    it('BAILLEUR pur : findOne sur un état non-locked → 404', async () => {
+      const draftStatement = { id: statementId, lines: [], period: openPeriod, locked: false };
+      prisma.financialStatement.findUnique.mockResolvedValue(draftStatement);
+      await expect(svc.findOne(bailleurUser, statementId)).rejects.toBeInstanceOf(
+        FinancialStatementNotFoundException,
+      );
+    });
+
+    it('BAILLEUR pur : findOne sur un état locked → autorisé', async () => {
+      const lockedStatement = { id: statementId, lines: [], period: openPeriod, locked: true };
+      prisma.financialStatement.findUnique.mockResolvedValue(lockedStatement);
+      const r = await svc.findOne(bailleurUser, statementId);
+      expect(r).toBe(lockedStatement);
+    });
+
+    it('BAILLEUR pur : list force le filtre locked=true', async () => {
+      prisma.financialStatement.findMany.mockResolvedValue([]);
+      await svc.list(bailleurUser, periodId, 'TER');
+      expect(prisma.financialStatement.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ locked: true }),
+        }),
+      );
+    });
+
+    it('DAF + BAILLEUR (cumul) : pas de restriction (filtrage interne désactivé)', async () => {
+      const dualRoleUser = { ...bailleurUser, roles: ['BAILLEUR' as const, 'DAF' as const] };
+      prisma.financialStatement.findMany.mockResolvedValue([]);
+      await svc.list(dualRoleUser, periodId, 'TER');
+      const callArgs = prisma.financialStatement.findMany.mock.calls[0][0] as {
+        where: Record<string, unknown>;
+      };
+      expect(callArgs.where.locked).toBeUndefined();
     });
   });
 

@@ -96,20 +96,37 @@ export class ReportingController {
   // ------------------------------------------------------------------
 
   @Get('donor-reports')
-  @ApiOperation({ summary: 'Liste paginée des rapports bailleur' })
+  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'BAILLEUR', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Liste paginée des rapports bailleur',
+    description:
+      'Sécurité (F5b-a, Lot 1) : un utilisateur dont le rôle EFFECTIF est ' +
+      'BAILLEUR (sans CONTROLEUR/DAF/SUPER_ADMIN/COMPTABLE) ne voit que ' +
+      'les rapports status="sent". Filtre serveur, pas seulement UI.',
+  })
   listReports(
+    @CurrentUser() user: AuthenticatedUser,
     @Query('grantId') grantId?: string,
     @Query('status') status?: string,
     @Query('templateId') templateId?: string,
   ) {
-    return this.reports.findMany({ grantId, status, templateId });
+    return this.reports.findMany(user, { grantId, status, templateId });
   }
 
   @Get('donor-reports/:id')
-  @ApiOperation({ summary: 'Détail rapport bailleur + lignes par catégorie' })
+  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'BAILLEUR', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Détail rapport bailleur + lignes par catégorie',
+    description:
+      'Sécurité (F5b-a, Lot 1) : BAILLEUR pur n\'accède qu\'aux rapports status="sent". ' +
+      'Sinon 404 NOT_FOUND (on ne révèle pas l\'existence d\'un draft/locked).',
+  })
   @ApiNotFoundResponse({ description: 'DONOR_REPORT_NOT_FOUND' })
-  findReport(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.reports.findOne(id);
+  findReport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.reports.findOne(user, id);
   }
 
   @Post('donor-reports')
@@ -199,19 +216,35 @@ export class ReportingController {
   // ------------------------------------------------------------------
 
   @Get('statements')
-  @ApiOperation({ summary: 'Liste des états financiers (filtre periodId / type)' })
+  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'BAILLEUR', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Liste des états financiers (filtre periodId / type)',
+    description:
+      'Sécurité (F5b-a, Lot 1) : BAILLEUR pur ne voit que les états verrouillés ' +
+      '(locked=true). Les états en cours de génération restent invisibles côté audit externe.',
+  })
   listStatements(
+    @CurrentUser() user: AuthenticatedUser,
     @Query('periodId') periodId?: string,
     @Query('type') type?: StatementType,
   ) {
-    return this.statements.list(periodId, type);
+    return this.statements.list(user, periodId, type);
   }
 
   @Get('statements/:id')
-  @ApiOperation({ summary: 'Détail d\'un état financier (lignes par section)' })
+  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'BAILLEUR', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary: 'Détail d\'un état financier (lignes par section)',
+    description:
+      'Sécurité (F5b-a, Lot 1) : BAILLEUR pur n\'accède qu\'aux états locked=true. ' +
+      'Sinon 404 (on ne révèle pas qu\'un état est en cours de préparation).',
+  })
   @ApiNotFoundResponse({ description: 'BUSINESS.FINANCIAL_STATEMENT_NOT_FOUND' })
-  findStatement(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.statements.findOne(id);
+  findStatement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.statements.findOne(user, id);
   }
 
   @Post('statements')

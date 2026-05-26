@@ -331,4 +331,75 @@ describe('DonorReportService', () => {
       expect(r.filename).toMatch(/\.pdf$/);
     });
   });
+
+  // ----------------------------------------------------------------
+  // Sprint F5b-a Lot 1 — RBAC BAILLEUR sur findOne / findMany
+  // ----------------------------------------------------------------
+  describe('RBAC BAILLEUR (sprint F5b-a Lot 1)', () => {
+    const cgUser = {
+      id: 'cg-id',
+      email: 'cg@pasteur.sn',
+      fullName: 'CG',
+      roles: ['CONTROLEUR' as const],
+    };
+    const bailleurUser = {
+      id: 'b-id',
+      email: 'audit@usaid.gov',
+      fullName: 'Audit',
+      roles: ['BAILLEUR' as const],
+    };
+
+    it('findOne : CG voit un rapport draft', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'draft' }));
+      const r = await svc.findOne(cgUser, reportId);
+      expect(r.status).toBe('draft');
+    });
+
+    it('findOne : BAILLEUR pur sur draft → DonorReportNotFoundException', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'draft' }));
+      await expect(svc.findOne(bailleurUser, reportId)).rejects.toBeInstanceOf(
+        DonorReportNotFoundException,
+      );
+    });
+
+    it('findOne : BAILLEUR pur sur locked → DonorReportNotFoundException', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'locked' }));
+      await expect(svc.findOne(bailleurUser, reportId)).rejects.toBeInstanceOf(
+        DonorReportNotFoundException,
+      );
+    });
+
+    it('findOne : BAILLEUR pur sur sent → autorisé', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'sent' }));
+      const r = await svc.findOne(bailleurUser, reportId);
+      expect(r.status).toBe('sent');
+    });
+
+    it('findMany : BAILLEUR pur → status forcé à "sent" même si query.status=draft', async () => {
+      prisma.donorReport.findMany.mockResolvedValue([]);
+      await svc.findMany(bailleurUser, { status: 'draft' });
+      expect(prisma.donorReport.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: 'sent' }),
+        }),
+      );
+    });
+
+    it('findMany : CG → status pass-through (draft autorisé)', async () => {
+      prisma.donorReport.findMany.mockResolvedValue([]);
+      await svc.findMany(cgUser, { status: 'draft' });
+      expect(prisma.donorReport.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: 'draft' }),
+        }),
+      );
+    });
+
+    it('BAILLEUR + DAF (cumul) : pas de restriction', async () => {
+      const dual = { ...bailleurUser, roles: ['BAILLEUR' as const, 'DAF' as const] };
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'draft' }));
+      const r = await svc.findOne(dual, reportId);
+      expect(r.status).toBe('draft');
+    });
+  });
 });

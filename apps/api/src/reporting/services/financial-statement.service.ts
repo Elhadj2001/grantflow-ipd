@@ -10,6 +10,8 @@ import {
   FinancialStatementNotFoundException,
   PeriodNotFoundException,
 } from '../../common/exceptions/business.exception';
+import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
+import { isBailleurOnly } from '../../auth/types/rbac-helpers';
 import {
   FinancialStatementGeneratorService,
   type StatementResult,
@@ -167,18 +169,31 @@ export class FinancialStatementService {
     });
   }
 
-  async findOne(statementId: string) {
+  async findOne(actor: AuthenticatedUser, statementId: string) {
     const s = await this.prisma.financialStatement.findUnique({
       where: { id: statementId },
       include: { lines: { orderBy: { sortOrder: 'asc' } }, period: true },
     });
     if (!s) throw new FinancialStatementNotFoundException(statementId);
+    // Sprint F5b-a Lot 1 : BAILLEUR pur ne voit que les états verrouillés
+    // (= validés pour audit externe). 404 plutôt que 403 pour ne pas
+    // révéler qu'un état en cours est en train d'être préparé.
+    if (isBailleurOnly(actor) && !s.locked) {
+      this.logger.warn(
+        { statementId, actorEmail: actor.email, locked: s.locked },
+        'BAILLEUR-only actor blocked from non-locked financial statement',
+      );
+      throw new FinancialStatementNotFoundException(statementId);
+    }
     return s;
   }
 
-  async list(periodId?: string, type?: StatementType) {
+  async list(actor: AuthenticatedUser, periodId?: string, type?: StatementType) {
+    // Sprint F5b-a Lot 1 : BAILLEUR pur ne voit QUE les locked=true.
+    // Filtre serveur — pas seulement UI.
+    const lockedFilter = isBailleurOnly(actor) ? { locked: true } : {};
     return this.prisma.financialStatement.findMany({
-      where: { periodId, type },
+      where: { periodId, type, ...lockedFilter },
       orderBy: [{ generatedAt: 'desc' }],
       include: { period: true },
       take: 100,
