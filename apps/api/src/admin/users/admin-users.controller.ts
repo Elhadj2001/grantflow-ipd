@@ -111,7 +111,10 @@ export class AdminUsersController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() actor: AuthenticatedUser,
   ) {
-    return this.svc.deactivate(id, actor.id);
+    // HOTFIX : on passe l'e-mail (et non l'id JWT.sub) pour l'anti-self.
+    // Pour les comptes seedés, AppUser.id ≠ Keycloak.sub — l'e-mail
+    // (citext UNIQUE) est la clé naturelle qui lie les deux mondes.
+    return this.svc.deactivate(id, actor.email);
   }
 
   @Post(':id/activate')

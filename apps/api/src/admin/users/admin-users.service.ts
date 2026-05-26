@@ -9,6 +9,7 @@ import {
   UserCannotDeactivateSelfException,
   UserCannotRemoveLastSuperAdminException,
   UserEmailAlreadyExistsException,
+  UserKeycloakAccountNotFoundException,
   UserNotFoundException,
   UserRoleUnknownException,
 } from '../../common/exceptions/business.exception';
@@ -84,6 +85,14 @@ function toAdminUserDto(
  * Les rôles "qui comptent" pour le RBAC sont ceux du JWT Keycloak ; cette
  * table sert UNIQUEMENT à afficher / filtrer / auditer côté application.
  * On garde les deux strictement synchronisés.
+ *
+ * HOTFIX résolution KC id : pour les utilisateurs créés via l'écran on a
+ * `AppUser.id == Keycloak.sub` (cf. `create()`), mais pour les 11 users
+ * seedés via realm.json, l'id Keycloak est généré par l'import et ≠ de
+ * l'AppUser.id (uuid Prisma). On ne peut donc PLUS passer `userId` aux
+ * appels Keycloak — il faut toujours résoudre via `findUserByEmail`.
+ * Cf. `resolveKcId()` ci-dessous, utilisé par update/setRoles/
+ * deactivate/activate/resetPassword.
  */
 @Injectable()
 export class AdminUsersService {
@@ -200,6 +209,11 @@ export class AdminUsersService {
    * 3) Assigne les realm roles côté Keycloak.
    * 4) Envoie l'e-mail UPDATE_PASSWORD.
    *
+   * NOTE : on aligne `AppUser.id = kcUserId` pour les comptes créés via
+   * l'écran (cohérence JWT.sub ↔ AppUser.id). Les opérations ultérieures
+   * NE peuvent toutefois PAS supposer cet alignement (les users seedés
+   * ont des id désalignés) — toujours passer par `resolveKcId(email)`.
+   *
    * Compensation : si l'étape 2 ou 3 échoue après que Keycloak ait créé
    * le user, on désactive le compte Keycloak (`enabled=false`) plutôt
    * que de tenter un delete (les delete Keycloak sont irréversibles et
@@ -243,6 +257,7 @@ export class AdminUsersService {
         },
       });
 
+      // On utilise kcUserId fraîchement obtenu — pas de resolveKcId nécessaire ici.
       await this.keycloak.assignRealmRoles(kcUserId, dto.roles);
     } catch (e) {
       this.logger.error(
@@ -302,10 +317,12 @@ export class AdminUsersService {
       await this.prisma.appUser.update({ where: { id: userId }, data: update });
     }
 
-    // Sync fullName côté Keycloak si modifié (best-effort)
+    // Sync fullName côté Keycloak si modifié (best-effort) — l'id KC doit
+    // être résolu via l'e-mail (les comptes seedés ont AppUser.id ≠ KC.sub).
     if (dto.fullName) {
       try {
-        await this.keycloak.updateUserProfile(userId, { fullName: dto.fullName });
+        const kcId = await this.resolveKcId(user.id, user.email);
+        await this.keycloak.updateUserProfile(kcId, { fullName: dto.fullName });
       } catch (e) {
         this.logger.warn(
           { err: e instanceof Error ? e.message : 'unknown', userId },
@@ -327,6 +344,9 @@ export class AdminUsersService {
    *
    * Garde-fou anti-lock-out : refuse de retirer SUPER_ADMIN du dernier
    * compte actif qui le possède.
+   *
+   * NB : `userId` est l'AppUser.id (FK des UserRole). Pour les role-mappings
+   * Keycloak on résout au préalable l'id KC via l'e-mail.
    */
   async setRoles(userId: string, dto: SetUserRolesDto): Promise<ReturnType<typeof toAdminUserDto>> {
     await this.assertRolesKnown(dto.roles);
@@ -353,11 +373,14 @@ export class AdminUsersService {
       return this.findOne(userId); // no-op
     }
 
-    // 1) Keycloak diff
-    if (toRemove.length > 0) await this.keycloak.removeRealmRoles(userId, toRemove);
-    if (toAdd.length > 0) await this.keycloak.assignRealmRoles(userId, toAdd);
+    // 1) Keycloak diff — résolution de l'id KC par e-mail (lève
+    //    UserKeycloakAccountNotFound si absent). On résout APRÈS le
+    //    check no-op pour ne pas faire un appel inutile.
+    const kcId = await this.resolveKcId(user.id, user.email);
+    if (toRemove.length > 0) await this.keycloak.removeRealmRoles(kcId, toRemove);
+    if (toAdd.length > 0) await this.keycloak.assignRealmRoles(kcId, toAdd);
 
-    // 2) UserRole diff (transaction pour atomicité)
+    // 2) UserRole diff (transaction pour atomicité) — FK = AppUser.id
     const roleRefs = await this.prisma.role.findMany({
       where: { code: { in: [...toAdd, ...toRemove] } },
       select: { id: true, code: true },
@@ -384,18 +407,29 @@ export class AdminUsersService {
   //  Activate / Deactivate
   // ------------------------------------------------------------------
 
+  /**
+   * Désactive un compte. L'anti-self-deactivate compare sur l'EMAIL et
+   * non sur l'id : sub Keycloak (= actor.id depuis le JWT) peut ne pas
+   * correspondre à AppUser.id pour les comptes seedés. L'e-mail est la
+   * clé naturelle citext-UNIQUE qui lie les deux mondes.
+   *
+   * @param userId      AppUser.id de la cible (param URL).
+   * @param actorEmail  E-mail de l'utilisateur authentifié (depuis le JWT).
+   */
   async deactivate(
     userId: string,
-    actorUserId: string,
+    actorEmail: string,
   ): Promise<ReturnType<typeof toAdminUserDto>> {
-    if (userId === actorUserId) {
-      throw new UserCannotDeactivateSelfException(userId);
-    }
     const user = await this.prisma.appUser.findUnique({
       where: { id: userId },
       include: { roles: { include: { role: true } } },
     });
     if (!user) throw new UserNotFoundException(userId);
+
+    // Anti-self : citext en base, donc comparaison case-insensitive.
+    if (user.email.toLowerCase() === actorEmail.toLowerCase()) {
+      throw new UserCannotDeactivateSelfException(userId);
+    }
     if (user.status === 'suspended') {
       throw new UserAlreadyInactiveException(userId);
     }
@@ -403,8 +437,10 @@ export class AdminUsersService {
     const hasSuperAdmin = user.roles.some((r) => r.role.code === 'SUPER_ADMIN');
     if (hasSuperAdmin) await this.assertNotLastSuperAdmin(userId);
 
-    // 1) Keycloak — disable d'abord (l'effet anti-login est immédiat)
-    await this.keycloak.setUserEnabled(userId, false);
+    // 1) Keycloak — disable d'abord (l'effet anti-login est immédiat).
+    //    L'id KC est résolu via l'e-mail (gère les comptes seedés).
+    const kcId = await this.resolveKcId(user.id, user.email);
+    await this.keycloak.setUserEnabled(kcId, false);
 
     // 2) AppUser.status
     await this.prisma.appUser.update({
@@ -421,7 +457,8 @@ export class AdminUsersService {
       throw new UserAlreadyActiveException(userId);
     }
 
-    await this.keycloak.setUserEnabled(userId, true);
+    const kcId = await this.resolveKcId(user.id, user.email);
+    await this.keycloak.setUserEnabled(kcId, true);
     await this.prisma.appUser.update({
       where: { id: userId },
       data: { status: 'active', updatedAt: new Date() },
@@ -436,7 +473,8 @@ export class AdminUsersService {
   async resetPassword(userId: string): Promise<void> {
     const user = await this.prisma.appUser.findUnique({ where: { id: userId } });
     if (!user) throw new UserNotFoundException(userId);
-    await this.keycloak.sendResetPasswordEmail(userId);
+    const kcId = await this.resolveKcId(user.id, user.email);
+    await this.keycloak.sendResetPasswordEmail(kcId);
   }
 
   // ------------------------------------------------------------------
@@ -473,5 +511,30 @@ export class AdminUsersService {
     if (otherAdmins === 0) {
       throw new UserCannotRemoveLastSuperAdminException(userIdAboutToLose);
     }
+  }
+
+  /**
+   * Résout l'UUID Keycloak du user depuis son e-mail. Garantit que les
+   * opérations Admin Keycloak passent toujours par l'id côté KC, jamais
+   * par AppUser.id (qui peut diverger pour les comptes seedés).
+   *
+   * @throws UserKeycloakAccountNotFoundException si aucun compte KC ne
+   *   correspond à l'e-mail (drift de données — admin doit recréer ou
+   *   purger). 409 explicite plutôt qu'un 502 IDP opaque.
+   *
+   * @param appUserId  pour traçabilité logs uniquement (pas dans le payload).
+   * @param email      e-mail AppUser, transmis directement à Keycloak.
+   */
+  private async resolveKcId(appUserId: string, email: string): Promise<string> {
+    const kc = await this.keycloak.findUserByEmail(email);
+    if (!kc) {
+      // Log côté serveur (pas dans le payload — PII).
+      this.logger.warn(
+        { appUserId },
+        'No Keycloak user matches AppUser email — data drift detected',
+      );
+      throw new UserKeycloakAccountNotFoundException(appUserId);
+    }
+    return kc.id;
   }
 }

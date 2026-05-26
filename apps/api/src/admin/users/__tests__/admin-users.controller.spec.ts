@@ -86,7 +86,7 @@ describe('AdminUsersController', () => {
       expect(svc.setRoles).toHaveBeenCalledWith('uuid-1', { roles: ['DAF', 'COMPTABLE'] });
     });
 
-    it('deactivate → svc.deactivate(id, actor.id) — passe bien l\'actor courant', () => {
+    it("deactivate → svc.deactivate(id, actor.email) — HOTFIX : comparaison sur e-mail (citext UNIQUE) car AppUser.id ≠ Keycloak.sub pour les comptes seedés", () => {
       const actor: AuthenticatedUser = {
         id: 'actor-uuid',
         email: 'admin@pasteur.sn',
@@ -94,7 +94,11 @@ describe('AdminUsersController', () => {
         roles: ['SUPER_ADMIN'],
       };
       ctrl.deactivate('target-uuid', actor);
-      expect(svc.deactivate).toHaveBeenCalledWith('target-uuid', 'actor-uuid');
+      expect(svc.deactivate).toHaveBeenCalledWith('target-uuid', 'admin@pasteur.sn');
+      // Garde-fou anti-régression : l'id JWT (= Keycloak.sub) NE doit pas
+      // être passé au service — il ne corrige pas le faux positif anti-self
+      // pour les comptes seedés (AppUser.id ≠ sub).
+      expect(svc.deactivate).not.toHaveBeenCalledWith('target-uuid', 'actor-uuid');
     });
 
     it('activate → svc.activate(id)', () => {

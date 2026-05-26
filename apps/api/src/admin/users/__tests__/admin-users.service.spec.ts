@@ -4,6 +4,10 @@
  * On mock PrismaService + KeycloakAdminService pour vérifier la logique
  * métier (orchestration KC↔DB, garde anti-lock-out, garde anti-self-deactivate,
  * sync rôles diff add/remove). Pas de vraie DB ni de vrai Keycloak.
+ *
+ * HOTFIX résolution KC id : les comptes seedés ont AppUser.id ≠ Keycloak.sub.
+ * On doit donc TOUJOURS résoudre l'id KC via findUserByEmail avant tout appel
+ * Keycloak (sauf create). Les tests vérifient explicitement ce mapping.
  */
 
 import { AdminUsersService } from '../admin-users.service';
@@ -15,6 +19,7 @@ import {
   UserCannotDeactivateSelfException,
   UserCannotRemoveLastSuperAdminException,
   UserEmailAlreadyExistsException,
+  UserKeycloakAccountNotFoundException,
   UserNotFoundException,
   UserRoleUnknownException,
 } from '../../../common/exceptions/business.exception';
@@ -44,6 +49,16 @@ type KeycloakMock = {
   getUserById: jest.Mock;
 };
 
+/** Helper : réponse Keycloak findUserByEmail typée. */
+function kcUser(overrides: Partial<{ id: string; email: string; enabled: boolean }> = {}) {
+  return {
+    id: overrides.id ?? 'kc-uuid-default',
+    email: overrides.email ?? 'jane@pasteur.sn',
+    username: overrides.email ?? 'jane@pasteur.sn',
+    enabled: overrides.enabled ?? true,
+  };
+}
+
 function makeMocks(): { prisma: PrismaMock; keycloak: KeycloakMock } {
   const prisma: PrismaMock = {
     appUser: {
@@ -66,6 +81,8 @@ function makeMocks(): { prisma: PrismaMock; keycloak: KeycloakMock } {
     setUserEnabled: jest.fn().mockResolvedValue(undefined),
     assignRealmRoles: jest.fn().mockResolvedValue(undefined),
     removeRealmRoles: jest.fn().mockResolvedValue(undefined),
+    // Par défaut renvoie null (= aucun KC trouvé) — chaque test qui a besoin
+    // d'une résolution KC doit surcharger via mockResolvedValueOnce.
     findUserByEmail: jest.fn().mockResolvedValue(null),
     sendResetPasswordEmail: jest.fn().mockResolvedValue(undefined),
     updateUserProfile: jest.fn().mockResolvedValue(undefined),
@@ -152,6 +169,8 @@ describe('AdminUsersService', () => {
           }),
         }),
       );
+      // En create, l'id KC est connu directement (vient de createUser) — pas
+      // de resolveKcId nécessaire.
       expect(keycloak.assignRealmRoles).toHaveBeenCalledWith('kc-uuid-new', ['DAF']);
       expect(keycloak.sendResetPasswordEmail).toHaveBeenCalledWith('kc-uuid-new');
       expect(out.invitationEmailSent).toBe(true);
@@ -217,30 +236,39 @@ describe('AdminUsersService', () => {
         { id: 'r-cg', code: 'CONTROLEUR' },
       ]); // assertRolesKnown
       prisma.appUser.findUnique.mockResolvedValueOnce(
-        fakeUserRow({ roles: ['DAF', 'COMPTABLE'] }),
+        fakeUserRow({ id: 'app-1', email: 'jane@pasteur.sn', roles: ['DAF', 'COMPTABLE'] }),
+      );
+      // resolveKcId(jane@pasteur.sn) → kc-jane
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: 'kc-jane', email: 'jane@pasteur.sn' }),
       );
       prisma.role.findMany.mockResolvedValueOnce([
         { id: 'r-cg', code: 'CONTROLEUR' },
         { id: 'r-compta', code: 'COMPTABLE' },
       ]); // resolve IDs add+remove
       prisma.appUser.findUnique.mockResolvedValueOnce(
-        fakeUserRow({ roles: ['DAF', 'CONTROLEUR'] }),
+        fakeUserRow({ id: 'app-1', email: 'jane@pasteur.sn', roles: ['DAF', 'CONTROLEUR'] }),
       ); // findOne final
 
-      await svc.setRoles('user-uuid-1', { roles: ['DAF', 'CONTROLEUR'] });
+      await svc.setRoles('app-1', { roles: ['DAF', 'CONTROLEUR'] });
 
-      // toRemove=[COMPTABLE], toAdd=[CONTROLEUR]
-      expect(keycloak.removeRealmRoles).toHaveBeenCalledWith('user-uuid-1', ['COMPTABLE']);
-      expect(keycloak.assignRealmRoles).toHaveBeenCalledWith('user-uuid-1', ['CONTROLEUR']);
+      // toRemove=[COMPTABLE], toAdd=[CONTROLEUR] — passés avec l'id KC, pas l'AppUser.id
+      expect(keycloak.removeRealmRoles).toHaveBeenCalledWith('kc-jane', ['COMPTABLE']);
+      expect(keycloak.assignRealmRoles).toHaveBeenCalledWith('kc-jane', ['CONTROLEUR']);
+      // L'AppUser.id NE doit PAS être passé directement à Keycloak
+      expect(keycloak.removeRealmRoles).not.toHaveBeenCalledWith('app-1', expect.anything());
+      expect(keycloak.assignRealmRoles).not.toHaveBeenCalledWith('app-1', expect.anything());
     });
 
-    it('no-op si l\'ensemble est identique (aucun appel Keycloak diff)', async () => {
+    it('no-op si l\'ensemble est identique (aucune mutation Keycloak)', async () => {
       prisma.role.findMany.mockResolvedValueOnce([
         { id: 'r-daf', code: 'DAF' },
       ]);
       prisma.appUser.findUnique.mockResolvedValueOnce(fakeUserRow({ roles: ['DAF'] }));
       prisma.appUser.findUnique.mockResolvedValueOnce(fakeUserRow({ roles: ['DAF'] })); // findOne final
       await svc.setRoles('user-uuid-1', { roles: ['DAF'] });
+      // L'essentiel : pas de mutation Keycloak. (findUserByEmail PEUT être
+      // appelé par findOne final pour le merge enabled — best-effort.)
       expect(keycloak.assignRealmRoles).not.toHaveBeenCalled();
       expect(keycloak.removeRealmRoles).not.toHaveBeenCalled();
     });
@@ -265,16 +293,32 @@ describe('AdminUsersService', () => {
         { id: 'r-daf', code: 'DAF' },
       ]);
       prisma.appUser.findUnique.mockResolvedValueOnce(
-        fakeUserRow({ roles: ['SUPER_ADMIN'] }),
+        fakeUserRow({ id: 'app-1', email: 'jane@pasteur.sn', roles: ['SUPER_ADMIN'] }),
       );
       prisma.appUser.count.mockResolvedValueOnce(2); // 2 autres SA
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: 'kc-jane', email: 'jane@pasteur.sn' }),
+      );
       prisma.role.findMany.mockResolvedValueOnce([
         { id: 'r-daf', code: 'DAF' },
         { id: 'r-sa', code: 'SUPER_ADMIN' },
       ]);
       prisma.appUser.findUnique.mockResolvedValueOnce(fakeUserRow({ roles: ['DAF'] }));
-      await svc.setRoles('user-uuid-1', { roles: ['DAF'] });
-      expect(keycloak.removeRealmRoles).toHaveBeenCalledWith('user-uuid-1', ['SUPER_ADMIN']);
+      await svc.setRoles('app-1', { roles: ['DAF'] });
+      expect(keycloak.removeRealmRoles).toHaveBeenCalledWith('kc-jane', ['SUPER_ADMIN']);
+    });
+
+    it("UserKeycloakAccountNotFound si findUserByEmail renvoie null (drift de données)", async () => {
+      prisma.role.findMany.mockResolvedValueOnce([{ id: 'r-daf', code: 'DAF' }]);
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({ id: 'app-orphan', email: 'orphan@pasteur.sn', roles: ['COMPTABLE'] }),
+      );
+      // findUserByEmail renvoie null par défaut (= compte AppUser orphelin)
+      await expect(
+        svc.setRoles('app-orphan', { roles: ['DAF'] }),
+      ).rejects.toBeInstanceOf(UserKeycloakAccountNotFoundException);
+      expect(keycloak.assignRealmRoles).not.toHaveBeenCalled();
+      expect(keycloak.removeRealmRoles).not.toHaveBeenCalled();
     });
   });
 
@@ -283,69 +327,126 @@ describe('AdminUsersService', () => {
   // -----------------------------------------------------------------
 
   describe('deactivate', () => {
-    it("refuse de se désactiver soi-même", async () => {
-      await expect(svc.deactivate('me', 'me')).rejects.toBeInstanceOf(
-        UserCannotDeactivateSelfException,
+    it("refuse de se désactiver soi-même (comparaison sur l'e-mail, case-insensitive)", async () => {
+      // Cas seedé : AppUser.id ≠ Keycloak.sub. Seul l'e-mail prouve l'identité.
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({
+          id: 'app-uuid-prisma',
+          email: 'DAF@pasteur.sn', // citext insensitive
+          roles: ['DAF'],
+        }),
       );
+      await expect(
+        svc.deactivate('app-uuid-prisma', 'daf@PASTEUR.SN'),
+      ).rejects.toBeInstanceOf(UserCannotDeactivateSelfException);
       expect(keycloak.setUserEnabled).not.toHaveBeenCalled();
     });
 
     it('UserNotFound si AppUser inexistant', async () => {
       prisma.appUser.findUnique.mockResolvedValueOnce(null);
-      await expect(svc.deactivate('ghost', 'admin')).rejects.toBeInstanceOf(
-        UserNotFoundException,
-      );
+      await expect(
+        svc.deactivate('ghost', 'admin@pasteur.sn'),
+      ).rejects.toBeInstanceOf(UserNotFoundException);
     });
 
     it('UserAlreadyInactive si statut suspended', async () => {
       prisma.appUser.findUnique.mockResolvedValueOnce(
-        fakeUserRow({ status: 'suspended', roles: ['DAF'] }),
+        fakeUserRow({
+          id: 'app-1',
+          email: 'jane@pasteur.sn',
+          status: 'suspended',
+          roles: ['DAF'],
+        }),
       );
-      await expect(svc.deactivate('user-1', 'admin')).rejects.toBeInstanceOf(
-        UserAlreadyInactiveException,
-      );
+      await expect(
+        svc.deactivate('app-1', 'admin@pasteur.sn'),
+      ).rejects.toBeInstanceOf(UserAlreadyInactiveException);
     });
 
     it('refuse si la cible est le dernier SUPER_ADMIN actif', async () => {
       prisma.appUser.findUnique.mockResolvedValueOnce(
-        fakeUserRow({ roles: ['SUPER_ADMIN'] }),
+        fakeUserRow({
+          id: 'app-1',
+          email: 'jane@pasteur.sn',
+          roles: ['SUPER_ADMIN'],
+        }),
       );
       prisma.appUser.count.mockResolvedValueOnce(0); // pas d'autre SA
-      await expect(svc.deactivate('user-1', 'admin')).rejects.toBeInstanceOf(
-        UserCannotRemoveLastSuperAdminException,
-      );
+      await expect(
+        svc.deactivate('app-1', 'admin@pasteur.sn'),
+      ).rejects.toBeInstanceOf(UserCannotRemoveLastSuperAdminException);
     });
 
-    it('happy path : setEnabled(false) + AppUser.status=suspended', async () => {
-      prisma.appUser.findUnique.mockResolvedValueOnce(fakeUserRow({ roles: ['DAF'] }));
+    it("happy path : setUserEnabled(kcId, false) avec l'id KC résolu par e-mail", async () => {
       prisma.appUser.findUnique.mockResolvedValueOnce(
-        fakeUserRow({ status: 'suspended', roles: ['DAF'] }),
+        fakeUserRow({ id: 'app-1', email: 'jane@pasteur.sn', roles: ['DAF'] }),
+      );
+      // resolveKcId
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: 'kc-jane', email: 'jane@pasteur.sn' }),
       );
       prisma.appUser.update.mockResolvedValueOnce({});
-      const out = await svc.deactivate('user-1', 'admin');
-      expect(keycloak.setUserEnabled).toHaveBeenCalledWith('user-1', false);
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({
+          id: 'app-1',
+          email: 'jane@pasteur.sn',
+          status: 'suspended',
+          roles: ['DAF'],
+        }),
+      );
+
+      const out = await svc.deactivate('app-1', 'admin@pasteur.sn');
+
+      expect(keycloak.setUserEnabled).toHaveBeenCalledWith('kc-jane', false);
+      // L'AppUser.id NE doit PAS être passé à Keycloak
+      expect(keycloak.setUserEnabled).not.toHaveBeenCalledWith('app-1', expect.anything());
       expect(prisma.appUser.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'user-1' },
+          where: { id: 'app-1' },
           data: expect.objectContaining({ status: 'suspended' }),
         }),
       );
       expect(out.status).toBe('inactive');
     });
+
+    it("UserKeycloakAccountNotFound si AppUser présent mais pas de compte KC pour l'e-mail", async () => {
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({ id: 'app-1', email: 'orphan@pasteur.sn', roles: ['DAF'] }),
+      );
+      // findUserByEmail → null (compte KC purgé manuellement)
+      await expect(
+        svc.deactivate('app-1', 'admin@pasteur.sn'),
+      ).rejects.toBeInstanceOf(UserKeycloakAccountNotFoundException);
+      expect(keycloak.setUserEnabled).not.toHaveBeenCalled();
+      expect(prisma.appUser.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('activate', () => {
     it('UserAlreadyActive si déjà actif', async () => {
-      prisma.appUser.findUnique.mockResolvedValueOnce({ id: 'u', status: 'active' });
+      prisma.appUser.findUnique.mockResolvedValueOnce({
+        id: 'u',
+        email: 'j@pasteur.sn',
+        status: 'active',
+      });
       await expect(svc.activate('u')).rejects.toBeInstanceOf(UserAlreadyActiveException);
     });
 
-    it('happy path : setEnabled(true) + AppUser.status=active', async () => {
-      prisma.appUser.findUnique.mockResolvedValueOnce({ id: 'u', status: 'suspended' });
+    it("happy path : setUserEnabled(kcId, true) avec l'id KC résolu", async () => {
+      prisma.appUser.findUnique.mockResolvedValueOnce({
+        id: 'app-1',
+        email: 'jane@pasteur.sn',
+        status: 'suspended',
+      });
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: 'kc-jane', email: 'jane@pasteur.sn' }),
+      );
       prisma.appUser.update.mockResolvedValueOnce({});
-      prisma.appUser.findUnique.mockResolvedValueOnce(fakeUserRow({ id: 'u', roles: ['DAF'] }));
-      await svc.activate('u');
-      expect(keycloak.setUserEnabled).toHaveBeenCalledWith('u', true);
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({ id: 'app-1', email: 'jane@pasteur.sn', roles: ['DAF'] }),
+      );
+      await svc.activate('app-1');
+      expect(keycloak.setUserEnabled).toHaveBeenCalledWith('kc-jane', true);
     });
   });
 
@@ -354,16 +455,173 @@ describe('AdminUsersService', () => {
   // -----------------------------------------------------------------
 
   describe('resetPassword', () => {
-    it('appelle sendResetPasswordEmail si user existe', async () => {
-      prisma.appUser.findUnique.mockResolvedValueOnce({ id: 'u', email: 'x@y.z' });
-      await svc.resetPassword('u');
-      expect(keycloak.sendResetPasswordEmail).toHaveBeenCalledWith('u');
+    it("résout l'id KC par e-mail puis appelle sendResetPasswordEmail(kcId)", async () => {
+      prisma.appUser.findUnique.mockResolvedValueOnce({
+        id: 'app-uuid-prisma',
+        email: 'jane@pasteur.sn',
+      });
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: 'kc-jane', email: 'jane@pasteur.sn' }),
+      );
+      await svc.resetPassword('app-uuid-prisma');
+      expect(keycloak.sendResetPasswordEmail).toHaveBeenCalledWith('kc-jane');
+      // L'AppUser.id NE doit PAS être passé directement à Keycloak
+      expect(keycloak.sendResetPasswordEmail).not.toHaveBeenCalledWith('app-uuid-prisma');
     });
 
     it('UserNotFound si AppUser inexistant', async () => {
       prisma.appUser.findUnique.mockResolvedValueOnce(null);
       await expect(svc.resetPassword('ghost')).rejects.toBeInstanceOf(UserNotFoundException);
       expect(keycloak.sendResetPasswordEmail).not.toHaveBeenCalled();
+    });
+
+    it("UserKeycloakAccountNotFound si l'e-mail ne matche aucun compte KC", async () => {
+      prisma.appUser.findUnique.mockResolvedValueOnce({
+        id: 'app-1',
+        email: 'orphan@pasteur.sn',
+      });
+      // findUserByEmail renvoie null par défaut
+      await expect(svc.resetPassword('app-1')).rejects.toBeInstanceOf(
+        UserKeycloakAccountNotFoundException,
+      );
+      expect(keycloak.sendResetPasswordEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------
+  //  update profile
+  // -----------------------------------------------------------------
+
+  describe('update', () => {
+    it("sync Keycloak utilise l'id KC résolu (AppUser.id ≠ KC.sub)", async () => {
+      prisma.appUser.findUnique.mockResolvedValueOnce({
+        id: 'app-1',
+        email: 'jane@pasteur.sn',
+        fullName: 'Jane DIOP',
+      });
+      prisma.appUser.update.mockResolvedValueOnce({});
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: 'kc-jane', email: 'jane@pasteur.sn' }),
+      );
+      // findOne final (utilise aussi findUserByEmail mais best-effort, on
+      // peut le laisser fallback en null)
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({ id: 'app-1', email: 'jane@pasteur.sn', fullName: 'Jane DIOP-NDIAYE' }),
+      );
+
+      await svc.update('app-1', { fullName: 'Jane DIOP-NDIAYE' });
+      expect(keycloak.updateUserProfile).toHaveBeenCalledWith('kc-jane', {
+        fullName: 'Jane DIOP-NDIAYE',
+      });
+      expect(keycloak.updateUserProfile).not.toHaveBeenCalledWith('app-1', expect.anything());
+    });
+  });
+
+  // -----------------------------------------------------------------
+  //  Cas spécifique : utilisateur seedé (AppUser.id ≠ Keycloak.sub)
+  // -----------------------------------------------------------------
+
+  describe('comptes seedés — AppUser.id ≠ Keycloak.sub', () => {
+    it("deactivate d'un compte seedé n'utilise PAS AppUser.id côté Keycloak", async () => {
+      // Cas réel : 'admin@pasteur.sn' seedé. AppUser.id = uuid Prisma (ex.
+      // 'app-prisma-uuid-9999'), Keycloak.sub = uuid généré à l'import realm.json
+      // (ex. 'kc-import-uuid-aaaa'). Sans le hotfix, le 502 IDP est garanti.
+      const APP_USER_ID = 'app-prisma-uuid-9999';
+      const KC_SUB = 'kc-import-uuid-aaaa';
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({ id: APP_USER_ID, email: 'admin@pasteur.sn', roles: ['SUPER_ADMIN'] }),
+      );
+      prisma.appUser.count.mockResolvedValueOnce(1); // 1 autre SA → autorise
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: KC_SUB, email: 'admin@pasteur.sn' }),
+      );
+      prisma.appUser.update.mockResolvedValueOnce({});
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({
+          id: APP_USER_ID,
+          email: 'admin@pasteur.sn',
+          status: 'suspended',
+          roles: ['SUPER_ADMIN'],
+        }),
+      );
+
+      // L'actor (= daf@pasteur.sn) est différent de la cible (admin@pasteur.sn)
+      await svc.deactivate(APP_USER_ID, 'daf@pasteur.sn');
+
+      expect(keycloak.setUserEnabled).toHaveBeenCalledWith(KC_SUB, false);
+      expect(keycloak.setUserEnabled).not.toHaveBeenCalledWith(APP_USER_ID, false);
+      expect(keycloak.findUserByEmail).toHaveBeenCalledWith('admin@pasteur.sn');
+    });
+
+    it('anti-self sur compte seedé : DAF ne peut pas se désactiver malgré id ≠ sub', async () => {
+      // daf@pasteur.sn (seedé) tente de se désactiver depuis l'écran.
+      // L'actor.id du JWT = sub Keycloak ; AppUser.id ≠ sub. La comparaison
+      // sur l'id était cassée — la comparaison sur l'e-mail bloque correctement.
+      const APP_USER_ID = 'app-prisma-uuid-daf';
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({
+          id: APP_USER_ID,
+          email: 'daf@pasteur.sn',
+          roles: ['DAF'],
+        }),
+      );
+      await expect(
+        svc.deactivate(APP_USER_ID, 'daf@pasteur.sn'),
+      ).rejects.toBeInstanceOf(UserCannotDeactivateSelfException);
+      expect(keycloak.setUserEnabled).not.toHaveBeenCalled();
+      // resolveKcId n'est même pas appelée (échec avant)
+      expect(keycloak.findUserByEmail).not.toHaveBeenCalled();
+    });
+
+    it("setRoles sur compte seedé : passe l'id KC résolu, pas l'AppUser.id", async () => {
+      const APP_USER_ID = 'app-prisma-uuid-compta';
+      const KC_SUB = 'kc-import-uuid-compta';
+      prisma.role.findMany.mockResolvedValueOnce([
+        { id: 'r-compta', code: 'COMPTABLE' },
+        { id: 'r-cg', code: 'CONTROLEUR' },
+      ]);
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({
+          id: APP_USER_ID,
+          email: 'compta@pasteur.sn',
+          roles: ['COMPTABLE'],
+        }),
+      );
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: KC_SUB, email: 'compta@pasteur.sn' }),
+      );
+      prisma.role.findMany.mockResolvedValueOnce([{ id: 'r-cg', code: 'CONTROLEUR' }]);
+      prisma.appUser.findUnique.mockResolvedValueOnce(
+        fakeUserRow({
+          id: APP_USER_ID,
+          email: 'compta@pasteur.sn',
+          roles: ['COMPTABLE', 'CONTROLEUR'],
+        }),
+      );
+
+      await svc.setRoles(APP_USER_ID, { roles: ['COMPTABLE', 'CONTROLEUR'] });
+      // Add CONTROLEUR avec le KC_SUB, pas l'AppUser.id
+      expect(keycloak.assignRealmRoles).toHaveBeenCalledWith(KC_SUB, ['CONTROLEUR']);
+      expect(keycloak.assignRealmRoles).not.toHaveBeenCalledWith(
+        APP_USER_ID,
+        expect.anything(),
+      );
+    });
+
+    it("resetPassword sur compte seedé : passe l'id KC résolu, pas l'AppUser.id", async () => {
+      const APP_USER_ID = 'app-prisma-uuid-bailleur';
+      const KC_SUB = 'kc-import-uuid-bailleur';
+      prisma.appUser.findUnique.mockResolvedValueOnce({
+        id: APP_USER_ID,
+        email: 'bailleur@pasteur.sn',
+      });
+      keycloak.findUserByEmail.mockResolvedValueOnce(
+        kcUser({ id: KC_SUB, email: 'bailleur@pasteur.sn' }),
+      );
+
+      await svc.resetPassword(APP_USER_ID);
+      expect(keycloak.sendResetPasswordEmail).toHaveBeenCalledWith(KC_SUB);
+      expect(keycloak.sendResetPasswordEmail).not.toHaveBeenCalledWith(APP_USER_ID);
     });
   });
 

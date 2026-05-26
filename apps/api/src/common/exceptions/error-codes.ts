@@ -191,6 +191,14 @@ export const ErrorCode = {
     USER_CANNOT_REMOVE_LAST_SUPER_ADMIN: 'BUSINESS.USER_CANNOT_REMOVE_LAST_SUPER_ADMIN',
     /** Garde anti-self-lock : on refuse à un user de se désactiver lui-même. */
     USER_CANNOT_DEACTIVATE_SELF:     'BUSINESS.USER_CANNOT_DEACTIVATE_SELF',
+    /**
+     * AppUser existe en base, mais aucun compte Keycloak ne correspond
+     * à son e-mail. Cas typique : drift de données (seed asymétrique,
+     * suppression manuelle d'un user KC). On préfère un 409 explicite à
+     * un 502 IDP opaque — l'admin sait qu'il doit recréer le compte KC
+     * manuellement ou purger l'AppUser orphelin.
+     */
+    USER_KEYCLOAK_ACCOUNT_NOT_FOUND: 'BUSINESS.USER_KEYCLOAK_ACCOUNT_NOT_FOUND',
   },
   REF: {
     INVALID_GL_ACCOUNT: 'REF.INVALID_GL_ACCOUNT',

@@ -1903,6 +1903,24 @@ export class UserCannotDeactivateSelfException extends BusinessException {
   }
 }
 
+/**
+ * 409 — AppUser présent en base, mais aucun compte Keycloak ne correspond
+ * à son e-mail. Drift de données — l'admin doit recréer le compte côté
+ * Keycloak ou purger l'AppUser orphelin avant de réessayer l'opération.
+ *
+ * On ne logge JAMAIS l'e-mail dans les details (PII) — uniquement l'AppUser.id.
+ */
+export class UserKeycloakAccountNotFoundException extends BusinessException {
+  constructor(userId: string) {
+    super(
+      ErrorCode.BUSINESS.USER_KEYCLOAK_ACCOUNT_NOT_FOUND,
+      HttpStatus.CONFLICT,
+      `No Keycloak account matches this user's email`,
+      { userId },
+    );
+  }
+}
+
 // ===== Sprint F-ADMIN-USERS — Provider d'identité (Keycloak Admin API) =====
 
 /**
