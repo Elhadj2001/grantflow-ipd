@@ -1246,7 +1246,8 @@ COMMENT ON TABLE gl.period_close_event IS
 CREATE TABLE IF NOT EXISTS reporting.financial_statement (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     period_id           UUID NOT NULL REFERENCES gl.fiscal_period(id) ON DELETE CASCADE,
-    type                TEXT NOT NULL CHECK (type IN ('TER','BILAN','RESULTAT')),
+    -- Sprint F5b-a Lot 4 : ajout de FONDS_DEDIES (suivi par convention).
+    type                TEXT NOT NULL CHECK (type IN ('TER','BILAN','RESULTAT','FONDS_DEDIES')),
     generated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     generated_by        UUID NOT NULL REFERENCES auth.app_user(id),
     locked              BOOLEAN NOT NULL DEFAULT false,
@@ -1260,7 +1261,7 @@ CREATE TABLE IF NOT EXISTS reporting.financial_statement (
 CREATE INDEX IF NOT EXISTS idx_financial_statement_period
     ON reporting.financial_statement(period_id);
 COMMENT ON TABLE reporting.financial_statement IS
-  'État financier SYSCEBNL (TER, Bilan, Compte de résultat) par période.';
+  'État financier SYSCEBNL (TER, Bilan, Compte de résultat, Fonds dédiés) par période.';
 
 CREATE TABLE IF NOT EXISTS reporting.financial_statement_line (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
