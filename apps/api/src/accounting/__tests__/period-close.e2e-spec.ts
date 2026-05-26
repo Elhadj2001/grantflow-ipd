@@ -51,13 +51,18 @@ async function getToken(username: string, password: string): Promise<string> {
   let tokenDaf = '';
   let tokenSa = '';
   let tokenBailleur = '';
+  let tokenComptable = '';
   let periodId = '';
   const createdStatements: string[] = [];
 
   beforeAll(async () => {
-    [tokenSa, tokenDaf] = await Promise.all([
+    [tokenSa, tokenDaf, tokenComptable] = await Promise.all([
       getToken('admin@pasteur.sn', 'Admin#2026'),
       getToken('daf@pasteur.sn', 'Daf#2026-IPD'),
+      // Token COMPTABLE pour les tests RBAC GET (ajout fix-rbac-closure-get) —
+      // si l'utilisateur n'est pas seedé on retombe sur tokenSa pour garder
+      // le test "passe" valide (et on warn-skip côté assertions).
+      getToken('compta@pasteur.sn', 'Compta#2026').catch(() => ''),
     ]);
     tokenBailleur = await getToken('bailleur@pasteur.sn', 'Bailleur#2026').catch(() => tokenSa);
 
@@ -192,6 +197,69 @@ async function getToken(username: string, password: string): Promise<string> {
       .set('Authorization', `Bearer ${tokenBailleur}`)
       .send({});
     expect(r.status).toBe(403);
+  }, 60_000);
+
+  // ----------------------------------------------------------------
+  // Fix RBAC closure GET — sprint correctif (analogue F5b-a Lot 1) :
+  // les 3 routes GET de clôture étaient ouvertes à tout authentifié.
+  // On vérifie maintenant qu'elles sont gated comme les actions POST.
+  // ----------------------------------------------------------------
+
+  it('RBAC fix : BAILLEUR ne peut pas GET /periods (403)', async () => {
+    if (tokenBailleur === tokenSa) {
+      console.warn('[skip] BAILLEUR not seeded');
+      return;
+    }
+    const r = await request(app.getHttpServer())
+      .get('/api/v1/accounting/periods')
+      .set('Authorization', `Bearer ${tokenBailleur}`);
+    expect(r.status).toBe(403);
+  }, 60_000);
+
+  it('RBAC fix : BAILLEUR ne peut pas GET /periods/:id/checks (403)', async () => {
+    if (tokenBailleur === tokenSa) {
+      console.warn('[skip] BAILLEUR not seeded');
+      return;
+    }
+    const r = await request(app.getHttpServer())
+      .get(`/api/v1/accounting/periods/${periodId}/checks`)
+      .set('Authorization', `Bearer ${tokenBailleur}`);
+    expect(r.status).toBe(403);
+  }, 60_000);
+
+  it('RBAC fix : BAILLEUR ne peut pas GET /periods/:id/events (403)', async () => {
+    if (tokenBailleur === tokenSa) {
+      console.warn('[skip] BAILLEUR not seeded');
+      return;
+    }
+    const r = await request(app.getHttpServer())
+      .get(`/api/v1/accounting/periods/${periodId}/events`)
+      .set('Authorization', `Bearer ${tokenBailleur}`);
+    expect(r.status).toBe(403);
+  }, 60_000);
+
+  it('RBAC fix : COMPTABLE peut GET /periods (200)', async () => {
+    if (!tokenComptable) {
+      console.warn('[skip] COMPTABLE not seeded');
+      return;
+    }
+    const r = await request(app.getHttpServer())
+      .get('/api/v1/accounting/periods')
+      .set('Authorization', `Bearer ${tokenComptable}`);
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body)).toBe(true);
+  }, 60_000);
+
+  it('RBAC fix : COMPTABLE peut GET /periods/:id/checks (200)', async () => {
+    if (!tokenComptable) {
+      console.warn('[skip] COMPTABLE not seeded');
+      return;
+    }
+    const r = await request(app.getHttpServer())
+      .get(`/api/v1/accounting/periods/${periodId}/checks`)
+      .set('Authorization', `Bearer ${tokenComptable}`);
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body)).toBe(true);
   }, 60_000);
 
   it('generates TER / BILAN / RESULTAT + lock + downloads', async () => {
