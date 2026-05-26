@@ -9,8 +9,10 @@ import {
   CalendarCheck,
   FileBarChart,
   LayoutDashboard,
+  Package,
   ShoppingCart,
   Target,
+  Truck,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
@@ -48,7 +50,26 @@ const NAV: SidebarNavItem[] = [
     href: '/procurement/purchase-requests',
     label: 'Achats',
     icon: ShoppingCart,
-    matchPrefix: '/procurement',
+    // Resserré : ne doit pas s'activer sur Réception / Inventaire (entrées dédiées ci-dessous).
+    matchPrefixes: [
+      '/procurement/purchase-requests',
+      '/procurement/purchase-orders',
+      '/procurement/goods-receipts',
+    ],
+  },
+  {
+    href: '/procurement/reception-rapide',
+    label: 'Réception',
+    icon: Truck,
+    matchPrefix: '/procurement/reception-rapide',
+    visible: (p) => p.canReceive(),
+  },
+  {
+    href: '/procurement/inventaire-scan',
+    label: 'Inventaire / Scan',
+    icon: Package,
+    matchPrefix: '/procurement/inventaire-scan',
+    visible: (p) => p.canReceive(),
   },
   {
     href: '/accounting/invoices',
