@@ -26,8 +26,11 @@ describe('LoginPage (refonte sprint-F1.1)', () => {
   it('renders aside heading + IPD branding', async () => {
     await renderAsync(LoginPage({ searchParams: {} }));
     expect(screen.getByRole('heading', { level: 1, name: 'GRANTFLOW IPD' })).toBeInTheDocument();
-    expect(screen.getByText('IPD')).toBeInTheDocument();
-    // "Institut Pasteur de Dakar" apparaît dans le badge aside + le footer copyright
+    // Le placeholder texte "IPD" a été remplacé par l'image du logo IPD
+    // (commit "feat(web): logo IPD (sidebar + login)"). On vérifie désormais
+    // la présence du logo via son alt accessible.
+    expect(screen.getByAltText('Institut Pasteur de Dakar')).toBeInTheDocument();
+    // "Institut Pasteur de Dakar" apparaît aussi dans le badge aside + le footer copyright
     const matches = screen.getAllByText(/Institut Pasteur de Dakar/i);
     expect(matches.length).toBeGreaterThanOrEqual(1);
   });
