@@ -1,6 +1,5 @@
 'use client';
 
-import { signOut } from 'next-auth/react';
 import { LogOut, User } from 'lucide-react';
 import type { Session } from 'next-auth';
 import type { GrantflowRole } from '@/lib/auth';
@@ -113,7 +112,14 @@ export function AppHeader({ session }: AppHeaderProps) {
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            // Sprint F-LOGOUT : logout fédéré OIDC (route handler /api/auth/
+            // federated-logout) — tue la session next-auth ET la session SSO
+            // Keycloak, pour que le prochain login redemande identifiant +
+            // mot de passe. Pas de signOut() direct (qui laisse KC actif).
+            onClick={() => {
+              window.location.href = '/api/auth/federated-logout';
+            }}
+            data-testid="header-logout"
             className="text-destructive focus:text-destructive"
           >
             <LogOut className="mr-2 h-4 w-4" /> Se déconnecter

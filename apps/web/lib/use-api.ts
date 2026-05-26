@@ -8,14 +8,16 @@ import {
   type UseQueryOptions,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { signOut, useSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import { useCallback } from 'react';
 import { apiFetch, ApiError, type ApiFetchOptions } from './api-client';
 import { toast } from '@/hooks/use-toast';
 
 /**
  * Map d'une ApiError sur une action UI :
- *  - 401 → signOut() + toast info (redirige vers /login configuré dans next-auth.pages)
+ *  - 401 → logout fédéré (route /api/auth/federated-logout) + toast info,
+ *    pour fermer AUSSI la session Keycloak (pas seulement next-auth) et
+ *    forcer la ré-saisie au prochain login.
  *  - 403 → toast erreur permission (sans signOut, l'utilisateur reste connecté)
  *  - 5xx → toast erreur générique + console.error (audit)
  *  - autres 4xx → silencieux côté hook, le caller décide (validation, etc.)
@@ -34,7 +36,12 @@ export function mapApiErrorToToast(err: unknown): void {
       title: 'Session expirée',
       description: 'Veuillez vous reconnecter.',
     });
-    void signOut({ callbackUrl: '/login' });
+    // Sprint F-LOGOUT : redirection vers le logout fédéré au lieu de
+    // signOut() seul. Tue la session next-auth ET Keycloak — le user
+    // arrive sur /login et devra ré-saisir ses identifiants.
+    if (typeof window !== 'undefined') {
+      window.location.href = '/api/auth/federated-logout';
+    }
     return;
   }
   if (err.status === 403) {
