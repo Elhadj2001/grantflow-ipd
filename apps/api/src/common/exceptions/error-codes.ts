@@ -176,9 +176,44 @@ export const ErrorCode = {
     FINANCIAL_STATEMENT_LOCKED:      'BUSINESS.FINANCIAL_STATEMENT_LOCKED',
     FINANCIAL_STATEMENT_NOT_BALANCED:'BUSINESS.FINANCIAL_STATEMENT_NOT_BALANCED',
     FINANCIAL_STATEMENT_FILE_NOT_GENERATED: 'BUSINESS.FINANCIAL_STATEMENT_FILE_NOT_GENERATED',
+    /** Sprint F-ADMIN-USERS — Gestion des utilisateurs (hybride Keycloak + AppUser). */
+    USER_EMAIL_ALREADY_EXISTS:       'BUSINESS.USER_EMAIL_ALREADY_EXISTS',
+    USER_NOT_FOUND:                  'BUSINESS.USER_NOT_FOUND',
+    USER_ROLE_UNKNOWN:               'BUSINESS.USER_ROLE_UNKNOWN',
+    USER_ALREADY_ACTIVE:             'BUSINESS.USER_ALREADY_ACTIVE',
+    USER_ALREADY_INACTIVE:           'BUSINESS.USER_ALREADY_INACTIVE',
+    /**
+     * Garde anti-lock-out : on refuse de désactiver / retirer le rôle
+     * SUPER_ADMIN du dernier compte qui le possède, sinon plus aucun
+     * humain ne peut administrer le système (les comptes service ne
+     * doivent jamais avoir SUPER_ADMIN).
+     */
+    USER_CANNOT_REMOVE_LAST_SUPER_ADMIN: 'BUSINESS.USER_CANNOT_REMOVE_LAST_SUPER_ADMIN',
+    /** Garde anti-self-lock : on refuse à un user de se désactiver lui-même. */
+    USER_CANNOT_DEACTIVATE_SELF:     'BUSINESS.USER_CANNOT_DEACTIVATE_SELF',
+    /**
+     * AppUser existe en base, mais aucun compte Keycloak ne correspond
+     * à son e-mail. Cas typique : drift de données (seed asymétrique,
+     * suppression manuelle d'un user KC). On préfère un 409 explicite à
+     * un 502 IDP opaque — l'admin sait qu'il doit recréer le compte KC
+     * manuellement ou purger l'AppUser orphelin.
+     */
+    USER_KEYCLOAK_ACCOUNT_NOT_FOUND: 'BUSINESS.USER_KEYCLOAK_ACCOUNT_NOT_FOUND',
   },
   REF: {
     INVALID_GL_ACCOUNT: 'REF.INVALID_GL_ACCOUNT',
+  },
+  /**
+   * Erreurs venant du provider d'identité (Keycloak). On les surface
+   * comme `IDP.*` plutôt que `AUTH.*` car ce ne sont pas des problèmes
+   * d'authentification de l'utilisateur — ce sont des problèmes d'appel
+   * de l'API Admin Keycloak depuis notre backend (mauvais token, droits
+   * service account insuffisants, Keycloak injoignable, etc.).
+   */
+  IDP: {
+    UNREACHABLE:           'IDP.UNREACHABLE',
+    ADMIN_TOKEN_FAILED:    'IDP.ADMIN_TOKEN_FAILED',
+    ADMIN_OPERATION_FAILED:'IDP.ADMIN_OPERATION_FAILED',
   },
 } as const;
 

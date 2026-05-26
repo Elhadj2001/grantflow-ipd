@@ -345,4 +345,55 @@ describe('AppSidebar', () => {
   // branche sprint-F-dashboard est volontairement supprimé : F5b-c est
   // désormais sur main, l'entrée Fournisseurs DOIT être visible (testée
   // dans le bloc "Sprint F5b-c" ci-dessus).
+
+  // -----------------------------------------------------------------
+  // Sprint F-ADMIN-USERS — Administration des utilisateurs
+  // -----------------------------------------------------------------
+
+  it('Utilisateurs visible pour SUPER_ADMIN → /admin/users', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Utilisateurs').closest('a');
+    expect(link).toHaveAttribute('href', '/admin/users');
+  });
+
+  it('Utilisateurs visible pour DAF', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['DAF'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Utilisateurs')).toBeInTheDocument();
+  });
+
+  it('Utilisateurs masqué pour CONTROLEUR (gestion comptes = SA/DAF uniquement)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Utilisateurs')).toBeNull();
+  });
+
+  it.each<[GrantflowRole]>([
+    ['COMPTABLE'],
+    ['TRESORIER'],
+    ['ACHETEUR'],
+    ['MAGASINIER'],
+    ['PI'],
+    ['DEMANDEUR'],
+    ['BAILLEUR'],
+    ['CAISSIER'],
+  ])('Utilisateurs masqué pour %s', (role) => {
+    mockPathname = '/dashboard';
+    mockRoles = [role];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Utilisateurs')).toBeNull();
+  });
+
+  it('match actif : sur /admin/users → Utilisateurs active', () => {
+    mockPathname = '/admin/users';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Utilisateurs').closest('a');
+    expect(link).toHaveAttribute('aria-current', 'page');
+    expect(link?.className).toMatch(/border-l-ipd/);
+  });
 });

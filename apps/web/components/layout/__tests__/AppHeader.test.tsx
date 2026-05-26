@@ -12,6 +12,8 @@ const fakeSession: Session = {
   expires: '2099-01-01',
   fullName: 'Amadou Niang',
   roles: ['DAF'],
+  // Sprint F-ADMIN-USERS : userId (= Keycloak sub) requis dans Session.
+  userId: 'kc-sub-fake',
   user: { name: 'Amadou Niang', email: 'amadou@pasteur.sn' },
 };
 

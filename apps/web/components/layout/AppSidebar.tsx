@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   BookOpenCheck,
@@ -13,6 +14,7 @@ import {
   ShoppingCart,
   Target,
   Truck,
+  Users,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
@@ -144,6 +146,16 @@ const NAV: SidebarNavItem[] = [
     matchPrefix: '/referential/suppliers',
     visible: (p) => p.canManageSuppliers(),
   },
+  {
+    // Sprint F-ADMIN-USERS : gestion des utilisateurs.
+    // Visible uniquement pour SUPER_ADMIN / DAF — aligné sur @Roles
+    // backend AdminUsersController.
+    href: '/admin/users',
+    label: 'Utilisateurs',
+    icon: Users,
+    matchPrefix: '/admin/users',
+    visible: (p) => p.canManageUsers(),
+  },
 ];
 
 /**
@@ -160,6 +172,17 @@ export function AppSidebar() {
       data-testid="app-sidebar"
       className="hidden md:flex w-60 shrink-0 flex-col border-r border-slate-200 bg-cream"
     >
+      <div className="flex h-[104px] items-center gap-2.5 border-b border-slate-200 px-4">
+        <Image
+          src="/logo-ipd.png"
+          alt="Institut Pasteur de Dakar"
+          width={64}
+          height={64}
+          className="h-16 w-auto object-contain"
+          priority
+        />
+        <span className="text-base font-bold tracking-tight text-ipd-darker">GRANTFLOW</span>
+      </div>
       <nav className="flex-1 py-4">
         <ul className="space-y-1 px-2">
           {items.map((item) => {

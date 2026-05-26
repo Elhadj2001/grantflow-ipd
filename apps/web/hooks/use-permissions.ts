@@ -159,6 +159,14 @@ export interface Permissions {
   canManageBudgetLines: () => boolean;
   /** Soft delete + restore ligne budgétaire — DAF / SUPER_ADMIN. */
   canDeleteBudgetLine: () => boolean;
+
+  // ------------------ Administration utilisateurs (sprint F-ADMIN-USERS) ------------------
+  /**
+   * Gérer les utilisateurs de l'application (CRUD + activate/deactivate
+   * + reset password + role-mapping). Calé sur le @Roles côté backend
+   * (`@Roles('SUPER_ADMIN', 'DAF')`).
+   */
+  canManageUsers: () => boolean;
 }
 
 /**
@@ -301,6 +309,10 @@ export function usePermissions(): Permissions {
       // BudgetLine : CONTROLEUR + DAF + SUPER_ADMIN (pas ACHETEUR).
       canManageBudgetLines: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
       canDeleteBudgetLine: () => hasAny('DAF', 'SUPER_ADMIN'),
+
+      // Administration des utilisateurs — F-ADMIN-USERS
+      // Aligné sur @Roles('SUPER_ADMIN','DAF') côté AdminUsersController.
+      canManageUsers: () => hasAny('SUPER_ADMIN', 'DAF'),
     };
   }, [roles]);
 }

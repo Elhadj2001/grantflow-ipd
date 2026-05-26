@@ -1805,3 +1805,168 @@ export class FinancialStatementFileNotGeneratedException extends BusinessExcepti
     );
   }
 }
+
+// ===== Sprint F-ADMIN-USERS — Gestion des utilisateurs =====
+
+/** 409 — e-mail déjà utilisé (côté Keycloak ou côté AppUser). */
+export class UserEmailAlreadyExistsException extends BusinessException {
+  constructor(email: string) {
+    super(
+      ErrorCode.BUSINESS.USER_EMAIL_ALREADY_EXISTS,
+      HttpStatus.CONFLICT,
+      `User with this email already exists`,
+      // Pas de retour de l'e-mail dans details (PII) — on garde uniquement
+      // un hash court non-réversible pour distinguer les cas en debug.
+      { emailFingerprint: email.length },
+    );
+  }
+}
+
+/** 404 — utilisateur inconnu (Keycloak OU AppUser). */
+export class UserNotFoundException extends BusinessException {
+  constructor(idOrEmail: string) {
+    super(
+      ErrorCode.BUSINESS.USER_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `User not found`,
+      { id: idOrEmail },
+    );
+  }
+}
+
+/**
+ * 400 — au moins un rôle demandé n'existe pas dans la table `auth.role`.
+ * Évite de pousser un rôle inconnu vers Keycloak (qui le refuserait silencieusement
+ * ou créerait un rôle orphelin).
+ */
+export class UserRoleUnknownException extends BusinessException {
+  constructor(unknownRoles: string[]) {
+    super(
+      ErrorCode.BUSINESS.USER_ROLE_UNKNOWN,
+      HttpStatus.BAD_REQUEST,
+      `One or more roles are not registered in the system`,
+      { unknownRoles },
+    );
+  }
+}
+
+/** 409 — activate appelé sur un compte déjà actif. */
+export class UserAlreadyActiveException extends BusinessException {
+  constructor(userId: string) {
+    super(
+      ErrorCode.BUSINESS.USER_ALREADY_ACTIVE,
+      HttpStatus.CONFLICT,
+      `User is already active`,
+      { userId },
+    );
+  }
+}
+
+/** 409 — deactivate appelé sur un compte déjà inactif. */
+export class UserAlreadyInactiveException extends BusinessException {
+  constructor(userId: string) {
+    super(
+      ErrorCode.BUSINESS.USER_ALREADY_INACTIVE,
+      HttpStatus.CONFLICT,
+      `User is already inactive`,
+      { userId },
+    );
+  }
+}
+
+/**
+ * 409 — garde-fou anti-lock-out : refuse de retirer le rôle SUPER_ADMIN
+ * du dernier compte qui le possède (sinon plus aucun humain ne peut
+ * administrer le système). Le service compte les SUPER_ADMIN actifs avant
+ * d'autoriser un setRoles / deactivate.
+ */
+export class UserCannotRemoveLastSuperAdminException extends BusinessException {
+  constructor(userId: string) {
+    super(
+      ErrorCode.BUSINESS.USER_CANNOT_REMOVE_LAST_SUPER_ADMIN,
+      HttpStatus.CONFLICT,
+      `Cannot remove SUPER_ADMIN role from the last active super administrator`,
+      { userId },
+    );
+  }
+}
+
+/** 409 — un user qui se désactive lui-même se verrouille de l'app. Refusé. */
+export class UserCannotDeactivateSelfException extends BusinessException {
+  constructor(userId: string) {
+    super(
+      ErrorCode.BUSINESS.USER_CANNOT_DEACTIVATE_SELF,
+      HttpStatus.CONFLICT,
+      `Cannot deactivate your own account`,
+      { userId },
+    );
+  }
+}
+
+/**
+ * 409 — AppUser présent en base, mais aucun compte Keycloak ne correspond
+ * à son e-mail. Drift de données — l'admin doit recréer le compte côté
+ * Keycloak ou purger l'AppUser orphelin avant de réessayer l'opération.
+ *
+ * On ne logge JAMAIS l'e-mail dans les details (PII) — uniquement l'AppUser.id.
+ */
+export class UserKeycloakAccountNotFoundException extends BusinessException {
+  constructor(userId: string) {
+    super(
+      ErrorCode.BUSINESS.USER_KEYCLOAK_ACCOUNT_NOT_FOUND,
+      HttpStatus.CONFLICT,
+      `No Keycloak account matches this user's email`,
+      { userId },
+    );
+  }
+}
+
+// ===== Sprint F-ADMIN-USERS — Provider d'identité (Keycloak Admin API) =====
+
+/**
+ * 502 — l'API Admin Keycloak ne répond pas (timeout réseau, container down).
+ * On distingue des erreurs métier classiques pour pouvoir afficher un
+ * message dédié côté UI ("Service d'authentification injoignable").
+ */
+export class IdpUnreachableException extends BusinessException {
+  constructor(reason: string) {
+    super(
+      ErrorCode.IDP.UNREACHABLE,
+      HttpStatus.BAD_GATEWAY,
+      `Identity provider unreachable`,
+      { reason },
+    );
+  }
+}
+
+/**
+ * 502 — Keycloak refuse de délivrer un access token au service account
+ * (client_credentials KO). Cas typique : secret rotaté, ou client mal
+ * configuré (serviceAccountsEnabled=false). Ne JAMAIS logger le secret.
+ */
+export class IdpAdminTokenFailedException extends BusinessException {
+  constructor(httpStatus: number) {
+    super(
+      ErrorCode.IDP.ADMIN_TOKEN_FAILED,
+      HttpStatus.BAD_GATEWAY,
+      `Failed to obtain admin token from identity provider`,
+      { providerStatus: httpStatus },
+    );
+  }
+}
+
+/**
+ * 502 — une opération Admin Keycloak (create/update/role-mapping/email)
+ * a renvoyé une erreur non gérée. `providerStatus` permet de remonter
+ * le code HTTP Keycloak côté logs serveur (jamais côté UI publique).
+ */
+export class IdpAdminOperationFailedException extends BusinessException {
+  constructor(operation: string, providerStatus: number, providerMessage?: string) {
+    super(
+      ErrorCode.IDP.ADMIN_OPERATION_FAILED,
+      HttpStatus.BAD_GATEWAY,
+      `Identity provider operation "${operation}" failed`,
+      { operation, providerStatus, providerMessage: providerMessage ?? null },
+    );
+  }
+}
