@@ -91,6 +91,32 @@ export interface Permissions {
    */
   canDeleteDonorTemplate: () => boolean;
 
+  // ------------------ Clôture mensuelle (sprint F5b-b) ------------------
+  /**
+   * Voir la liste des périodes fiscales et leurs findings — lecture
+   * accessible à tous les rôles internes finance (COMPTABLE jusqu'à DAF).
+   * Le BAILLEUR n'a PAS accès au workflow de clôture (vue purement interne).
+   */
+  canViewClosure: () => boolean;
+  /** Lancer le precheck — COMPTABLE / CONTROLEUR / DAF / SUPER_ADMIN. */
+  canRunPrecheck: () => boolean;
+  /** Passer les FNP (POST /accruals) — COMPTABLE / CONTROLEUR / DAF / SUPER_ADMIN. */
+  canRunAccruals: () => boolean;
+  /** Saisir les CCA/PCA (POST /prepayments) — COMPTABLE / CONTROLEUR / DAF / SUPER_ADMIN. */
+  canRunPrepayments: () => boolean;
+  /** Run dotations 689 / reprises 789 — CONTROLEUR / DAF / SUPER_ADMIN. */
+  canRunDedicatedFunds: () => boolean;
+  /** Clôturer une période — CONTROLEUR / DAF / SUPER_ADMIN. */
+  canClosePeriod: () => boolean;
+  /** Ré-ouvrir une période close — DAF / SUPER_ADMIN seulement. */
+  canReopenPeriod: () => boolean;
+  /** Override DAF des findings BLOCKING au close — DAF / SUPER_ADMIN. */
+  canOverrideBlockingClose: () => boolean;
+  /** Générer un état financier (TER/BILAN/RESULTAT/FONDS_DEDIES). */
+  canCreateStatement: () => boolean;
+  /** Verrouiller un état financier (immutable après) — DAF / SUPER_ADMIN. */
+  canLockStatement: () => boolean;
+
   // ------------------ Pilotage (sprint F-PILOTAGE) ------------------
   /** Portefeuille global des conventions — CG / DAF / SUPER_ADMIN. */
   canViewGrantPortfolio: () => boolean;
@@ -208,6 +234,25 @@ export function usePermissions(): Permissions {
       // Séparation des tâches : DAF déclenche l'envoi (≠ CG qui prépare)
       canSendDonorReport: () => hasAny('DAF', 'SUPER_ADMIN'),
       canDeleteDonorTemplate: () => hasAny('SUPER_ADMIN'),
+
+      // Clôture mensuelle — F5b-b (cale sur les @Roles du controller)
+      canViewClosure: () =>
+        hasAny('COMPTABLE', 'CONTROLEUR', 'DAF', 'TRESORIER', 'SUPER_ADMIN'),
+      canRunPrecheck: () =>
+        hasAny('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canRunAccruals: () =>
+        hasAny('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canRunPrepayments: () =>
+        hasAny('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canRunDedicatedFunds: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canClosePeriod: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canReopenPeriod: () => hasAny('DAF', 'SUPER_ADMIN'),
+      // Seul le DAF peut acknowledger les BLOCKING (mêmes règles qu'un close
+      // avec reason — le CG ne peut pas overrider, ça doit remonter au DAF).
+      canOverrideBlockingClose: () => hasAny('DAF', 'SUPER_ADMIN'),
+      canCreateStatement: () =>
+        hasAny('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canLockStatement: () => hasAny('DAF', 'SUPER_ADMIN'),
 
       // Pilotage — F-PILOTAGE
       canViewGrantPortfolio: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),

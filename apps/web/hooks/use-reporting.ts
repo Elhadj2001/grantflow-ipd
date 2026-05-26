@@ -6,20 +6,28 @@ import {
   addTemplateMappings,
   createDonorReport,
   createDonorTemplate,
+  createStatement,
   getDonorReport,
   getDonorTemplate,
+  getStatement,
   listDonorReports,
   listDonorTemplates,
+  listStatements,
   lockDonorReport,
+  lockStatement,
   sendDonorReport,
   type AddMappingsInput,
   type CreateDonorReportInput,
   type CreateDonorTemplateInput,
+  type CreateStatementInput,
   type DonorReportDetail,
   type DonorReportSummary,
   type DonorTemplateDetail,
   type DonorTemplateSummary,
+  type FinancialStatementDetail,
+  type FinancialStatementSummary,
   type ListDonorReportsQuery,
+  type ListStatementsQuery,
   type SendDonorReportInput,
 } from '@/lib/api/reporting';
 import { mapApiErrorToToast } from '@/lib/use-api';
@@ -47,6 +55,11 @@ const reportingKeys = {
   reports: () => [...reportingKeys.all, 'donor-reports'] as const,
   reportList: (q: ListDonorReportsQuery) => [...reportingKeys.reports(), 'list', q] as const,
   report: (id: string) => [...reportingKeys.reports(), id] as const,
+  // Sprint F5b-b — états financiers TER/BILAN/RESULTAT/FONDS_DEDIES
+  statements: () => [...reportingKeys.all, 'statements'] as const,
+  statementList: (q: ListStatementsQuery) =>
+    [...reportingKeys.statements(), 'list', q] as const,
+  statement: (id: string) => [...reportingKeys.statements(), id] as const,
 };
 
 function useToken() {
@@ -199,6 +212,71 @@ export function useSendDonorReport(reportId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: reportingKeys.report(reportId) });
       qc.invalidateQueries({ queryKey: reportingKeys.reports() });
+    },
+  });
+}
+
+// =====================================================================
+//  Sprint F5b-b — Statements (TER / BILAN / RESULTAT / FONDS_DEDIES)
+// =====================================================================
+
+/**
+ * Liste des états financiers. Le BAILLEUR ne reçoit que les états
+ * `locked=true` (filtre serveur F5b-a Lot 1) — pas besoin de filtre UI.
+ */
+export function useStatements(query: ListStatementsQuery = {}) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery<FinancialStatementSummary[]>({
+    queryKey: reportingKeys.statementList(query),
+    enabled: sessionReady,
+    staleTime: HALF_MIN,
+    queryFn: async () => {
+      try {
+        return await listStatements(query, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
+
+export function useStatement(id: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery<FinancialStatementDetail>({
+    queryKey: reportingKeys.statement(id ?? ''),
+    enabled: sessionReady && !!id,
+    staleTime: HALF_MIN,
+    queryFn: async () => {
+      try {
+        return await getStatement(id!, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
+
+export function useCreateStatement() {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<FinancialStatementSummary, Error, CreateStatementInput>({
+    mutationFn: (input) => createStatement(input, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: reportingKeys.statements() });
+    },
+  });
+}
+
+export function useLockStatement(statementId: string) {
+  const { accessToken } = useToken();
+  const qc = useQueryClient();
+  return useMutation<FinancialStatementSummary>({
+    mutationFn: () => lockStatement(statementId, { accessToken }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: reportingKeys.statement(statementId) });
+      qc.invalidateQueries({ queryKey: reportingKeys.statements() });
     },
   });
 }
