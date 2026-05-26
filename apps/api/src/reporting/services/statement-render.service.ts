@@ -63,6 +63,8 @@ export class StatementRenderService {
       TER: "TABLEAU DES EMPLOIS ET RESSOURCES (TER)",
       BILAN: 'BILAN SYSCEBNL — Actif / Passif',
       RESULTAT: 'COMPTE DE RÉSULTAT — Charges / Produits',
+      // Sprint F5b-a Lot 4
+      FONDS_DEDIES: 'SUIVI DES FONDS DÉDIÉS PAR CONVENTION',
     };
     doc
       .fontSize(14)

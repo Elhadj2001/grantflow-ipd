@@ -954,6 +954,9 @@ INSERT INTO ref.gl_account (code, label, class, is_movement, syscebnl_specific) 
 ('408',    'Fournisseurs - Factures non parvenues (FNP)', '4', true, false),
 ('44',     'État et collectivités publiques', '4', false, false),
 ('445',    'État, TVA', '4', true, false),
+-- Sprint F5b-a Lot 3 : régularisations SYSCEBNL/SYSCOHADA (à valider par le CG, cf. CLAUDE.md §9).
+('476',    'Charges constatées d''avance (CCA)', '4', true, false),
+('477',    'Produits constatés d''avance (PCA)', '4', true, false),
 ('5',      'COMPTES FINANCIERS', '5', false, false),
 ('52',     'Banques', '5', false, false),
 ('521',    'Banques locales', '5', true, false),
@@ -1243,7 +1246,8 @@ COMMENT ON TABLE gl.period_close_event IS
 CREATE TABLE IF NOT EXISTS reporting.financial_statement (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     period_id           UUID NOT NULL REFERENCES gl.fiscal_period(id) ON DELETE CASCADE,
-    type                TEXT NOT NULL CHECK (type IN ('TER','BILAN','RESULTAT')),
+    -- Sprint F5b-a Lot 4 : ajout de FONDS_DEDIES (suivi par convention).
+    type                TEXT NOT NULL CHECK (type IN ('TER','BILAN','RESULTAT','FONDS_DEDIES')),
     generated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     generated_by        UUID NOT NULL REFERENCES auth.app_user(id),
     locked              BOOLEAN NOT NULL DEFAULT false,
@@ -1257,7 +1261,7 @@ CREATE TABLE IF NOT EXISTS reporting.financial_statement (
 CREATE INDEX IF NOT EXISTS idx_financial_statement_period
     ON reporting.financial_statement(period_id);
 COMMENT ON TABLE reporting.financial_statement IS
-  'État financier SYSCEBNL (TER, Bilan, Compte de résultat) par période.';
+  'État financier SYSCEBNL (TER, Bilan, Compte de résultat, Fonds dédiés) par période.';
 
 CREATE TABLE IF NOT EXISTS reporting.financial_statement_line (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

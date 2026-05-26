@@ -1,14 +1,21 @@
+import { Prisma } from '@prisma/client';
 import { FinancialStatementGeneratorService } from '../financial-statement-generator.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { FinancialStatementNotBalancedException } from '../../../common/exceptions/business.exception';
 
 describe('FinancialStatementGeneratorService', () => {
-  let prisma: { $queryRaw: jest.Mock };
+  let prisma: {
+    $queryRaw: jest.Mock;
+    dedicatedFundMovement: { findMany: jest.Mock };
+  };
   let svc: FinancialStatementGeneratorService;
   const period = { id: 'p1', code: '2026-01' };
 
   beforeEach(() => {
-    prisma = { $queryRaw: jest.fn() };
+    prisma = {
+      $queryRaw: jest.fn(),
+      dedicatedFundMovement: { findMany: jest.fn().mockResolvedValue([]) },
+    };
     svc = new FinancialStatementGeneratorService(prisma as unknown as PrismaService);
   });
 
@@ -194,6 +201,187 @@ describe('FinancialStatementGeneratorService', () => {
       const r = await svc.loadBalances('p1');
       expect(r).toEqual(balancedBookSet);
       expect(prisma.$queryRaw).toHaveBeenCalled();
+    });
+  });
+
+  // ----------------------------------------------------------------- FONDS_DEDIES (sprint F5b-a Lot 4)
+
+  describe('generateFondsDedies', () => {
+    it("aucune convention : lines vide + totaux à 0 + balanced=true", async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+      prisma.dedicatedFundMovement.findMany.mockResolvedValue([]);
+
+      const r = await svc.generateFondsDedies(period);
+      expect(r.type).toBe('FONDS_DEDIES');
+      expect(r.lines).toHaveLength(0);
+      expect(r.totals.totalReceived).toBe(0);
+      expect(r.totals.totalEmployed).toBe(0);
+      expect(r.totals.totalRemaining).toBe(0);
+      expect(r.totals.balanced).toBe(true);
+    });
+
+    it('cohérence reçu − employé = restant pour chaque convention', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          grant_id: 'g-1',
+          grant_reference: 'BMGF-2024-001',
+          project_code: 'MADIBA',
+          donor_code: 'BMGF',
+          received: 100_000,
+          employed: 60_000,
+        },
+        {
+          grant_id: 'g-2',
+          grant_reference: 'USAID-2024-A',
+          project_code: 'RIA',
+          donor_code: 'USAID',
+          received: 50_000,
+          employed: 50_000, // entièrement consommée
+        },
+      ]);
+      prisma.dedicatedFundMovement.findMany.mockResolvedValue([]);
+
+      const r = await svc.generateFondsDedies(period);
+      const grantLines = r.lines.filter((l) => l.section === 'GRANTS');
+      expect(grantLines).toHaveLength(2);
+
+      // Vérifie pour chaque ligne : reçu − employé = restant (balance)
+      for (const line of grantLines) {
+        // credit = reçu, debit = employé, balance = restant
+        const remaining = line.credit - line.debit;
+        expect(line.balance).toBe(remaining);
+      }
+
+      expect(r.totals.totalReceived).toBe(150_000);
+      expect(r.totals.totalEmployed).toBe(110_000);
+      expect(r.totals.totalRemaining).toBe(40_000);
+    });
+
+    it('rapprochement 689/19 : dotation 40k matche restant 40k → balanced=true', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          grant_id: 'g-1',
+          grant_reference: 'BMGF-2024-001',
+          project_code: null,
+          donor_code: 'BMGF',
+          received: 100_000,
+          employed: 60_000,
+        },
+      ]);
+      prisma.dedicatedFundMovement.findMany.mockResolvedValue([
+        {
+          grantId: 'g-1',
+          movementType: 'allocation',
+          amount: new Prisma.Decimal('40000'),
+        },
+      ]);
+
+      const r = await svc.generateFondsDedies(period);
+      const rapprochement = r.lines.filter(
+        (l) => l.section === 'RAPPROCHEMENT_689_19',
+      );
+      expect(rapprochement).toHaveLength(1);
+      expect(r.totals.totalDotation).toBe(40_000);
+      expect(r.totals.totalReprise).toBe(0);
+      expect(r.totals.netMovements).toBe(40_000);
+      expect(r.totals.balanced).toBe(true);
+      expect(r.totals.diff).toBe(0);
+    });
+
+    it('rapprochement : dotation ≠ restant → balanced=false + diff exposé (signal CG)', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          grant_id: 'g-1',
+          grant_reference: 'BMGF-2024-001',
+          project_code: null,
+          donor_code: 'BMGF',
+          received: 100_000,
+          employed: 60_000,
+        },
+      ]);
+      prisma.dedicatedFundMovement.findMany.mockResolvedValue([
+        {
+          grantId: 'g-1',
+          movementType: 'allocation',
+          amount: new Prisma.Decimal('35000'), // 5 000 de moins que le restant
+        },
+      ]);
+
+      const r = await svc.generateFondsDedies(period);
+      expect(r.totals.totalRemaining).toBe(40_000);
+      expect(r.totals.netMovements).toBe(35_000);
+      expect(r.totals.balanced).toBe(false);
+      expect(r.totals.diff).toBe(5_000);
+    });
+
+    it('rapprochement avec reprise 789 : dotation − reprise = net', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          grant_id: 'g-1',
+          grant_reference: 'X',
+          project_code: null,
+          donor_code: null,
+          received: 0,
+          employed: 30_000, // consomme un fonds dédié N-1
+        },
+      ]);
+      prisma.dedicatedFundMovement.findMany.mockResolvedValue([
+        {
+          grantId: 'g-1',
+          movementType: 'reprise',
+          amount: new Prisma.Decimal('30000'),
+        },
+      ]);
+
+      const r = await svc.generateFondsDedies(period);
+      expect(r.totals.totalRemaining).toBe(-30_000); // reçu - employé = -30k
+      expect(r.totals.totalReprise).toBe(30_000);
+      expect(r.totals.netMovements).toBe(-30_000); // 0 dotation - 30k reprise
+      expect(r.totals.diff).toBe(0);
+      expect(r.totals.balanced).toBe(true);
+    });
+
+    it('grant sans mouvement fonds dédiés → pas de ligne RAPPROCHEMENT', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          grant_id: 'g-1',
+          grant_reference: 'X',
+          project_code: null,
+          donor_code: null,
+          received: 100,
+          employed: 100,
+        },
+      ]);
+      prisma.dedicatedFundMovement.findMany.mockResolvedValue([]);
+
+      const r = await svc.generateFondsDedies(period);
+      const rapprochement = r.lines.filter(
+        (l) => l.section === 'RAPPROCHEMENT_689_19',
+      );
+      expect(rapprochement).toHaveLength(0);
+    });
+
+    it("assertBalanced ne refuse PAS FONDS_DEDIES (audit signal, pas invariant)", () => {
+      // Construit un résultat déséquilibré et vérifie que le service ne lève pas.
+      const unbalanced = {
+        type: 'FONDS_DEDIES' as const,
+        periodId: period.id,
+        periodCode: period.code,
+        lines: [],
+        totals: { leftTotal: 100, rightTotal: 50, balanced: false },
+      };
+      expect(() => svc.assertBalanced(unbalanced)).not.toThrow();
+    });
+  });
+
+  // dispatcher : ajout de FONDS_DEDIES
+  describe('generate dispatcher inclut FONDS_DEDIES', () => {
+    it('appelle generateFondsDedies sans charger la balance générale', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+      const r = await svc.generate('FONDS_DEDIES', period);
+      expect(r.type).toBe('FONDS_DEDIES');
+      // Le générateur FONDS_DEDIES utilise son propre $queryRaw (par grant)
+      // — vérifié implicitement par le passage du dispatcher.
     });
   });
 });

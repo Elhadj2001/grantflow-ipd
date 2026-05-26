@@ -287,9 +287,18 @@ describe('DonorReportService', () => {
   });
 
   describe('downloadPdf / downloadExcel', () => {
+    // Sprint F5b-a Lot 1b : les downloads exigent désormais l'actor pour le
+    // garde isBailleurOnly. CG = rôle privilégié (pas de restriction).
+    const cgActor = {
+      id: actor.id,
+      email: actor.email,
+      fullName: actor.fullName,
+      roles: ['CONTROLEUR' as const],
+    };
+
     it('downloadPdf throws DonorReportNotFoundException when missing', async () => {
       prisma.donorReport.findUnique.mockResolvedValue(null);
-      await expect(svc.downloadPdf(reportId)).rejects.toBeInstanceOf(
+      await expect(svc.downloadPdf(cgActor, reportId)).rejects.toBeInstanceOf(
         DonorReportNotFoundException,
       );
     });
@@ -299,8 +308,9 @@ describe('DonorReportService', () => {
         id: reportId,
         pdfObjectKey: null,
         periodEnd: new Date(),
+        status: 'sent',
       });
-      await expect(svc.downloadPdf(reportId)).rejects.toBeInstanceOf(
+      await expect(svc.downloadPdf(cgActor, reportId)).rejects.toBeInstanceOf(
         DonorReportFileNotGeneratedException,
       );
     });
@@ -309,8 +319,9 @@ describe('DonorReportService', () => {
       prisma.donorReport.findUnique.mockResolvedValue({
         id: reportId,
         excelObjectKey: null,
+        status: 'sent',
       });
-      await expect(svc.downloadExcel(reportId)).rejects.toBeInstanceOf(
+      await expect(svc.downloadExcel(cgActor, reportId)).rejects.toBeInstanceOf(
         DonorReportFileNotGeneratedException,
       );
     });
@@ -320,15 +331,224 @@ describe('DonorReportService', () => {
         id: reportId,
         pdfObjectKey: 'k1',
         periodEnd: new Date(),
+        status: 'sent',
       });
       storage.getObject.mockResolvedValue({
         buffer: Buffer.from('PDFCONTENT'),
         contentType: 'application/pdf',
         size: 10,
       });
-      const r = await svc.downloadPdf(reportId);
+      const r = await svc.downloadPdf(cgActor, reportId);
       expect(r.buffer.toString()).toBe('PDFCONTENT');
       expect(r.filename).toMatch(/\.pdf$/);
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Sprint F5b-a Lot 1b — Canal latéral PDF/Excel fermé pour BAILLEUR pur
+  // ----------------------------------------------------------------
+  describe('RBAC BAILLEUR — canal téléchargement (sprint F5b-a Lot 1b)', () => {
+    const dafUser = {
+      id: 'daf-id',
+      email: 'daf@pasteur.sn',
+      fullName: 'DAF',
+      roles: ['DAF' as const],
+    };
+    const bailleurUser = {
+      id: 'b-id',
+      email: 'audit@usaid.gov',
+      fullName: 'Audit',
+      roles: ['BAILLEUR' as const],
+    };
+
+    it('downloadPdf : BAILLEUR pur + rapport "locked" → 404 (pas le buffer)', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue({
+        id: reportId,
+        pdfObjectKey: 'k1', // fichier EXISTE mais ne doit pas être servi
+        periodEnd: new Date(),
+        status: 'locked',
+      });
+      await expect(svc.downloadPdf(bailleurUser, reportId)).rejects.toBeInstanceOf(
+        DonorReportNotFoundException,
+      );
+      // Le storage NE DOIT PAS être appelé — sinon on a leaké une partie du flux.
+      expect(storage.getObject).not.toHaveBeenCalled();
+    });
+
+    it('downloadPdf : BAILLEUR pur + rapport "draft" → 404', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue({
+        id: reportId,
+        pdfObjectKey: 'k1',
+        periodEnd: new Date(),
+        status: 'draft',
+      });
+      await expect(svc.downloadPdf(bailleurUser, reportId)).rejects.toBeInstanceOf(
+        DonorReportNotFoundException,
+      );
+    });
+
+    it('downloadPdf : BAILLEUR pur + rapport "sent" → buffer servi', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue({
+        id: reportId,
+        pdfObjectKey: 'k-sent',
+        periodEnd: new Date(),
+        status: 'sent',
+      });
+      storage.getObject.mockResolvedValue({
+        buffer: Buffer.from('SENT-PDF'),
+        contentType: 'application/pdf',
+        size: 8,
+      });
+      const r = await svc.downloadPdf(bailleurUser, reportId);
+      expect(r.buffer.toString()).toBe('SENT-PDF');
+    });
+
+    it('downloadPdf : DAF + rapport "locked" → buffer servi (privilégié)', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue({
+        id: reportId,
+        pdfObjectKey: 'k-locked',
+        periodEnd: new Date(),
+        status: 'locked',
+      });
+      storage.getObject.mockResolvedValue({
+        buffer: Buffer.from('LOCKED-PDF'),
+        contentType: 'application/pdf',
+        size: 10,
+      });
+      const r = await svc.downloadPdf(dafUser, reportId);
+      expect(r.buffer.toString()).toBe('LOCKED-PDF');
+    });
+
+    it('downloadPdf : cumul DAF+BAILLEUR sur "locked" → buffer servi (restriction désactivée)', async () => {
+      const dualRole = {
+        ...bailleurUser,
+        roles: ['BAILLEUR' as const, 'DAF' as const],
+      };
+      prisma.donorReport.findUnique.mockResolvedValue({
+        id: reportId,
+        pdfObjectKey: 'k-locked',
+        periodEnd: new Date(),
+        status: 'locked',
+      });
+      storage.getObject.mockResolvedValue({
+        buffer: Buffer.from('DUAL-PDF'),
+        contentType: 'application/pdf',
+        size: 8,
+      });
+      const r = await svc.downloadPdf(dualRole, reportId);
+      expect(r.buffer.toString()).toBe('DUAL-PDF');
+    });
+
+    it('downloadExcel : BAILLEUR pur + rapport "locked" → 404 (pas le buffer)', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue({
+        id: reportId,
+        excelObjectKey: 'k1',
+        status: 'locked',
+      });
+      await expect(svc.downloadExcel(bailleurUser, reportId)).rejects.toBeInstanceOf(
+        DonorReportNotFoundException,
+      );
+      expect(storage.getObject).not.toHaveBeenCalled();
+    });
+
+    it('downloadExcel : BAILLEUR pur + rapport "sent" → buffer servi', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue({
+        id: reportId,
+        excelObjectKey: 'k-sent-xlsx',
+        status: 'sent',
+      });
+      storage.getObject.mockResolvedValue({
+        buffer: Buffer.from('XLSX'),
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: 4,
+      });
+      const r = await svc.downloadExcel(bailleurUser, reportId);
+      expect(r.buffer.toString()).toBe('XLSX');
+    });
+
+    it('garde BAILLEUR appliqué AVANT FileNotGenerated (ne révèle pas l\'existence du fichier)', async () => {
+      // pdfObjectKey=null + status=locked + BAILLEUR pur → 404 NOT_FOUND, pas
+      // FILE_NOT_GENERATED qui révélerait qu'on cherchait à servir le fichier.
+      prisma.donorReport.findUnique.mockResolvedValue({
+        id: reportId,
+        pdfObjectKey: null,
+        periodEnd: new Date(),
+        status: 'locked',
+      });
+      await expect(svc.downloadPdf(bailleurUser, reportId)).rejects.toBeInstanceOf(
+        DonorReportNotFoundException,
+      );
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Sprint F5b-a Lot 1 — RBAC BAILLEUR sur findOne / findMany
+  // ----------------------------------------------------------------
+  describe('RBAC BAILLEUR (sprint F5b-a Lot 1)', () => {
+    const cgUser = {
+      id: 'cg-id',
+      email: 'cg@pasteur.sn',
+      fullName: 'CG',
+      roles: ['CONTROLEUR' as const],
+    };
+    const bailleurUser = {
+      id: 'b-id',
+      email: 'audit@usaid.gov',
+      fullName: 'Audit',
+      roles: ['BAILLEUR' as const],
+    };
+
+    it('findOne : CG voit un rapport draft', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'draft' }));
+      const r = await svc.findOne(cgUser, reportId);
+      expect(r.status).toBe('draft');
+    });
+
+    it('findOne : BAILLEUR pur sur draft → DonorReportNotFoundException', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'draft' }));
+      await expect(svc.findOne(bailleurUser, reportId)).rejects.toBeInstanceOf(
+        DonorReportNotFoundException,
+      );
+    });
+
+    it('findOne : BAILLEUR pur sur locked → DonorReportNotFoundException', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'locked' }));
+      await expect(svc.findOne(bailleurUser, reportId)).rejects.toBeInstanceOf(
+        DonorReportNotFoundException,
+      );
+    });
+
+    it('findOne : BAILLEUR pur sur sent → autorisé', async () => {
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'sent' }));
+      const r = await svc.findOne(bailleurUser, reportId);
+      expect(r.status).toBe('sent');
+    });
+
+    it('findMany : BAILLEUR pur → status forcé à "sent" même si query.status=draft', async () => {
+      prisma.donorReport.findMany.mockResolvedValue([]);
+      await svc.findMany(bailleurUser, { status: 'draft' });
+      expect(prisma.donorReport.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: 'sent' }),
+        }),
+      );
+    });
+
+    it('findMany : CG → status pass-through (draft autorisé)', async () => {
+      prisma.donorReport.findMany.mockResolvedValue([]);
+      await svc.findMany(cgUser, { status: 'draft' });
+      expect(prisma.donorReport.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: 'draft' }),
+        }),
+      );
+    });
+
+    it('BAILLEUR + DAF (cumul) : pas de restriction', async () => {
+      const dual = { ...bailleurUser, roles: ['BAILLEUR' as const, 'DAF' as const] };
+      prisma.donorReport.findUnique.mockResolvedValue(makeReport({ status: 'draft' }));
+      const r = await svc.findOne(dual, reportId);
+      expect(r.status).toBe('draft');
     });
   });
 });

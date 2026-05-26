@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FinancialStatementNotBalancedException } from '../../common/exceptions/business.exception';
 
-export type StatementType = 'TER' | 'BILAN' | 'RESULTAT';
+export type StatementType = 'TER' | 'BILAN' | 'RESULTAT' | 'FONDS_DEDIES';
 
 export interface StatementLine {
   section: string;
@@ -49,6 +49,17 @@ export const BILAN_SECTION_PASSIF = 'PASSIF';
 export const RESULTAT_SECTION_CHARGES = 'CHARGES';
 export const RESULTAT_SECTION_PRODUITS = 'PRODUITS';
 
+/**
+ * Sections de l'état FONDS_DEDIES (sprint F5b-a Lot 4) :
+ *   - GRANTS : 1 ligne par convention active sur la période, avec
+ *              colonne reçu (75x crédits), employé (charges éligibles),
+ *              et restant à employer = reçu − employé.
+ *   - RAPPROCHEMENT_689_19 : 1 ligne par convention montrant dotation
+ *              comptable (689) vs solde 19 final — doit matcher le restant.
+ */
+export const FONDS_DEDIES_SECTION_GRANTS = 'GRANTS';
+export const FONDS_DEDIES_SECTION_RAPPROCHEMENT = 'RAPPROCHEMENT_689_19';
+
 interface AccountBalanceRow {
   account_code: string;
   account_label: string;
@@ -89,8 +100,14 @@ export class FinancialStatementGeneratorService {
 
   async generate(
     type: StatementType,
-    period: { id: string; code: string },
+    period: { id: string; code: string; startDate?: Date; endDate?: Date },
   ): Promise<StatementResult> {
+    if (type === 'FONDS_DEDIES') {
+      // Pas besoin de la balance générale pour cet état — il s'appuie sur
+      // co.dedicated_fund_movement et les comptes 75x/6x/689/19 imputés
+      // par grant. On charge à part dans le générateur dédié.
+      return this.generateFondsDedies(period);
+    }
     const balances = await this.loadBalances(period.id);
     switch (type) {
       case 'TER':
@@ -345,6 +362,183 @@ export class FinancialStatementGeneratorService {
   }
 
   // ------------------------------------------------------------------
+  // FONDS_DEDIES — Suivi des fonds dédiés par convention (sprint F5b-a Lot 4)
+  // ------------------------------------------------------------------
+
+  /**
+   * Génère le suivi des fonds dédiés par convention sur la période.
+   *
+   * Pour chaque grant actif ayant reçu OU dépensé sur la période :
+   *   - reçu = somme des crédits 75x imputés au grant (subventions reçues)
+   *   - employé = somme des débits classe 6 imputés au grant (charges)
+   *   - restant à employer = reçu − employé
+   *
+   * Section RAPPROCHEMENT_689_19 :
+   *   - dotation = mouvement co.dedicated_fund_movement type allocation
+   *     sur la période (montant du compte 689 / 19)
+   *   - reprise = mouvement type reprise sur la période (19 / 789)
+   *   - net = dotation − reprise (devrait égaler restant à employer pour
+   *     les conventions excédentaires de la période).
+   *
+   * L'équilibre attendu :
+   *   restant à employer (reçu − employé) ≈ dotation 689 − reprise 789
+   * Avec tolérance ±1 XOF (arrondis cumulés). Si écart > tolérance,
+   * l'état est marqué `balanced: false` mais NON refusé au lock —
+   * l'objectif est de signaler les anomalies au CG, pas de bloquer.
+   */
+  async generateFondsDedies(
+    period: { id: string; code: string; startDate?: Date; endDate?: Date },
+  ): Promise<StatementResult> {
+    // 1) Agrégats par grant : reçu (75x crédits) et employé (6x débits) sur la période.
+    const grantRows = await this.prisma.$queryRaw<
+      Array<{
+        grant_id: string;
+        grant_reference: string;
+        project_code: string | null;
+        donor_code: string | null;
+        received: number;
+        employed: number;
+      }>
+    >`
+      SELECT
+        g.id                AS grant_id,
+        g.reference         AS grant_reference,
+        p.code              AS project_code,
+        d.code              AS donor_code,
+        COALESCE(SUM(CASE WHEN l.account_code LIKE '75%' THEN (l.credit - l.debit) ELSE 0 END), 0)::float AS received,
+        COALESCE(SUM(CASE WHEN l.account_code LIKE '6%' AND l.account_code NOT LIKE '689%' THEN (l.debit - l.credit) ELSE 0 END), 0)::float AS employed
+      FROM ref.grant_agreement g
+      LEFT JOIN ref.project p ON p.id = g.project_id
+      LEFT JOIN ref.donor   d ON d.id = g.donor_id
+      LEFT JOIN gl.journal_line l ON l.grant_id = g.id
+      LEFT JOIN gl.journal_entry e ON e.id = l.entry_id
+        AND e.status = 'posted'
+        AND e.period_id = ${period.id}::uuid
+      GROUP BY g.id, g.reference, p.code, d.code
+      HAVING COALESCE(SUM(CASE WHEN l.account_code LIKE '75%' THEN (l.credit - l.debit) ELSE 0 END), 0)
+           + COALESCE(SUM(CASE WHEN l.account_code LIKE '6%' AND l.account_code NOT LIKE '689%' THEN (l.debit - l.credit) ELSE 0 END), 0) <> 0
+      ORDER BY g.reference ASC
+    `;
+
+    // 2) Mouvements fonds dédiés persistés sur cette période.
+    const fundMovements = await this.prisma.dedicatedFundMovement.findMany({
+      where: { periodId: period.id },
+      select: {
+        grantId: true,
+        movementType: true,
+        amount: true,
+      },
+    });
+    const movementsByGrant = new Map<
+      string,
+      { dotation: number; reprise: number }
+    >();
+    for (const m of fundMovements) {
+      const entry = movementsByGrant.get(m.grantId) ?? { dotation: 0, reprise: 0 };
+      if (m.movementType === 'allocation') entry.dotation += Number(m.amount);
+      else if (m.movementType === 'reprise') entry.reprise += Number(m.amount);
+      movementsByGrant.set(m.grantId, entry);
+    }
+
+    // 3) Construction des lignes section GRANTS.
+    const lines: StatementLine[] = [];
+    let totalReceived = 0;
+    let totalEmployed = 0;
+    let totalRemaining = 0;
+    let sort = 0;
+    for (const g of grantRows) {
+      const received = this.round2(Number(g.received));
+      const employed = this.round2(Number(g.employed));
+      const remaining = this.round2(received - employed);
+      lines.push({
+        section: FONDS_DEDIES_SECTION_GRANTS,
+        label:
+          `${g.grant_reference}` +
+          (g.donor_code ? ` — ${g.donor_code}` : '') +
+          (g.project_code ? ` (${g.project_code})` : ''),
+        accountCode: null,
+        debit: employed,
+        credit: received,
+        balance: remaining,
+        sortOrder: sort++,
+      });
+      totalReceived += received;
+      totalEmployed += employed;
+      totalRemaining += remaining;
+    }
+    totalReceived = this.round2(totalReceived);
+    totalEmployed = this.round2(totalEmployed);
+    totalRemaining = this.round2(totalRemaining);
+
+    // 4) Section RAPPROCHEMENT_689_19 : on liste les grants ayant un
+    //    mouvement sur la période, avec dotation/reprise et delta vs
+    //    restant attendu.
+    let totalDotation = 0;
+    let totalReprise = 0;
+    for (const g of grantRows) {
+      const mv = movementsByGrant.get(g.grant_id) ?? { dotation: 0, reprise: 0 };
+      if (mv.dotation === 0 && mv.reprise === 0) continue;
+      const remaining = this.round2(Number(g.received) - Number(g.employed));
+      const netMovement = this.round2(mv.dotation - mv.reprise);
+      const diff = this.round2(remaining - netMovement);
+      lines.push({
+        section: FONDS_DEDIES_SECTION_RAPPROCHEMENT,
+        label:
+          `${g.grant_reference}` +
+          ` — dotation ${this.round2(mv.dotation)}` +
+          ` reprise ${this.round2(mv.reprise)}` +
+          ` (delta vs restant : ${diff})`,
+        accountCode: null,
+        debit: this.round2(mv.reprise),
+        credit: this.round2(mv.dotation),
+        balance: netMovement,
+        sortOrder: sort++,
+      });
+      totalDotation += mv.dotation;
+      totalReprise += mv.reprise;
+    }
+    totalDotation = this.round2(totalDotation);
+    totalReprise = this.round2(totalReprise);
+    const netMovements = this.round2(totalDotation - totalReprise);
+
+    // 5) Équilibre logique : restant à employer ≈ dotation - reprise.
+    //    On utilise la même tolérance que les autres états (±1 XOF).
+    const balanced =
+      Math.abs(totalRemaining - netMovements) <=
+      FinancialStatementGeneratorService.BALANCE_TOLERANCE;
+    if (!balanced) {
+      this.logger.warn(
+        {
+          periodCode: period.code,
+          totalRemaining,
+          netMovements,
+          diff: this.round2(totalRemaining - netMovements),
+        },
+        'FONDS_DEDIES : déséquilibre restant vs dotation/reprise — signalé au CG',
+      );
+    }
+
+    return {
+      type: 'FONDS_DEDIES',
+      periodId: period.id,
+      periodCode: period.code,
+      lines,
+      totals: {
+        leftTotal: totalEmployed,
+        rightTotal: totalReceived,
+        balanced,
+        totalReceived,
+        totalEmployed,
+        totalRemaining,
+        totalDotation,
+        totalReprise,
+        netMovements,
+        diff: this.round2(totalRemaining - netMovements),
+      },
+    };
+  }
+
+  // ------------------------------------------------------------------
   // Helpers
   // ------------------------------------------------------------------
 
@@ -419,6 +613,10 @@ export class FinancialStatementGeneratorService {
    */
   assertBalanced(result: StatementResult): void {
     if (result.type === 'RESULTAT') return; // toujours équilibré par construction
+    // FONDS_DEDIES (sprint F5b-a Lot 4) : l'équilibre restant ≈ dotation−reprise
+    // est un check d'audit, pas un invariant comptable. On ne refuse pas le
+    // lock — le déséquilibre est exposé dans totals.diff pour signalement au CG.
+    if (result.type === 'FONDS_DEDIES') return;
     if (!result.totals.balanced) {
       throw new FinancialStatementNotBalancedException(
         result.type,

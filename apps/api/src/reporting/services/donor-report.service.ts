@@ -14,6 +14,8 @@ import {
   EntityNotFoundException,
   ReportingPeriodInvalidException,
 } from '../../common/exceptions/business.exception';
+import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
+import { isBailleurOnly } from '../../auth/types/rbac-helpers';
 import { ReportAggregationService } from './report-aggregation.service';
 import { PdfRenderService } from './pdf-render.service';
 import { ExcelRenderService } from './excel-render.service';
@@ -125,7 +127,26 @@ export class DonorReportService {
     });
   }
 
-  async findOne(reportId: string) {
+  async findOne(actor: AuthenticatedUser, reportId: string) {
+    const report = await this.loadReportOrThrow(reportId);
+    // Sprint F5b-a Lot 1 : BAILLEUR pur ne voit que les rapports `sent`.
+    // On lève 404 (pas 403) pour ne PAS révéler qu'un brouillon existe.
+    if (isBailleurOnly(actor) && report.status !== 'sent') {
+      this.logger.warn(
+        { reportId, actorEmail: actor.email, reportStatus: report.status },
+        'BAILLEUR-only actor blocked from non-sent donor report',
+      );
+      throw new DonorReportNotFoundException(reportId);
+    }
+    return report;
+  }
+
+  /**
+   * Charge un rapport sans filtre RBAC. Utilisé en interne par lock()
+   * et send() — les transitions de statut elles-mêmes sont déjà gated
+   * par @Roles côté contrôleur.
+   */
+  private async loadReportOrThrow(reportId: string) {
     const report = await this.prisma.donorReport.findUnique({
       where: { id: reportId },
       include: {
@@ -138,11 +159,17 @@ export class DonorReportService {
     return report;
   }
 
-  async findMany(query: { grantId?: string; status?: string; templateId?: string }) {
+  async findMany(
+    actor: AuthenticatedUser,
+    query: { grantId?: string; status?: string; templateId?: string },
+  ) {
+    // Sprint F5b-a Lot 1 : pour un BAILLEUR pur, on force status=sent
+    // (même si le query asked draft/locked → on ne lui montre rien d'autre).
+    const effectiveStatus = isBailleurOnly(actor) ? 'sent' : query.status;
     return this.prisma.donorReport.findMany({
       where: {
         grantId: query.grantId,
-        status: query.status,
+        status: effectiveStatus,
         templateId: query.templateId,
       },
       orderBy: { generatedAt: 'desc' },
@@ -160,7 +187,7 @@ export class DonorReportService {
    * déjà locked, regénère les fichiers (utile pour corriger l'entête).
    */
   async lock(actor: ReportActor, reportId: string): Promise<DonorReport> {
-    const report = await this.findOne(reportId);
+    const report = await this.loadReportOrThrow(reportId);
     if (report.status === 'sent') throw new DonorReportAlreadySentException(reportId);
     if (report.status !== 'draft' && report.status !== 'locked') {
       throw new DonorReportNotDraftException(reportId, report.status);
@@ -293,12 +320,27 @@ export class DonorReportService {
   // Downloads
   // ------------------------------------------------------------------
 
-  async downloadPdf(reportId: string): Promise<{ buffer: Buffer; filename: string }> {
+  async downloadPdf(
+    actor: AuthenticatedUser,
+    reportId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
     const report = await this.prisma.donorReport.findUnique({
       where: { id: reportId },
-      select: { id: true, pdfObjectKey: true, periodEnd: true },
+      select: { id: true, pdfObjectKey: true, periodEnd: true, status: true },
     });
     if (!report) throw new DonorReportNotFoundException(reportId);
+    // Sprint F5b-a Lot 1b : ferme le canal latéral PDF/Excel.
+    // Le PDF est généré au LOCK (status='locked'), donc avant 'sent' —
+    // sans ce garde, un BAILLEUR pur connaissant l'UUID téléchargerait
+    // un rapport non-envoyé. On lève 404 (pas 403) AVANT de vérifier
+    // l'existence du fichier — sinon on révèle qu'un document existe.
+    if (isBailleurOnly(actor) && report.status !== 'sent') {
+      this.logger.warn(
+        { reportId, actorEmail: actor.email, reportStatus: report.status, channel: 'pdf' },
+        'BAILLEUR-only actor blocked from non-sent donor report PDF (side channel)',
+      );
+      throw new DonorReportNotFoundException(reportId);
+    }
     if (!report.pdfObjectKey) {
       throw new DonorReportFileNotGeneratedException(reportId, 'pdf');
     }
@@ -307,12 +349,25 @@ export class DonorReportService {
     return { buffer: obj.buffer, filename };
   }
 
-  async downloadExcel(reportId: string): Promise<{ buffer: Buffer; filename: string }> {
+  async downloadExcel(
+    actor: AuthenticatedUser,
+    reportId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
     const report = await this.prisma.donorReport.findUnique({
       where: { id: reportId },
-      select: { id: true, excelObjectKey: true },
+      select: { id: true, excelObjectKey: true, status: true },
     });
     if (!report) throw new DonorReportNotFoundException(reportId);
+    // Sprint F5b-a Lot 1b : voir downloadPdf — même règle BAILLEUR pur.
+    // Garde appliqué AVANT la vérification du fichier pour ne pas
+    // révéler l'existence du document.
+    if (isBailleurOnly(actor) && report.status !== 'sent') {
+      this.logger.warn(
+        { reportId, actorEmail: actor.email, reportStatus: report.status, channel: 'excel' },
+        'BAILLEUR-only actor blocked from non-sent donor report Excel (side channel)',
+      );
+      throw new DonorReportNotFoundException(reportId);
+    }
     if (!report.excelObjectKey) {
       throw new DonorReportFileNotGeneratedException(reportId, 'excel');
     }

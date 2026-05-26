@@ -31,6 +31,10 @@
       "description": "Utilisé en clôture pour rattacher à l'exercice les charges dont la facture n'est pas encore parvenue." },
     { "code": "44",   "label": "État et collectivités publiques", "class": "4", "is_movement": false, "syscebnl_specific": false },
     { "code": "445",  "label": "État, TVA", "class": "4", "is_movement": true, "syscebnl_specific": false },
+    { "code": "476",  "label": "Charges constatées d'avance (CCA)", "class": "4", "is_movement": true, "syscebnl_specific": false,
+      "description": "Sprint F5b-a Lot 3 — régularisation SYSCEBNL/SYSCOHADA. Débité à la clôture pour reporter une charge dont la fourniture excède la période. Extourné à l'ouverture suivante. À VALIDER PAR LE CONTRÔLE DE GESTION (cf. CLAUDE.md §9)." },
+    { "code": "477",  "label": "Produits constatés d'avance (PCA)", "class": "4", "is_movement": true, "syscebnl_specific": false,
+      "description": "Sprint F5b-a Lot 3 — régularisation SYSCEBNL/SYSCOHADA. Crédité à la clôture pour reporter une subvention/produit dont la prestation reste à fournir. Extourné à l'ouverture suivante. À VALIDER PAR LE CONTRÔLE DE GESTION (cf. CLAUDE.md §9)." },
 
     { "code": "5",    "label": "COMPTES FINANCIERS", "class": "5", "is_movement": false, "syscebnl_specific": false },
     { "code": "52",   "label": "Banques", "class": "5", "is_movement": false, "syscebnl_specific": false },
