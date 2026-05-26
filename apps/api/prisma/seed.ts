@@ -5,9 +5,11 @@
  *  - Plan comptable SYSCEBNL          (seed/syscebnl-accounts.json)
  *  - Rôles RBAC                        (seed/roles.json)
  *  - Bailleurs                         (seed/donors.json)
+ *  - Fournisseurs de démo              (seed/suppliers.json)
  *  - Codes TVA / retenues Sénégal      (seed/tax-codes.json)
  *  - Périodes fiscales 2026            (seed/fiscal-periods-2026.json)
- *  - 5 utilisateurs de test
+ *  - 11 utilisateurs de test (1 par rôle RBAC ; ACHETEUR/MAGASINIER/BAILLEUR
+ *    ajoutés sprint amorce-démo)
  *  - 3 projets démo + grants + budget lines
  *
  * Les fixtures sont la source unique de vérité — toute modification du plan
@@ -41,6 +43,15 @@ type FiscalPeriodFixture = {
   period_type: string;
   start_date: string;
   end_date: string;
+};
+type SupplierFixture = {
+  code: string;
+  name: string;
+  vatNumber?: string;
+  address?: string;
+  country?: string;
+  paymentTermsDays?: number;
+  currencyDefault?: string;
 };
 
 function loadFixture<T>(filename: string, rootKey: string): T[] {
@@ -94,6 +105,45 @@ async function seedDonors() {
     });
   }
   console.log(`✅ ${donors.length} bailleurs chargés`);
+}
+
+/**
+ * Fournisseurs de démo — seed/suppliers.json source de vérité.
+ *
+ * Clé d'unicité : `code`. Upsert préserve les données existantes (history
+ * IBAN, riskScore éventuellement mis à jour à l'usage) — on ne réécrase
+ * que les colonnes du fichier de fixtures.
+ *
+ * iban/bic restent volontairement null : le scénario démo s'arrête à la
+ * comptabilisation (classes 4/6) ; le volet trésorerie/SEPA (classe 5)
+ * nécessitera un enrichissement ultérieur de la fixture quand on
+ * activera le paiement SEPA pour la démo.
+ */
+async function seedSuppliers() {
+  const suppliers = loadFixture<SupplierFixture>('suppliers.json', 'suppliers');
+  for (const s of suppliers) {
+    await prisma.supplier.upsert({
+      where: { code: s.code },
+      update: {
+        name: s.name,
+        vatNumber: s.vatNumber ?? null,
+        address: s.address ?? null,
+        country: s.country ?? null,
+        paymentTermsDays: s.paymentTermsDays ?? 30,
+        currencyDefault: s.currencyDefault ?? 'XOF',
+      },
+      create: {
+        code: s.code,
+        name: s.name,
+        vatNumber: s.vatNumber ?? null,
+        address: s.address ?? null,
+        country: s.country ?? null,
+        paymentTermsDays: s.paymentTermsDays ?? 30,
+        currencyDefault: s.currencyDefault ?? 'XOF',
+      },
+    });
+  }
+  console.log(`✅ ${suppliers.length} fournisseurs chargés`);
 }
 
 async function seedTaxCodes() {
@@ -168,15 +218,24 @@ async function seedFiscalPeriods() {
 }
 
 async function seedUsers() {
+  // Note : tout ajout ici DOIT être propagé dans docker/keycloak/realm.json
+  // (mêmes emails, mots de passe non temporaires conformes à la password
+  // policy length(10)+digit+lower+upper+notUsername). Le seed Prisma crée
+  // app_user.* ; Keycloak gère l'authentification réelle.
   const users = [
-    { email: 'admin@pasteur.sn',    fullName: 'Admin IPD',             roleCode: 'SUPER_ADMIN' },
-    { email: 'daf@pasteur.sn',      fullName: 'Mme DIOP (DAF)',        roleCode: 'DAF' },
-    { email: 'compta@pasteur.sn',   fullName: 'M. SECK (Compta)',      roleCode: 'COMPTABLE' },
-    { email: 'tres@pasteur.sn',     fullName: 'Mme FALL (Trésorier)',  roleCode: 'TRESORIER' },
-    { email: 'pi@pasteur.sn',       fullName: 'Dr. SARR (PI)',         roleCode: 'PI' },
-    { email: 'amadou@pasteur.sn',   fullName: 'A. NIANG (stagiaire)',  roleCode: 'DEMANDEUR' },
-    { email: 'cg@pasteur.sn',       fullName: 'Mme KANE (CG)',         roleCode: 'CONTROLEUR' },
-    { email: 'caissier@pasteur.sn', fullName: 'M. NDIAYE (Caissier)',  roleCode: 'CAISSIER' },
+    { email: 'admin@pasteur.sn',      fullName: 'Admin IPD',             roleCode: 'SUPER_ADMIN' },
+    { email: 'daf@pasteur.sn',        fullName: 'Mme DIOP (DAF)',        roleCode: 'DAF' },
+    { email: 'compta@pasteur.sn',     fullName: 'M. SECK (Compta)',      roleCode: 'COMPTABLE' },
+    { email: 'tres@pasteur.sn',       fullName: 'Mme FALL (Trésorier)',  roleCode: 'TRESORIER' },
+    { email: 'pi@pasteur.sn',         fullName: 'Dr. SARR (PI)',         roleCode: 'PI' },
+    { email: 'amadou@pasteur.sn',     fullName: 'A. NIANG (stagiaire)',  roleCode: 'DEMANDEUR' },
+    { email: 'cg@pasteur.sn',         fullName: 'Mme KANE (CG)',         roleCode: 'CONTROLEUR' },
+    { email: 'caissier@pasteur.sn',   fullName: 'M. NDIAYE (Caissier)',  roleCode: 'CAISSIER' },
+    // Sprint amorce-démo : 3 rôles indispensables au scénario E2E
+    // (BC / Réception / Bailleur lecture).
+    { email: 'acheteur@pasteur.sn',   fullName: 'M. BA (Acheteur)',      roleCode: 'ACHETEUR' },
+    { email: 'magasinier@pasteur.sn', fullName: 'M. THIAM (Magasin)',    roleCode: 'MAGASINIER' },
+    { email: 'bailleur@pasteur.sn',   fullName: 'Auditeur USAID (lecture)', roleCode: 'BAILLEUR' },
   ];
   for (const u of users) {
     const role = await prisma.role.findUniqueOrThrow({ where: { code: u.roleCode } });
@@ -380,6 +439,7 @@ async function main() {
   await seedGlAccounts();
   await seedRoles();
   await seedDonors();
+  await seedSuppliers();
   await seedTaxCodes();
   await seedFixedExchangeRates();
   await seedFiscalPeriods();

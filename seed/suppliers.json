@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "description": "Fournisseurs de démo IPD — utilisés par scénario docs/scenario-demo-bailleur.md (achats consommables/équipements/chaîne du froid).",
+    "instructions_seed": "Charger via prisma.supplier.upsert où code est la clé d'unicité. iban/bic restent null tant que le volet trésorerie/SEPA n'est pas activé en démo.",
+    "source": "Inscrits manuellement pour démo end-to-end Sprint amorce-démo (procurement → facture → comptabilité, hors SEPA)."
+  },
+  "suppliers": [
+    {
+      "code": "FOURN-BIOMED",
+      "name": "BioMed Sénégal SARL",
+      "vatNumber": "SN-2023-BIOMED-001",
+      "address": "Km 4.5 Route de Rufisque, BP 4032, Dakar",
+      "country": "SN",
+      "paymentTermsDays": 30,
+      "currencyDefault": "XOF"
+    },
+    {
+      "code": "FOURN-LABEQUIP",
+      "name": "LabEquip West Africa",
+      "vatNumber": "SN-2021-LABEQ-018",
+      "address": "Zone Franche Industrielle, BP 11220, Dakar",
+      "country": "SN",
+      "paymentTermsDays": 45,
+      "currencyDefault": "XOF"
+    },
+    {
+      "code": "FOURN-COLDCHAIN",
+      "name": "ColdChain Logistics SA",
+      "vatNumber": "SN-2020-CCLOG-007",
+      "address": "Aéroport AIBD, Diass — Hangar Logistique 3",
+      "country": "SN",
+      "paymentTermsDays": 30,
+      "currencyDefault": "XOF"
+    }
+  ]
+}
