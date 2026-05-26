@@ -41,6 +41,16 @@
   "supportedLocales": ["fr", "en"],
   "defaultLocale": "fr",
 
+  "smtpServer": {
+    "host": "mailhog",
+    "port": "1025",
+    "from": "no-reply@pasteur.sn",
+    "fromDisplayName": "GRANTFLOW IPD",
+    "auth": "false",
+    "ssl": "false",
+    "starttls": "false"
+  },
+
   "roles": {
     "realm": [
       { "name": "SUPER_ADMIN", "description": "Super administrateur — accès complet" },
@@ -65,8 +75,8 @@
       "protocol": "openid-connect",
       "publicClient": false,
       "clientAuthenticatorType": "client-secret",
-      "secret": "changeme-grantflow-api-secret",
-      "bearerOnly": true,
+      "secret": "grantflow-api-dev-secret-2026",
+      "bearerOnly": false,
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": true,
