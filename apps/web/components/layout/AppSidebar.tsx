@@ -50,7 +50,9 @@ const NAV: SidebarNavItem[] = [
     href: '/procurement/purchase-requests',
     label: 'Achats',
     icon: ShoppingCart,
-    // Resserré : ne doit pas s'activer sur Réception / Inventaire (entrées dédiées ci-dessous).
+    // Sprint F-DASHBOARD : matchPrefix resserré aux vraies sous-pages d'Achats
+    // (DA / BC / GR). Avant, `/procurement` couvrait aussi reception-rapide et
+    // inventaire-scan qui sont maintenant des items distincts ci-dessous.
     matchPrefixes: [
       '/procurement/purchase-requests',
       '/procurement/purchase-orders',
@@ -58,6 +60,9 @@ const NAV: SidebarNavItem[] = [
     ],
   },
   {
+    // Sprint F-DASHBOARD : expose le workflow Réception (tablette/mobile)
+    // construit dans F-PROCUREMENT mais jusqu'ici non relié au menu principal.
+    // Visible uniquement MAGASINIER / SUPER_ADMIN (canReceive).
     href: '/procurement/reception-rapide',
     label: 'Réception',
     icon: Truck,
@@ -65,6 +70,9 @@ const NAV: SidebarNavItem[] = [
     visible: (p) => p.canReceive(),
   },
   {
+    // Page liée à la Réception : scan d'inventaire (consultation / mouvements
+    // stock). Même rôle gating que Réception — un magasinier qui réceptionne
+    // doit pouvoir scanner l'inventaire.
     href: '/procurement/inventaire-scan',
     label: 'Inventaire / Scan',
     icon: Package,
@@ -139,9 +147,9 @@ const NAV: SidebarNavItem[] = [
 ];
 
 /**
- * Sidebar fixe à gauche, 240px, fond cream. 5 entrées dont Dashboard
- * actif. Sprint F1.1 — ajout du bloc SystemStatus en bas (ping
- * /health toutes les 30 s).
+ * Sidebar fixe à gauche, 240px, fond cream. Sprint F1.1 — ajout du bloc
+ * SystemStatus en bas (ping /health toutes les 30 s). Le header de marque
+ * (logo + GRANTFLOW) sera ajouté en F-ADMIN-USERS (commit logo dédié).
  */
 export function AppSidebar() {
   const pathname = usePathname();

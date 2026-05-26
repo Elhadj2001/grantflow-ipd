@@ -30,4 +30,60 @@ describe('ShortcutCard', () => {
     expect(btn).not.toBeDisabled();
     expect(screen.getByTestId('shortcut-card')).toHaveAttribute('data-disabled', 'false');
   });
+
+  // -----------------------------------------------------------------
+  // Sprint F-DASHBOARD — prop `href` (raccourci cliquable)
+  // -----------------------------------------------------------------
+
+  it('href fourni → carte active, lien Next.js avec href correct + label "Ouvrir"', () => {
+    render(
+      <ShortcutCard
+        icon={FilePlus}
+        title="Créer une DA"
+        description="Y"
+        href="/procurement/purchase-requests/new"
+      />,
+    );
+    const link = screen.getByRole('link', { name: 'Ouvrir' });
+    expect(link).toHaveAttribute('href', '/procurement/purchase-requests/new');
+    const card = screen.getByTestId('shortcut-card');
+    expect(card).toHaveAttribute('data-disabled', 'false');
+    expect(card).toHaveAttribute('data-href', '/procurement/purchase-requests/new');
+  });
+
+  it('href absent → carte désactivée (rétro-compat F1.1)', () => {
+    render(<ShortcutCard icon={FilePlus} title="X" description="Y" />);
+    expect(screen.queryByRole('link')).toBeNull();
+    const btn = screen.getByRole('button', { name: 'Bientôt disponible' });
+    expect(btn).toBeDisabled();
+    expect(screen.getByTestId('shortcut-card')).toHaveAttribute('data-href', '');
+  });
+
+  it('disabled=true override : même avec href, la carte reste désactivée', () => {
+    render(
+      <ShortcutCard
+        icon={FilePlus}
+        title="X"
+        description="Y"
+        href="/some/route"
+        disabled
+      />,
+    );
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByRole('button')).toBeDisabled();
+    expect(screen.getByTestId('shortcut-card')).toHaveAttribute('data-disabled', 'true');
+  });
+
+  it('actionLabel custom est utilisé avec href', () => {
+    render(
+      <ShortcutCard
+        icon={FilePlus}
+        title="X"
+        description="Y"
+        href="/x"
+        actionLabel="Y aller"
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'Y aller' })).toHaveAttribute('href', '/x');
+  });
 });
