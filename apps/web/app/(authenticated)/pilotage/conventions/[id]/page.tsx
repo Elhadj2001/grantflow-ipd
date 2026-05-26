@@ -14,7 +14,7 @@ import { AnalyticalDonut } from '@/components/pilotage/AnalyticalDonut';
 import { DedicatedFundsCard } from '@/components/pilotage/DedicatedFundsCard';
 import { OverheadCard } from '@/components/pilotage/OverheadCard';
 import type { GrantBadgeStatus } from '@/components/pilotage/GrantStatusBadge';
-import { useGrantDashboard } from '@/hooks/use-referential';
+import { useBudgetLinesList, useGrantDashboard } from '@/hooks/use-referential';
 import {
   useGrantBreakdown,
   useGrantDedicatedFunds,
@@ -23,6 +23,7 @@ import {
 } from '@/hooks/use-pilotage';
 import { usePermissions } from '@/hooks/use-permissions';
 import { formatAmount } from '@/lib/api/pilotage';
+import { BudgetLineEditor } from '@/components/referential/BudgetLineEditor';
 
 const PERIOD_PRESETS = [
   { value: '3m', label: '3 mois' },
@@ -86,6 +87,14 @@ export default function GrantDetailPage() {
     ...periodRange,
   });
   const { data: funds } = useGrantDedicatedFunds(grantId);
+  // Sprint F5b-c Lot C : chargement séparé des lignes budgétaires en
+  // mode "édition" (avec defaultAccount + isOverheadEligible). La
+  // BudgetVarianceTable du dashboard reste pour la lecture (consommation).
+  // Le hook n'est activé que si le caller a le rôle CG/DAF/SA.
+  const canEditBudgetLines = perms.canManageBudgetLines();
+  const { data: budgetLinesData } = useBudgetLinesList(
+    canEditBudgetLines ? grantId : null,
+  );
   const { data: overhead } = useGrantOverhead(grantId);
 
   if (loadingDash) {
@@ -161,7 +170,7 @@ export default function GrantDetailPage() {
           </ul>
         )}
 
-        {/* Section Lignes budgétaires */}
+        {/* Section Lignes budgétaires — lecture (consommation/engagé) */}
         <section data-testid="section-budget-lines" className="space-y-3">
           <h2 className="text-lg font-semibold text-ipd-darker">Lignes budgétaires</h2>
           <BudgetVarianceTable
@@ -177,6 +186,15 @@ export default function GrantDetailPage() {
             }))}
             currency="XOF"
           />
+
+          {/* Sprint F5b-c Lot C : section ÉDITABLE pour CG/DAF/SA. */}
+          {canEditBudgetLines && budgetLinesData && (
+            <BudgetLineEditor
+              grantId={grantId}
+              lines={budgetLinesData.data}
+              grantAmount={dashboard.totalBudgeted}
+            />
+          )}
         </section>
 
         {/* Section Analytique — 3 donuts */}
