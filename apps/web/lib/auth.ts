@@ -166,6 +166,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       session.accessToken = token.accessToken as string | undefined;
       session.roles = (token.roles as GrantflowRole[] | undefined) ?? [];
       session.fullName = (token.fullName as string | undefined) ?? session.user?.name ?? '';
+      // Sprint F-ADMIN-USERS : expose le sub Keycloak côté client (utilisé
+      // par l'écran Admin Users pour empêcher la self-deactivate côté UI).
+      // Le RBAC reste autoritatif côté backend.
+      session.userId = (token.sub as string | undefined) ?? '';
       if (session.user) {
         session.user.name = session.fullName;
         session.user.email = (token.email as string | undefined) ?? session.user.email;
@@ -183,6 +187,12 @@ declare module 'next-auth' {
     accessToken?: string;
     roles: GrantflowRole[];
     fullName: string;
+    /**
+     * Sub Keycloak (= AppUser.id côté backend). Exposé en F-ADMIN-USERS
+     * pour les gardes UI (anti-self-deactivate). Vide si la session est
+     * mal formée ; le RBAC backend reste autoritatif.
+     */
+    userId: string;
     user?: DefaultSession['user'];
   }
 }

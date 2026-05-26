@@ -13,6 +13,7 @@ import {
   ShoppingCart,
   Target,
   Truck,
+  Users,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
@@ -135,6 +136,16 @@ const NAV: SidebarNavItem[] = [
     icon: Building2,
     matchPrefix: '/referential/suppliers',
     visible: (p) => p.canManageSuppliers(),
+  },
+  {
+    // Sprint F-ADMIN-USERS : gestion des utilisateurs.
+    // Visible uniquement pour SUPER_ADMIN / DAF — aligné sur @Roles
+    // backend AdminUsersController.
+    href: '/admin/users',
+    label: 'Utilisateurs',
+    icon: Users,
+    matchPrefix: '/admin/users',
+    visible: (p) => p.canManageUsers(),
   },
 ];
 
