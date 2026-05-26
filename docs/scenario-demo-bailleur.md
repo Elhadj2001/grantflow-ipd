@@ -13,9 +13,9 @@ Ces points ont été vérifiés dans le code et conditionnent tout le scénario 
 
 1. **Les rôles ACHETEUR, MAGASINIER et BAILLEUR sont désormais seedés** (sprint amorce-démo). Le Bon de commande se fait sous `acheteur@`, la Réception sous `magasinier@`, et la lecture côté bailleur sous `bailleur@`. `admin@` (SUPER_ADMIN) reste autorisé sur *toutes* les étapes et sert de suppléant universel. ⚠️ **Pré-requis** : ces 3 comptes existent dans `docker/keycloak/realm.json` mais ne pourront se connecter qu'après **ré-import du realm Keycloak** (voir §1) — sinon, repli sur `admin@`.
 2. **Le compte de charge par défaut d'une facture est `605`**, selon la priorité `ligne_facture.glAccount > ligne_budgétaire.default_account > 605`. Or **`605` n'est mappé dans aucun template bailleur** → si on laisse le compte vide, **le rapport affiche 0**. On impute donc la facture sur un compte **mappé** (ici `604` → catégorie *SUPPLIES* du template USAID).
-3. **Les fournisseurs sont désormais seedés** (`FOURN-BIOMED`, `FOURN-LABEQUIP`, `FOURN-COLDCHAIN`). En revanche, **les lignes budgétaires d'une convention *neuve* ne sont pas créables depuis l'UI** : une petite **amorce technique** (un seul script, §4) crée les lignes budgétaires de la convention `USAID-IPD-2026-01`. Tout le reste se fait à la souris.
+3. **Les fournisseurs sont désormais seedés** (`FOURN-BIOMED`, `FOURN-LABEQUIP`, `FOURN-COLDCHAIN`) ET un **écran CRUD Fournisseurs** est disponible (sprint F5b-c) — sidebar **Référentiel → Fournisseurs** (`canManageSuppliers` : ACHETEUR / CG / DAF / SA). **Les lignes budgétaires d'une convention sont également éditables depuis l'UI** (sprint F5b-c) : section *Paramétrage des lignes budgétaires* dans le détail convention (`canManageBudgetLines` : CG / DAF / SA uniquement). L'amorce script n'est donc plus nécessaire — voir §4 pour le pas-à-pas.
 
-> Les points restants (lignes budgétaires sans écran, `605` non mappé) sont des **écarts à arbitrer** (voir §8) : ils alimentent le backlog F-polish.
+> Le point restant (`605` non mappé) est un **écart à arbitrer** (voir §8) : il alimente le backlog F-polish.
 
 ---
 
@@ -88,54 +88,50 @@ Données de référence du scénario :
 
 ---
 
-## 4. Amorce technique (à lancer une seule fois)
+## 4. Saisie des lignes budgétaires (via l'UI — sprint F5b-c)
 
-Crée les 3 lignes budgétaires de la convention (avec leur compte SYSCEBNL par défaut **déjà mappé**, ce qui sécurise le §0-point 2). Le fournisseur `FOURN-BIOMED` est désormais **seedé** (`seed/suppliers.json`) — plus besoin de le créer ici.
+Sprint **F5b-c** a livré l'écran d'édition des lignes budgétaires dans le détail convention.
+**L'amorce script n'est plus nécessaire** : tout se fait à la souris.
 
 > Lancer **après l'étape 1** (la convention `USAID-IPD-2026-01` doit exister).
 
-Créer `apps/api/prisma/demo-amorce.ts` :
+### Pas-à-pas (login `cg@pasteur.sn` — rôle CONTROLEUR)
 
-```ts
-import './load-env';
-import { PrismaClient } from '@prisma/client';
+1. Aller sur **Pilotage → Conventions**, ouvrir la convention `USAID-IPD-2026-01`.
+2. Dans la section **Lignes budgétaires**, le sous-bloc **« Paramétrage des lignes budgétaires »** apparaît
+   (visible uniquement pour `CONTROLEUR / DAF / SUPER_ADMIN` — `canManageBudgetLines`).
+3. Cliquer **« Ajouter une ligne »** et saisir, ligne par ligne :
 
-const prisma = new PrismaClient();
-const GRANT_REF = 'USAID-IPD-2026-01';
+| Code  | Libellé                       | Budgété (XOF) | Compte SYSCEBNL | Overhead éligible |
+|-------|-------------------------------|---------------|-----------------|-------------------|
+| L01   | Consommables laboratoire      | 90 000        | **604**         | ✓                 |
+| L03   | Personnel scientifique        | 150 000       | **661**         | ✓                 |
+| L04   | Missions et déplacements      | 40 000        | **61**          | ✓                 |
 
-async function main() {
-  // Lignes budgétaires de la convention (default_account = compte mappé).
-  // Le fournisseur FOURN-BIOMED est seedé (seed/suppliers.json) — rien à créer ici.
-  const grant = await prisma.grantAgreement.findUnique({ where: { reference: GRANT_REF } });
-  if (!grant) {
-    throw new Error(`Convention ${GRANT_REF} introuvable — créez-la d'abord (étape 1).`);
-  }
-  const lines = [
-    { code: 'L01', label: 'Consommables laboratoire',  budgetedAmount: 90000,  defaultAccount: '604' },
-    { code: 'L03', label: 'Personnel scientifique',     budgetedAmount: 150000, defaultAccount: '661' },
-    { code: 'L04', label: 'Missions et déplacements',   budgetedAmount: 40000,  defaultAccount: '61'  },
-  ];
-  for (const l of lines) {
-    await prisma.budgetLine.upsert({
-      where: { grantId_code: { grantId: grant.id, code: l.code } },
-      update: { defaultAccount: l.defaultAccount },
-      create: { grantId: grant.id, ...l },
-    });
-  }
-  console.log('✅ Amorce démo : 3 lignes budgétaires prêtes (fournisseur déjà seedé).');
-}
+   > Le **compte SYSCEBNL** est la clé du mapping bailleur. `604` / `661` / `61` sont **déjà mappés**
+   > dans le template `USAID-FFR425` (catégories SUPPLIES / PERSONNEL / TRAVEL) — ce qui sécurise
+   > le §0-point 2 sans avoir à le ressaisir à l'étape 7.
 
-main().catch((e) => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());
-```
+4. Vérifier le footer de la card : `Total budgété 280 000 sur <montant convention> · Reste positif`.
+   Si la somme dépasse le montant convention, le backend lève **`BUDGET_LINES_EXCEED_GRANT`** et l'UI
+   affiche un message explicite — réduire un budget puis ré-essayer.
 
-Exécution :
+### Fournisseurs
 
-```bash
-cd apps/api && npx tsx prisma/demo-amorce.ts
-```
+`FOURN-BIOMED` est désormais **seedé** (`seed/suppliers.json` depuis le sprint amorce-démo). Pour créer
+ou éditer un fournisseur depuis l'UI : **Sidebar → Fournisseurs** (visible `ACHETEUR / CG / DAF / SA`).
 
-> **Raccourci sans amorce** : si tu préfères zéro friction, déroule les étapes 2→9 sur une **convention déjà seedée** (`MADIBA-VAC-2024 / BMGF`, lignes L01–L05 prêtes). Le fournisseur étant seedé, **aucune amorce n'est nécessaire** dans ce cas — tu dois seulement saisir le compte `604` à la main à l'étape 7 sur la ligne de facture (les lignes seedées n'ont pas de `default_account`). Le rapport (étape 9) se génère alors sur la convention BMGF avec le template `USAID-FFR425`.
+### Raccourci sans paramétrage
+
+Si tu préfères zéro friction, déroule les étapes 2→9 sur la **convention déjà seedée**
+(`MADIBA-VAC-2024 / BMGF`, lignes L01–L05 prêtes). Tu devras alors saisir le compte `604` à la main à
+l'étape 7 sur la ligne de facture (les lignes seedées du `seed.ts` n'ont pas de `default_account`).
+Le rapport (étape 9) se génère sur la convention BMGF avec le template `USAID-FFR425`.
+
+### Annexe — ancien script (déprécié)
+
+L'amorce `apps/api/prisma/demo-amorce.ts` reste utilisable pour qui préfère le CLI, mais elle est
+désormais **redondante avec l'UI**. Elle pourra être supprimée dans un sprint d'hygiène.
 
 ---
 
@@ -327,8 +323,8 @@ Bonus jury : la **convention** (tableau des emplois après amorce), le **BC envo
 | Écart | Statut | Piste / résolution |
 |---|---|---|
 | Pas d'utilisateur seedé pour **ACHETEUR / MAGASINIER / BAILLEUR** | ✅ **Résolu** (sprint amorce-démo) | 3 users ajoutés dans `seed.ts` + `realm.json` (ré-import realm requis) |
-| **Pas d'écran de création fournisseur** | 🟡 **Partiel** | 3 fournisseurs désormais seedés (`seed/suppliers.json`) ; reste à livrer l'écran `Référentiel → Fournisseurs` (CRUD) |
-| **Pas d'écran de saisie des lignes budgétaires** d'une convention | ❌ **Ouvert** | Une convention créée en UI naît sans budget → amorce script. Cible : section éditable dans le détail convention (CONTROLEUR) |
+| **Pas d'écran de création fournisseur** | ✅ **Résolu** (F5b-c Lot B) | Sidebar **Référentiel → Fournisseurs** : liste filtrable + dialogs create/edit/delete/restore. Gating ACHETEUR/CG/DAF pour create-edit, DAF pour delete-restore. |
+| **Pas d'écran de saisie des lignes budgétaires** d'une convention | ✅ **Résolu** (F5b-c Lot C) | Section *Paramétrage des lignes budgétaires* dans le détail convention (`/pilotage/conventions/[id]`). RHF + Zod avec exposition explicite de `defaultAccount` (clé du mapping bailleur). Gestion 409 `BUDGET_LINES_EXCEED_GRANT` et `BUDGET_LINE_HAS_USAGE`. Gating CG/DAF — pas ACHETEUR. |
 | Compte de charge par défaut **`605` non mappé** | ❌ **Ouvert** | Soit mapper `605`, soit imposer `default_account` à la création de ligne |
 | **RBAC BAILLEUR** = voile UI uniquement | ✅ **Résolu** (F5b-a, Lot 1 + 1b) | Routes lecture gardées par `@Roles(...'BAILLEUR')` + filtre serveur (`status='sent'` pour donor-reports, `locked=true` pour états) ; canal PDF/Excel également fermé |
 

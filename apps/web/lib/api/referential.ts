@@ -296,3 +296,175 @@ export async function listSuppliers(
 export async function getSupplier(id: string, opts: FetchOpts = {}): Promise<Supplier> {
   return apiFetch<Supplier>(`/suppliers/${id}`, opts);
 }
+
+// ---------------------------------------------------------------------
+// Suppliers — mutations (sprint F5b-c Lot A)
+// ---------------------------------------------------------------------
+
+/**
+ * Devises supportées par le backend (cf. SUPPLIER_CURRENCIES dans
+ * apps/api/src/referential/supplier/dto/create-supplier.dto.ts).
+ */
+export const SUPPLIER_CURRENCIES = ['XOF', 'EUR', 'USD', 'GBP', 'CHF'] as const;
+export type SupplierCurrency = (typeof SUPPLIER_CURRENCIES)[number];
+
+/** Cf. CreateSupplierDto — strict, validation Zod côté backend. */
+export interface CreateSupplierInput {
+  code: string;
+  name: string;
+  vatNumber?: string;
+  address?: string;
+  country?: string;
+  iban?: string;
+  bic?: string;
+  bankName?: string;
+  paymentTermsDays?: number;
+  currencyDefault?: SupplierCurrency;
+  riskScore?: number;
+}
+
+/** Cf. UpdateSupplierDto — tous optionnels, certains nullable (null = clear). */
+export interface UpdateSupplierInput {
+  code?: string;
+  name?: string;
+  vatNumber?: string | null;
+  address?: string | null;
+  country?: string | null;
+  iban?: string | null;
+  bic?: string | null;
+  bankName?: string | null;
+  paymentTermsDays?: number;
+  currencyDefault?: SupplierCurrency;
+  riskScore?: number;
+}
+
+export async function createSupplier(
+  input: CreateSupplierInput,
+  opts: FetchOpts = {},
+): Promise<Supplier> {
+  return apiFetch<Supplier>('/suppliers', {
+    accessToken: opts.accessToken,
+    method: 'POST',
+    json: input,
+  });
+}
+
+export async function updateSupplier(
+  id: string,
+  input: UpdateSupplierInput,
+  opts: FetchOpts = {},
+): Promise<Supplier> {
+  return apiFetch<Supplier>(`/suppliers/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'PATCH',
+    json: input,
+  });
+}
+
+/**
+ * Remplacement complet (PUT). Mêmes champs que `createSupplier` mais le
+ * fournisseur doit déjà exister. À utiliser pour les rares cas où on
+ * réécrit l'enregistrement entier (admin / migration) — l'UI courante
+ * préfère `updateSupplier` (PATCH).
+ */
+export async function replaceSupplier(
+  id: string,
+  input: CreateSupplierInput,
+  opts: FetchOpts = {},
+): Promise<Supplier> {
+  return apiFetch<Supplier>(`/suppliers/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'PUT',
+    json: input,
+  });
+}
+
+/**
+ * Soft-delete. Le backend renvoie 204 (NO_CONTENT) sans body → on type
+ * la promesse en `void`. apiFetch gère déjà le 204 et renvoie `undefined`.
+ */
+export async function deleteSupplier(id: string, opts: FetchOpts = {}): Promise<void> {
+  await apiFetch<void>(`/suppliers/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'DELETE',
+  });
+}
+
+export async function restoreSupplier(id: string, opts: FetchOpts = {}): Promise<Supplier> {
+  return apiFetch<Supplier>(`/suppliers/${id}/restore`, {
+    accessToken: opts.accessToken,
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------
+// Budget lines — mutations (sprint F5b-c Lot A)
+// ---------------------------------------------------------------------
+
+/** Cf. CreateBudgetLineDto — strict. Le code interdit l'underscore. */
+export interface CreateBudgetLineInput {
+  /** Regex `^[A-Z0-9][A-Z0-9-]{1,31}$` (différent du code fournisseur). */
+  code: string;
+  label: string;
+  /** Decimal positif (string ou number côté wire). */
+  budgetedAmount: string | number;
+  /** Compte SYSCEBNL par défaut — clé du mapping bailleur. */
+  defaultAccount?: string;
+  isOverheadEligible?: boolean;
+}
+
+/** Cf. UpdateBudgetLineDto. `defaultAccount: null` = clear. */
+export interface UpdateBudgetLineInput {
+  code?: string;
+  label?: string;
+  budgetedAmount?: string | number;
+  defaultAccount?: string | null;
+  isOverheadEligible?: boolean;
+}
+
+export async function createBudgetLine(
+  grantId: string,
+  input: CreateBudgetLineInput,
+  opts: FetchOpts = {},
+): Promise<BudgetLine> {
+  return apiFetch<BudgetLine>(`/grants/${grantId}/budget-lines`, {
+    accessToken: opts.accessToken,
+    method: 'POST',
+    json: input,
+  });
+}
+
+export async function updateBudgetLine(
+  grantId: string,
+  id: string,
+  input: UpdateBudgetLineInput,
+  opts: FetchOpts = {},
+): Promise<BudgetLine> {
+  return apiFetch<BudgetLine>(`/grants/${grantId}/budget-lines/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'PATCH',
+    json: input,
+  });
+}
+
+export async function deleteBudgetLine(
+  grantId: string,
+  id: string,
+  opts: FetchOpts = {},
+): Promise<void> {
+  await apiFetch<void>(`/grants/${grantId}/budget-lines/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'DELETE',
+  });
+}
+
+export async function restoreBudgetLine(
+  grantId: string,
+  id: string,
+  opts: FetchOpts = {},
+): Promise<BudgetLine> {
+  return apiFetch<BudgetLine>(`/grants/${grantId}/budget-lines/${id}/restore`, {
+    accessToken: opts.accessToken,
+    method: 'POST',
+  });
+}

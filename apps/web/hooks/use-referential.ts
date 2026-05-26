@@ -1,20 +1,34 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import {
+  createBudgetLine,
+  createSupplier,
+  deleteBudgetLine,
+  deleteSupplier,
   getGrantDashboard,
+  listBudgetLines,
   listGrants,
   listProjects,
   listSuppliers,
+  restoreBudgetLine,
+  restoreSupplier,
+  updateBudgetLine,
+  updateSupplier,
+  type BudgetLine,
+  type CreateBudgetLineInput,
+  type CreateSupplierInput,
+  type Grant,
   type GrantDashboard,
   type ListGrantsQuery,
   type ListProjectsQuery,
   type ListResponse,
   type ListSuppliersQuery,
-  type Grant,
   type Project,
   type Supplier,
+  type UpdateBudgetLineInput,
+  type UpdateSupplierInput,
 } from '@/lib/api/referential';
 import { mapApiErrorToToast } from '@/lib/use-api';
 
@@ -34,7 +48,11 @@ const referentialKeys = {
     [...referentialKeys.all, 'grants', 'byProject', projectId] as const,
   grantDashboard: (grantId: string) =>
     [...referentialKeys.all, 'grants', grantId, 'dashboard'] as const,
-  suppliers: (q: ListSuppliersQuery) => [...referentialKeys.all, 'suppliers', q] as const,
+  budgetLines: (grantId: string) =>
+    [...referentialKeys.all, 'grants', grantId, 'budget-lines'] as const,
+  suppliersList: () => [...referentialKeys.all, 'suppliers'] as const,
+  suppliers: (q: ListSuppliersQuery) =>
+    [...referentialKeys.suppliersList(), q] as const,
 };
 
 function useToken() {
@@ -157,5 +175,133 @@ export function useSuppliersList(query: ListSuppliersQuery = {}) {
         throw err;
       }
     },
+  });
+}
+
+// =====================================================================
+//  Sprint F5b-c — Suppliers mutations
+// =====================================================================
+
+/**
+ * Invalide toutes les listes fournisseurs (queries `suppliers, *`) après
+ * un create/update/delete. On invalide à `suppliersList()` racine pour
+ * couvrir toutes les variantes de query (`q`, `isActive`, …) en cache.
+ */
+function useInvalidateSuppliers() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: referentialKeys.suppliersList() });
+  };
+}
+
+export function useCreateSupplier() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateSuppliers();
+  return useMutation<Supplier, Error, CreateSupplierInput>({
+    mutationFn: (input) => createSupplier(input, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateSupplier(supplierId: string) {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateSuppliers();
+  return useMutation<Supplier, Error, UpdateSupplierInput>({
+    mutationFn: (input) => updateSupplier(supplierId, input, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteSupplier() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateSuppliers();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => deleteSupplier(id, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreSupplier() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateSuppliers();
+  return useMutation<Supplier, Error, string>({
+    mutationFn: (id) => restoreSupplier(id, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+// =====================================================================
+//  Sprint F5b-c — Budget lines queries + mutations
+// =====================================================================
+
+/**
+ * Liste des lignes budgétaires d'un grant. Cf. backend BudgetLineController
+ * — n'expose pas isActive, mais le service ne renvoie que les actives
+ * (listByGrant filtre `isActive=true` côté Prisma). Pour voir aussi les
+ * inactives en édition, il faudra un endpoint dédié plus tard.
+ */
+export function useBudgetLinesList(grantId: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery<{ data: BudgetLine[]; total: number }>({
+    queryKey: referentialKeys.budgetLines(grantId ?? ''),
+    enabled: sessionReady && !!grantId,
+    staleTime: FIVE_MIN,
+    queryFn: async () => {
+      try {
+        return await listBudgetLines(grantId!, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
+
+/**
+ * Invalide les lignes budgétaires du grant + son dashboard (qui agrège
+ * la consommation par ligne — un changement de budget impacte le %
+ * d'utilisation affiché).
+ */
+function useInvalidateBudgetLines(grantId: string) {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: referentialKeys.budgetLines(grantId) });
+    qc.invalidateQueries({ queryKey: referentialKeys.grantDashboard(grantId) });
+  };
+}
+
+export function useCreateBudgetLine(grantId: string) {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateBudgetLines(grantId);
+  return useMutation<BudgetLine, Error, CreateBudgetLineInput>({
+    mutationFn: (input) => createBudgetLine(grantId, input, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateBudgetLine(grantId: string) {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateBudgetLines(grantId);
+  return useMutation<BudgetLine, Error, { id: string; input: UpdateBudgetLineInput }>({
+    mutationFn: ({ id, input }) => updateBudgetLine(grantId, id, input, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteBudgetLine(grantId: string) {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateBudgetLines(grantId);
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => deleteBudgetLine(grantId, id, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreBudgetLine(grantId: string) {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateBudgetLines(grantId);
+  return useMutation<BudgetLine, Error, string>({
+    mutationFn: (id) => restoreBudgetLine(grantId, id, { accessToken }),
+    onSuccess: invalidate,
   });
 }

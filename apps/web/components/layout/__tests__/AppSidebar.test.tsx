@@ -26,7 +26,7 @@ jest.mock('../SystemStatus', () => ({
 import { AppSidebar } from '../AppSidebar';
 
 describe('AppSidebar', () => {
-  it('renders the navigation entries (SUPER_ADMIN voit tout : F5b-b inclus)', () => {
+  it('renders the navigation entries (SUPER_ADMIN voit tout : F5b-b + F5b-c)', () => {
     mockPathname = '/dashboard';
     mockRoles = ['SUPER_ADMIN'];
     render(<AppSidebar />);
@@ -39,6 +39,7 @@ describe('AppSidebar', () => {
       'Pilotage',
       'Reporting',
       'États financiers',
+      'Fournisseurs',
     ].forEach((label) => expect(screen.getByText(label)).toBeInTheDocument());
   });
 
@@ -229,5 +230,42 @@ describe('AppSidebar', () => {
     mockPathname = '/dashboard';
     render(<AppSidebar />);
     expect(screen.getByTestId('system-status-stub')).toBeInTheDocument();
+  });
+
+  // -----------------------------------------------------------------
+  // Sprint F5b-c — Fournisseurs (référentiel)
+  // -----------------------------------------------------------------
+
+  it('Fournisseurs visible pour ACHETEUR (sprint F5b-c) — sourcing', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['ACHETEUR'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Fournisseurs').closest('a');
+    expect(link).toHaveAttribute('href', '/referential/suppliers');
+  });
+
+  it('Fournisseurs visible pour CONTROLEUR et DAF', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Fournisseurs')).toBeInTheDocument();
+  });
+
+  it('Fournisseurs masqué pour BAILLEUR / COMPTABLE / PI', () => {
+    for (const r of ['BAILLEUR', 'COMPTABLE', 'PI'] as const) {
+      mockPathname = '/dashboard';
+      mockRoles = [r];
+      const { unmount } = render(<AppSidebar />);
+      expect(screen.queryByText('Fournisseurs')).toBeNull();
+      unmount();
+    }
+  });
+
+  it('match actif : sur /referential/suppliers → Fournisseurs active', () => {
+    mockPathname = '/referential/suppliers';
+    mockRoles = ['ACHETEUR'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Fournisseurs').closest('a');
+    expect(link).toHaveAttribute('aria-current', 'page');
   });
 });

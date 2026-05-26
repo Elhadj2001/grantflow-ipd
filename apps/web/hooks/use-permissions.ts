@@ -142,6 +142,23 @@ export interface Permissions {
   canEditGrant: (hasTransactions: boolean) => boolean;
   /** Page "Mes Projets" — PI uniquement. */
   canViewMyProjects: () => boolean;
+
+  // ------------------ Référentiel (sprint F5b-c) ------------------
+  /**
+   * CRUD fournisseur. Asymétrie volontaire avec budget-line :
+   * ACHETEUR gère les fournisseurs (sourcing) mais ne touche pas aux
+   * lignes budgétaires (paramétrage CG/DAF).
+   */
+  canManageSuppliers: () => boolean;
+  /** Soft delete + restore fournisseur — DAF / SUPER_ADMIN. */
+  canDeleteSupplier: () => boolean;
+  /**
+   * CRUD ligne budgétaire dans une convention. Paramétrage CG/DAF —
+   * **pas ACHETEUR** (contrairement aux fournisseurs).
+   */
+  canManageBudgetLines: () => boolean;
+  /** Soft delete + restore ligne budgétaire — DAF / SUPER_ADMIN. */
+  canDeleteBudgetLine: () => boolean;
 }
 
 /**
@@ -273,6 +290,17 @@ export function usePermissions(): Permissions {
         return !hasTransactions || hasAny('SUPER_ADMIN');
       },
       canViewMyProjects: () => hasAny('PI', 'SUPER_ADMIN'),
+
+      // Référentiel — F5b-c (calé sur les @Roles du controller)
+      // Suppliers: ACHETEUR + CONTROLEUR + DAF + SUPER_ADMIN.
+      // Asymétrie volontaire : ACHETEUR gère le sourcing, mais NE TOUCHE
+      // PAS aux lignes budgétaires (paramétrage CG/DAF).
+      canManageSuppliers: () =>
+        hasAny('ACHETEUR', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canDeleteSupplier: () => hasAny('DAF', 'SUPER_ADMIN'),
+      // BudgetLine : CONTROLEUR + DAF + SUPER_ADMIN (pas ACHETEUR).
+      canManageBudgetLines: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canDeleteBudgetLine: () => hasAny('DAF', 'SUPER_ADMIN'),
     };
   }, [roles]);
 }
