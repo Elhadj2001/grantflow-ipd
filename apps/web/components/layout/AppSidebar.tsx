@@ -3,7 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  BookOpenCheck,
   Calculator,
+  CalendarCheck,
   FileBarChart,
   LayoutDashboard,
   ShoppingCart,
@@ -22,6 +24,12 @@ interface NavItem {
   disabled?: boolean;
   /** Préfixe à utiliser pour matcher l'état "actif" (par défaut = href). */
   matchPrefix?: string;
+  /**
+   * Préfixes additionnels — quand un item couvre plusieurs sous-sections
+   * (ex. Reporting = /templates + /donor-reports, mais pas /statements
+   * qui a sa propre entrée). Si défini, supplante `matchPrefix`.
+   */
+  matchPrefixes?: string[];
 }
 
 interface SidebarNavItem extends NavItem {
@@ -45,7 +53,18 @@ const NAV: SidebarNavItem[] = [
     href: '/accounting/invoices',
     label: 'Comptabilité',
     icon: Calculator,
-    matchPrefix: '/accounting',
+    // Matche /accounting/invoices/* — la sous-section clôture a son propre item.
+    matchPrefix: '/accounting/invoices',
+  },
+  {
+    // Sprint F5b-b : clôture mensuelle — workflow périodes / FNP / CCA-PCA / fonds dédiés.
+    // Réservé rôles finance internes (canViewClosure). Le BAILLEUR ne voit pas
+    // cette entrée — workflow purement interne.
+    href: '/accounting/periods',
+    label: 'Clôture',
+    icon: CalendarCheck,
+    matchPrefix: '/accounting/periods',
+    visible: (p) => p.canViewClosure(),
   },
   {
     href: '/treasury/payment-runs',
@@ -70,8 +89,20 @@ const NAV: SidebarNavItem[] = [
     href: '/reporting',
     label: 'Reporting',
     icon: FileBarChart,
-    matchPrefix: '/reporting',
+    // Couvre templates + donor-reports + /reporting nu (index redirect).
+    // /reporting/statements a son propre item ci-dessous.
+    matchPrefixes: ['/reporting/templates', '/reporting/donor-reports'],
     visible: (p) => p.canViewReporting(),
+  },
+  {
+    // Sprint F5b-b : états financiers SYSCEBNL (TER/BILAN/RESULTAT/FONDS_DEDIES).
+    // Visible si l'utilisateur peut générer (COMPTABLE/CG/DAF/SA) ou
+    // consulter en tant que BAILLEUR (locked uniquement, filtre serveur).
+    href: '/reporting/statements',
+    label: 'États financiers',
+    icon: BookOpenCheck,
+    matchPrefix: '/reporting/statements',
+    visible: (p) => p.canViewReporting() || p.canCreateStatement(),
   },
 ];
 
@@ -92,8 +123,10 @@ export function AppSidebar() {
       <nav className="flex-1 py-4">
         <ul className="space-y-1 px-2">
           {items.map((item) => {
-            const prefix = item.matchPrefix ?? item.href;
-            const active = pathname === item.href || pathname.startsWith(prefix + '/') || pathname === prefix;
+            const prefixes = item.matchPrefixes ?? [item.matchPrefix ?? item.href];
+            const active =
+              pathname === item.href ||
+              prefixes.some((p) => pathname === p || pathname.startsWith(p + '/'));
             const Icon = item.icon;
             const baseClasses =
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors border-l-4 border-transparent';

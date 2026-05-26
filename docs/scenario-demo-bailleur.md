@@ -336,4 +336,32 @@ Bonus jury : la **convention** (tableau des emplois après amorce), le **BC envo
 
 ## 9. Et après
 
-Le **backend F5b-a est livré** (sur `main`) : clôture mensuelle (avec FNP/Factures Non Parvenues + régularisations CCA/PCA), états SYSCEBNL `TER` / `BILAN` / `RESULTAT` / `FONDS_DEDIES`, et le **correctif RBAC BAILLEUR** (filtre serveur + fermeture du canal PDF/Excel). Une fois les 5 captures prises, on enchaîne sur **F5b-b** : les **écrans** de clôture et de consultation des états (le backend est prêt, il reste l'UI).
+Le **backend F5b-a est livré** (sur `main`) : clôture mensuelle (avec FNP/Factures Non Parvenues + régularisations CCA/PCA), états SYSCEBNL `TER` / `BILAN` / `RESULTAT` / `FONDS_DEDIES`, et le **correctif RBAC BAILLEUR** (filtre serveur + fermeture du canal PDF/Excel).
+
+**F5b-b** est désormais livré (sur la branche `sprint-F5b-b`) : les **écrans** correspondants sont en place et utilisables de bout en bout via la sidebar.
+
+### Comment exercer la clôture mensuelle (sprint F5b-b)
+
+1. **COMPTABLE / CONTROLEUR / DAF** → sidebar **« Clôture »** (`/accounting/periods`).
+2. Choisir une période ouverte → page détail.
+3. **Lancer le précheck** (bouton dédié) → la liste des findings BLOCKING (C001..C006) / WARNING (W001..W003) s'affiche regroupée. Un finding vide affiche « ✓ Période prête à clôturer ».
+4. **Régulariser** via les 3 cards :
+   - **FNP** : bouton « Passer les FNP » (auto, idempotent) — débit charge / crédit 408 + extourne automatique au 1er jour de la période suivante.
+   - **CCA / PCA** : formulaire dynamique (ajout/suppression d'entrées) — direction (CCA → 476, PCA → 477) + compte, montant, libellé, imputation analytique optionnelle.
+   - **Fonds dédiés** : bouton « Calculer les fonds dédiés » — dotation 689/19 si ressources > dépenses, reprise 19/789 sinon.
+5. **Clôturer** (CONTROLEUR / DAF) → dialog :
+   - 0 finding bloquant : motif optionnel, validation directe.
+   - Findings bloquants + DAF : checkbox d'override **obligatoire** + motif ≥ 5 caractères.
+   - Findings bloquants + CG : bouton désactivé, message « Seul un DAF peut overrider ».
+6. **Ré-ouvrir** (DAF only) si besoin : dialog motif obligatoire ≥ 5 caractères, journalisé en `period_close_event`.
+
+### Comment consulter les états financiers (sprint F5b-b)
+
+1. **COMPTABLE / CONTROLEUR / DAF / BAILLEUR** → sidebar **« États financiers »** (`/reporting/statements`).
+2. Filtrer par période + type. Le BAILLEUR ne voit nativement que les états `locked=true` (filtre serveur F5b-a Lot 1).
+3. **Générer un état** (COMPTABLE+) : dialog → choisir période + type (TER / BILAN / RESULTAT / FONDS_DEDIES) → redirige vers le détail.
+4. Le détail affiche :
+   - **TER / BILAN / RESULTAT** : 2 sections côte à côte (Emplois/Ressources, Actif/Passif, Charges/Produits) + badge Équilibré/Déséquilibré + (pour RESULTAT) bandeau Résultat net.
+   - **FONDS_DEDIES** : 3 cards de synthèse (Reçu 75x / Employé 6x / Restant), bandeau rapprochement 689/19 (vert si équilibré, rouge avec écart sinon), 2 sections (`GRANTS` + `RAPPROCHEMENT_689_19`), 2 cards footer (total dotations / total reprises).
+5. **Verrouiller** (DAF / SUPER_ADMIN) : dialog avec warning sur l'immutabilité — après lock, plus aucune régénération possible si la période est elle-même close (trigger DB).
+6. **Télécharger PDF / Excel** : disponibles dès que les `pdfObjectKey` / `xlsxObjectKey` existent (générés au lock).
