@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PostingService } from './services/posting.service';
 import { PeriodCloseService } from './services/period-close.service';
 import { DedicatedFundsService } from './services/dedicated-funds.service';
+import { AccrualService } from './services/accrual.service';
 import { AccountingController } from './accounting.controller';
 
 /**
@@ -16,7 +17,7 @@ import { AccountingController } from './accounting.controller';
  */
 @Module({
   controllers: [AccountingController],
-  providers: [PostingService, PeriodCloseService, DedicatedFundsService],
-  exports: [PostingService, PeriodCloseService, DedicatedFundsService],
+  providers: [PostingService, PeriodCloseService, DedicatedFundsService, AccrualService],
+  exports: [PostingService, PeriodCloseService, DedicatedFundsService, AccrualService],
 })
 export class AccountingModule {}

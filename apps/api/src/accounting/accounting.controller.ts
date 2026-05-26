@@ -21,6 +21,7 @@ import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { PeriodCloseService } from './services/period-close.service';
 import { DedicatedFundsService } from './services/dedicated-funds.service';
+import { AccrualService } from './services/accrual.service';
 import { ClosePeriodDto, ReopenPeriodDto } from './dto/period-close.dto';
 
 @ApiTags('accounting')
@@ -32,6 +33,7 @@ export class AccountingController {
   constructor(
     private readonly periodClose: PeriodCloseService,
     private readonly dedicatedFunds: DedicatedFundsService,
+    private readonly accruals: AccrualService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -96,6 +98,31 @@ export class AccountingController {
   ) {
     const actor = await this.resolveActor(user);
     return this.dedicatedFunds.run(actor, id);
+  }
+
+  // ------------------------------------------------------------------
+  // Abonnements FNP — sprint F5b-a Lot 2 (COMPTABLE / CONTROLEUR / DAF / SUPER_ADMIN)
+  // ------------------------------------------------------------------
+
+  @Post('periods/:id/accruals')
+  @Roles('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @ApiOperation({
+    summary:
+      'Génère les abonnements FNP (Factures Non Parvenues) pour les réceptions complètes non facturées',
+    description:
+      "Pour chaque GR complete dans la période sans facture posted : écriture OD débit charge / crédit 408 " +
+      "+ extourne automatique au 1er jour de la période suivante. Idempotent : un re-run skip les GR déjà accruisés. " +
+      'Imputation analytique (grant + budget_line) conservée. Aucune écriture posted sur une période close (trigger DB).',
+  })
+  @ApiConflictResponse({
+    description: 'BUSINESS.PERIOD_ALREADY_CLOSED — la période doit être ouverte pour générer les FNP',
+  })
+  async runAccruals(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    const actor = await this.resolveActor(user);
+    return this.accruals.runFnpAccruals(actor, id);
   }
 
   // ------------------------------------------------------------------
