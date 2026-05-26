@@ -61,11 +61,14 @@ export function ShortcutCard({
             <Link href={href}>{effectiveLabel}</Link>
           </Button>
         ) : (
+          // Pas de href OU disabled forcé → bouton non-cliquable. On respecte
+          // l'éventuel `disabled={false}` explicite (rétro-compat F1.1 : un
+          // placeholder peut être rendu "actif visuellement" même sans cible).
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled
+            disabled={isDisabled}
             className="mt-auto self-start"
           >
             {effectiveLabel}
