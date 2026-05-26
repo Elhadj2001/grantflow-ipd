@@ -26,13 +26,20 @@ jest.mock('../SystemStatus', () => ({
 import { AppSidebar } from '../AppSidebar';
 
 describe('AppSidebar', () => {
-  it('renders the navigation entries (SUPER_ADMIN voit tout dont Pilotage)', () => {
+  it('renders the navigation entries (SUPER_ADMIN voit tout : F5b-b inclus)', () => {
     mockPathname = '/dashboard';
     mockRoles = ['SUPER_ADMIN'];
     render(<AppSidebar />);
-    ['Dashboard', 'Achats', 'Comptabilité', 'Trésorerie', 'Pilotage', 'Reporting'].forEach(
-      (label) => expect(screen.getByText(label)).toBeInTheDocument(),
-    );
+    [
+      'Dashboard',
+      'Achats',
+      'Comptabilité',
+      'Clôture',
+      'Trésorerie',
+      'Pilotage',
+      'Reporting',
+      'États financiers',
+    ].forEach((label) => expect(screen.getByText(label)).toBeInTheDocument());
   });
 
   it('Pilotage visible pour CONTROLEUR (sprint F-PILOTAGE)', () => {
@@ -102,6 +109,89 @@ describe('AppSidebar', () => {
     mockRoles = ['COMPTABLE'];
     render(<AppSidebar />);
     expect(screen.queryByText('Reporting')).toBeNull();
+  });
+
+  // -----------------------------------------------------------------
+  // Sprint F5b-b — Clôture mensuelle + États financiers
+  // -----------------------------------------------------------------
+
+  it('Clôture visible pour COMPTABLE (sprint F5b-b)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['COMPTABLE'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Clôture').closest('a');
+    expect(link).toHaveAttribute('href', '/accounting/periods');
+  });
+
+  it('Clôture visible pour CONTROLEUR et DAF', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Clôture')).toBeInTheDocument();
+  });
+
+  it('Clôture masquée pour BAILLEUR (workflow interne uniquement)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['BAILLEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Clôture')).toBeNull();
+  });
+
+  it('Clôture masquée pour DEMANDEUR', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['DEMANDEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Clôture')).toBeNull();
+  });
+
+  it('États financiers visible pour COMPTABLE (peut générer)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['COMPTABLE'];
+    render(<AppSidebar />);
+    const link = screen.getByText('États financiers').closest('a');
+    expect(link).toHaveAttribute('href', '/reporting/statements');
+  });
+
+  it('États financiers visible pour BAILLEUR (consultation locked-only via backend)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['BAILLEUR'];
+    render(<AppSidebar />);
+    expect(screen.getByText('États financiers')).toBeInTheDocument();
+  });
+
+  it('États financiers masqué pour PI', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['PI'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('États financiers')).toBeNull();
+  });
+
+  it('match actif fin : sur /accounting/periods → Clôture active, Comptabilité PAS active', () => {
+    mockPathname = '/accounting/periods/abc';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    const cloture = screen.getByText('Clôture').closest('a');
+    const compta = screen.getByText('Comptabilité').closest('a');
+    expect(cloture).toHaveAttribute('aria-current', 'page');
+    expect(compta).not.toHaveAttribute('aria-current', 'page');
+  });
+
+  it('match actif fin : sur /reporting/statements → États fin active, Reporting PAS active', () => {
+    mockPathname = '/reporting/statements/xyz';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    const etats = screen.getByText('États financiers').closest('a');
+    const reporting = screen.getByText('Reporting').closest('a');
+    expect(etats).toHaveAttribute('aria-current', 'page');
+    expect(reporting).not.toHaveAttribute('aria-current', 'page');
+  });
+
+  it('match actif : sur /reporting/donor-reports → Reporting active (matchPrefixes ok)', () => {
+    mockPathname = '/reporting/donor-reports/abc';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    const reporting = screen.getByText('Reporting').closest('a');
+    expect(reporting).toHaveAttribute('aria-current', 'page');
   });
 
   it('marks Trésorerie active when on a /treasury/* path (sprint F4b)', () => {
