@@ -178,15 +178,23 @@ export class ReportingController {
   }
 
   @Get('donor-reports/:id/pdf')
+  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'BAILLEUR', 'SUPER_ADMIN')
   @ApiProduces('application/pdf')
   @Header('Content-Type', 'application/pdf')
-  @ApiOperation({ summary: 'Télécharger le PDF du rapport (généré au lock)' })
-  @ApiNotFoundResponse({ description: 'DONOR_REPORT_FILE_NOT_GENERATED' })
+  @ApiOperation({
+    summary: 'Télécharger le PDF du rapport (généré au lock)',
+    description:
+      'Sécurité (F5b-a, Lot 1b) : BAILLEUR pur n\'accède au PDF qu\'à partir de ' +
+      'status="sent". Sinon 404 — on ne révèle pas l\'existence d\'un document ' +
+      'généré (lock) mais pas encore envoyé.',
+  })
+  @ApiNotFoundResponse({ description: 'DONOR_REPORT_NOT_FOUND / DONOR_REPORT_FILE_NOT_GENERATED' })
   async downloadPdf(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Res() res: Response,
   ): Promise<void> {
-    const { buffer, filename } = await this.reports.downloadPdf(id);
+    const { buffer, filename } = await this.reports.downloadPdf(user, id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', buffer.length.toString());
@@ -194,14 +202,21 @@ export class ReportingController {
   }
 
   @Get('donor-reports/:id/excel')
+  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'BAILLEUR', 'SUPER_ADMIN')
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-  @ApiOperation({ summary: 'Télécharger le Excel du rapport (3 onglets)' })
-  @ApiNotFoundResponse({ description: 'DONOR_REPORT_FILE_NOT_GENERATED' })
+  @ApiOperation({
+    summary: 'Télécharger le Excel du rapport (3 onglets)',
+    description:
+      'Sécurité (F5b-a, Lot 1b) : même règle que /pdf — BAILLEUR pur bloqué sur ' +
+      'tout statut ≠ "sent".',
+  })
+  @ApiNotFoundResponse({ description: 'DONOR_REPORT_NOT_FOUND / DONOR_REPORT_FILE_NOT_GENERATED' })
   async downloadExcel(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Res() res: Response,
   ): Promise<void> {
-    const { buffer, filename } = await this.reports.downloadExcel(id);
+    const { buffer, filename } = await this.reports.downloadExcel(user, id);
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

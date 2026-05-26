@@ -320,12 +320,27 @@ export class DonorReportService {
   // Downloads
   // ------------------------------------------------------------------
 
-  async downloadPdf(reportId: string): Promise<{ buffer: Buffer; filename: string }> {
+  async downloadPdf(
+    actor: AuthenticatedUser,
+    reportId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
     const report = await this.prisma.donorReport.findUnique({
       where: { id: reportId },
-      select: { id: true, pdfObjectKey: true, periodEnd: true },
+      select: { id: true, pdfObjectKey: true, periodEnd: true, status: true },
     });
     if (!report) throw new DonorReportNotFoundException(reportId);
+    // Sprint F5b-a Lot 1b : ferme le canal latéral PDF/Excel.
+    // Le PDF est généré au LOCK (status='locked'), donc avant 'sent' —
+    // sans ce garde, un BAILLEUR pur connaissant l'UUID téléchargerait
+    // un rapport non-envoyé. On lève 404 (pas 403) AVANT de vérifier
+    // l'existence du fichier — sinon on révèle qu'un document existe.
+    if (isBailleurOnly(actor) && report.status !== 'sent') {
+      this.logger.warn(
+        { reportId, actorEmail: actor.email, reportStatus: report.status, channel: 'pdf' },
+        'BAILLEUR-only actor blocked from non-sent donor report PDF (side channel)',
+      );
+      throw new DonorReportNotFoundException(reportId);
+    }
     if (!report.pdfObjectKey) {
       throw new DonorReportFileNotGeneratedException(reportId, 'pdf');
     }
@@ -334,12 +349,25 @@ export class DonorReportService {
     return { buffer: obj.buffer, filename };
   }
 
-  async downloadExcel(reportId: string): Promise<{ buffer: Buffer; filename: string }> {
+  async downloadExcel(
+    actor: AuthenticatedUser,
+    reportId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
     const report = await this.prisma.donorReport.findUnique({
       where: { id: reportId },
-      select: { id: true, excelObjectKey: true },
+      select: { id: true, excelObjectKey: true, status: true },
     });
     if (!report) throw new DonorReportNotFoundException(reportId);
+    // Sprint F5b-a Lot 1b : voir downloadPdf — même règle BAILLEUR pur.
+    // Garde appliqué AVANT la vérification du fichier pour ne pas
+    // révéler l'existence du document.
+    if (isBailleurOnly(actor) && report.status !== 'sent') {
+      this.logger.warn(
+        { reportId, actorEmail: actor.email, reportStatus: report.status, channel: 'excel' },
+        'BAILLEUR-only actor blocked from non-sent donor report Excel (side channel)',
+      );
+      throw new DonorReportNotFoundException(reportId);
+    }
     if (!report.excelObjectKey) {
       throw new DonorReportFileNotGeneratedException(reportId, 'excel');
     }
