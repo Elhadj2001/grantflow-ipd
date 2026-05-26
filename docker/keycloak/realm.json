@@ -237,6 +237,19 @@
       "emailVerified": true,
       "credentials": [{ "type": "password", "value": "Bailleur#2026", "temporary": false }],
       "realmRoles": ["BAILLEUR"]
+    },
+    {
+      "username": "service-account-grantflow-api",
+      "enabled": true,
+      "serviceAccountClientId": "grantflow-api",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "query-users",
+          "manage-users",
+          "view-realm"
+        ]
+      }
     }
   ]
 }
