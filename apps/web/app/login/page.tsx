@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { redirect } from 'next/navigation';
 import { BarChart3, CheckCircle2, Globe, Lock } from 'lucide-react';
 import { auth } from '@/lib/auth';
@@ -76,10 +77,16 @@ export default async function LoginPage({
           {/* Logo cerclé */}
           <div className="flex items-center gap-3">
             <span
-              aria-hidden
-              className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-white text-ipd-darker font-bold text-xl shadow-lg ring-4 ring-white/10"
+              className="inline-flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-white shadow-lg ring-4 ring-white/10"
             >
-              IPD
+              <Image
+                src="/logo-ipd.png"
+                alt="Institut Pasteur de Dakar"
+                width={96}
+                height={96}
+                className="h-24 w-24 object-contain"
+                priority
+              />
             </span>
             <div className="text-xs uppercase tracking-widest text-ipd-100">
               Institut Pasteur de Dakar
