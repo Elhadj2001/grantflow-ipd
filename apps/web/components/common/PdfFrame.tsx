@@ -119,8 +119,10 @@ export function PdfFrame({ path, height = 600, className, filename = 'document.p
         data-testid="pdf-frame-iframe"
         src={blobUrl}
         className="h-full w-full rounded-md border border-slate-200"
-        // sandbox sans allow-scripts — un PDF ne doit pas exécuter de JS
-        sandbox=""
+        // allow-same-origin est REQUIS pour charger un blob: dans l'iframe
+        // (sans lui, origine opaque → "Not allowed to load local resource: blob:").
+        // On omet volontairement allow-scripts : le PDF ne peut pas exécuter de JS.
+        sandbox="allow-same-origin"
       />
       <a
         href={blobUrl}
