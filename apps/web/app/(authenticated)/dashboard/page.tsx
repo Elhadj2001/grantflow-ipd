@@ -1,23 +1,11 @@
-import {
-  Calendar,
-  ClipboardList,
-  Download,
-  FileBarChart,
-  FilePlus,
-  FileText,
-  Inbox,
-  Receipt,
-  Send,
-  TrendingUp,
-  Wallet,
-} from 'lucide-react';
+import { Calendar, Inbox } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import type { GrantflowRole } from '@/lib/auth';
 import { PageHeader } from '@/components/common/PageHeader';
-import { KpiCard } from '@/components/common/KpiCard';
 import { EmptyState } from '@/components/common/EmptyState';
-import { ShortcutCard } from '@/components/common/ShortcutCard';
-import { Button } from '@/components/ui/button';
+import { DashboardHeaderActions } from '@/components/dashboard/DashboardHeaderActions';
+import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
+import { DashboardShortcuts } from '@/components/dashboard/DashboardShortcuts';
 
 const ROLE_LABELS_FR: Record<GrantflowRole, string> = {
   SUPER_ADMIN: 'Administrateur',
@@ -50,12 +38,18 @@ function initialsOf(name: string): string {
 }
 
 /**
- * Sprint F1.1 — refonte dashboard :
- *  1. PageHeader (titre + date du jour + actions disabled)
- *  2. Carte hero "Bonjour {fullName}" + rôles + période active
- *  3. Grille 4 KPIs avec progress bars placeholders
- *  4. Section "Activité récente" → EmptyState (F2 will populate)
- *  5. Section "Raccourcis" → 4 ShortcutCards disabled
+ * Dashboard (Sprint F-DASHBOARD — branche les vraies données) :
+ *  1. PageHeader (titre + date du jour). "Exporter" retiré (pas de cible
+ *     globale claire). "Nouvelle DA" actif si canCreatePR (composant client).
+ *  2. Carte hero "Bonjour {fullName}" + rôles + période active.
+ *  3. Grille 4 KPIs câblés sur les endpoints réels (DashboardKpis client).
+ *     BAILLEUR pur n'a que "Conventions actives".
+ *  4. Section "Activité récente" : aucun endpoint d'audit généralisé
+ *     côté backend → EmptyState neutre sans promesse de sprint futur.
+ *  5. Section "Raccourcis" : 4 ShortcutCards cliquables (gating par rôle).
+ *
+ * La page reste un Server Component (auth lue avec `auth()`) — seules les
+ * sous-sections data-bound sont des Client Components.
  */
 export default async function DashboardPage() {
   const session = await auth();
@@ -85,18 +79,7 @@ export default async function DashboardPage() {
             {todayFmt.charAt(0).toUpperCase() + todayFmt.slice(1)}
           </span>
         }
-        actions={
-          <>
-            <Button variant="outline" size="sm" disabled>
-              <Download className="mr-2 h-4 w-4" aria-hidden />
-              Exporter
-            </Button>
-            <Button size="sm" disabled>
-              <FilePlus className="mr-2 h-4 w-4" aria-hidden />
-              Nouvelle DA
-            </Button>
-          </>
-        }
+        actions={<DashboardHeaderActions />}
       />
 
       <div className="p-8 space-y-8">
@@ -134,54 +117,25 @@ export default async function DashboardPage() {
           <h2 id="kpis-heading" className="sr-only">
             Indicateurs clés
           </h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard
-              label="DA en attente"
-              value="—"
-              hint="Aucune en cours"
-              icon={ClipboardList}
-              accent="ipd"
-            />
-            <KpiCard
-              label="Factures à matcher"
-              value="—"
-              hint="Aucune en attente"
-              icon={FileText}
-              accent="navy"
-            />
-            <KpiCard
-              label="Budget consommé"
-              value="—%"
-              hint="Mois en cours"
-              icon={TrendingUp}
-              accent="success"
-            />
-            <KpiCard
-              label="Paiements ce mois"
-              value="—"
-              hint="0 XOF traité"
-              icon={Wallet}
-              accent="warning"
-            />
-          </div>
+          <DashboardKpis />
         </section>
 
         {/* ====================== Activité récente ====================== */}
         <section aria-labelledby="activity-heading" className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 id="activity-heading" className="text-lg font-semibold text-slate-text">
-              Activité récente
-            </h2>
-            <Button variant="link" size="sm" disabled className="text-ipd-darker">
-              Voir tout
-            </Button>
-          </div>
+          <h2 id="activity-heading" className="text-lg font-semibold text-slate-text">
+            Activité récente
+          </h2>
+          {/*
+           * Aucun endpoint d'audit/activité généralisé n'est exposé côté
+           * backend (les audit logs `audit.event_log` ne sont pas surfacés
+           * en API publique). On rend un EmptyState neutre — pas de fausse
+           * promesse de sprint. Quand un endpoint sera ajouté, retirer
+           * l'EmptyState et brancher la liste compacte.
+           */}
           <EmptyState
             icon={Inbox}
-            title="Pas encore d'activité"
-            description="Les actions récentes (DA, BC, factures, paiements) apparaîtront ici une fois le module Achats déployé (sprint F2)."
-            actionLabel="Module en construction"
-            actionDisabled
+            title="Pas d'activité récente à afficher"
+            description="Cette section affichera les actions récentes (DA, BC, factures, paiements) dès qu'un flux d'audit côté API sera disponible."
           />
         </section>
 
@@ -190,28 +144,7 @@ export default async function DashboardPage() {
           <h2 id="shortcuts-heading" className="text-lg font-semibold text-slate-text">
             Raccourcis
           </h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <ShortcutCard
-              icon={FilePlus}
-              title="Créer une DA"
-              description="Saisir une demande d'achat avec imputation analytique."
-            />
-            <ShortcutCard
-              icon={Receipt}
-              title="Suivre factures"
-              description="3-way matching et comptabilisation des factures fournisseurs."
-            />
-            <ShortcutCard
-              icon={Send}
-              title="Lancer un paiement"
-              description="PaymentRun + export SEPA pain.001 multi-bénéficiaires."
-            />
-            <ShortcutCard
-              icon={FileBarChart}
-              title="Rapport bailleur"
-              description="USAID FFR-425, OMS, Wellcome — PDF + Excel."
-            />
-          </div>
+          <DashboardShortcuts />
         </section>
       </div>
     </>
