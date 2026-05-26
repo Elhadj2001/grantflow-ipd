@@ -101,6 +101,15 @@ function extractRealmRoles(
 const KEYCLOAK_ID = process.env.KEYCLOAK_ID ?? 'grantflow-web';
 const KEYCLOAK_SECRET = process.env.KEYCLOAK_SECRET ?? '';
 const KEYCLOAK_ISSUER = process.env.KEYCLOAK_ISSUER ?? 'http://localhost:8080/realms/grantflow';
+/**
+ * Sprint F-LOGOUT — si `KEYCLOAK_FORCE_LOGIN_PROMPT=true`, on ajoute
+ * `prompt=login` aux paramètres d'autorisation OIDC. Conséquence : Keycloak
+ * AFFICHE TOUJOURS l'écran de saisie identifiants, même si une session SSO
+ * résiduelle existe. Recommandé en DEV pour les tests multi-profils ; à
+ * laisser à `false` (= SSO standard) en prod où le RP-Initiated Logout
+ * suffit à fermer la session inter-onglets.
+ */
+const KEYCLOAK_FORCE_LOGIN_PROMPT = process.env.KEYCLOAK_FORCE_LOGIN_PROMPT === 'true';
 
 // Sprint F1.1 — debug logs pour diagnostiquer les unauthorized_client.
 // Imprimé une fois au démarrage du serveur Next.js (chaque appel handler
@@ -131,6 +140,12 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       clientId: KEYCLOAK_ID,
       clientSecret: KEYCLOAK_SECRET,
       issuer: KEYCLOAK_ISSUER,
+      // Sprint F-LOGOUT — opt-in : force l'écran de login Keycloak à chaque
+      // /api/auth/signin, même si une session SSO résiduelle existe. Voir
+      // KEYCLOAK_FORCE_LOGIN_PROMPT plus haut.
+      ...(KEYCLOAK_FORCE_LOGIN_PROMPT
+        ? { authorization: { params: { prompt: 'login' } } }
+        : {}),
     }),
   ],
   // JWT-only — pas de DB. Le token next-auth porte l'access_token Keycloak.
@@ -148,6 +163,12 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
+        // Sprint F-LOGOUT : on persiste l'id_token Keycloak pour pouvoir
+        // l'utiliser comme `id_token_hint` lors du RP-Initiated Logout
+        // (route /api/auth/federated-logout). Sans cette valeur, Keycloak
+        // peut afficher l'écran de confirmation au lieu de fermer la session
+        // silencieusement et de rediriger vers post_logout_redirect_uri.
+        token.idToken = account.id_token;
         const realmRoles = extractRealmRoles(kc, account.access_token);
         token.roles = filterRoles(realmRoles);
         if (process.env.NODE_ENV !== 'production') {
@@ -170,6 +191,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       // par l'écran Admin Users pour empêcher la self-deactivate côté UI).
       // Le RBAC reste autoritatif côté backend.
       session.userId = (token.sub as string | undefined) ?? '';
+      // Sprint F-LOGOUT : id_token disponible côté serveur (lecture via
+      // auth()) pour construire l'URL Keycloak end_session avec
+      // id_token_hint. JAMAIS exposé côté client (pas utile + PII).
+      session.idToken = token.idToken as string | undefined;
       if (session.user) {
         session.user.name = session.fullName;
         session.user.email = (token.email as string | undefined) ?? session.user.email;
@@ -193,6 +218,14 @@ declare module 'next-auth' {
      * mal formée ; le RBAC backend reste autoritatif.
      */
     userId: string;
+    /**
+     * id_token Keycloak — sprint F-LOGOUT. Utilisé UNIQUEMENT côté serveur
+     * (route /api/auth/federated-logout) comme `id_token_hint` pour le
+     * RP-Initiated Logout OIDC. Optionnel : si la session n'a pas pu le
+     * récupérer (cas dégradé), le logout côté Keycloak utilisera l'écran
+     * de confirmation au lieu d'une redirection silencieuse.
+     */
+    idToken?: string;
     user?: DefaultSession['user'];
   }
 }
