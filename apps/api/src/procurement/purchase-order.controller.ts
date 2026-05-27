@@ -98,11 +98,25 @@ export class PurchaseOrderController {
   // ------------------------------------------------------------------
 
   @Get()
+  // Sprint F-RBAC-LISTES : la liste des BCs est gated. BAILLEUR / DEMANDEUR /
+  // PI / CAISSIER en sont exclus — ils n'ont aucun usage UI ni métier
+  // d'une liste globale de bons de commande. Le service filtre ensuite
+  // selon FULL_VIEW_ROLES (BAILLEUR retiré en parallèle).
+  @Roles(
+    'ACHETEUR',
+    'MAGASINIER',
+    'COMPTABLE',
+    'CONTROLEUR',
+    'DAF',
+    'TRESORIER',
+    'SUPER_ADMIN',
+  )
   @ApiOperation({
     summary: 'Liste paginée des BCs',
     description:
-      "Les rôles ACHETEUR/CONTROLEUR/DAF/COMPTABLE/TRESORIER/BAILLEUR/SUPER_ADMIN voient tous les BCs. " +
-      'Les autres ne voient que les BCs liés à leurs DAs.',
+      "Les rôles ACHETEUR/CONTROLEUR/DAF/COMPTABLE/TRESORIER/SUPER_ADMIN voient tous les BCs. " +
+      "MAGASINIER voit ceux qu'il doit réceptionner. Les rôles externes (BAILLEUR) sont " +
+      "exclus de l'endpoint.",
   })
   @ApiOkResponse({ type: PurchaseOrderListResponseDto })
   list(@CurrentUser() user: AuthenticatedUser, @Query() query: PoQueryDto) {

@@ -35,14 +35,26 @@ import { PoPdfService } from './po-pdf.service';
 const ENTITY_NAME = 'PurchaseOrder';
 const PO_BUCKET = 'grantflow-pos';
 
-/** Rôles qui voient tous les BCs (pas seulement ceux liés à leurs DAs). */
+/**
+ * Rôles qui voient tous les BCs (pas seulement ceux liés à leurs DAs).
+ *
+ * Sprint F-RBAC-LISTES :
+ *   - BAILLEUR RETIRÉ : il n'a aucun usage métier des BCs (pas de page UI,
+ *     pas de workflow associé). L'@Roles du controller le rejette en 403
+ *     dès l'entrée — mais on aligne aussi le filtre service pour éviter
+ *     toute dérive si un nouvel endpoint sans @Roles était ajouté.
+ *   - MAGASINIER AJOUTÉ : doit voir tous les BCs en statut sent /
+ *     acknowledged / partially_received pour planifier les réceptions.
+ *     Sans cette inclusion, le filtre "lié à mes DAs" renvoie zéro
+ *     (le magasinier ne crée pas de DA).
+ */
 const FULL_VIEW_ROLES: ReadonlyArray<Role> = [
   'ACHETEUR',
+  'MAGASINIER',
   'CONTROLEUR',
   'DAF',
   'COMPTABLE',
   'TRESORIER',
-  'BAILLEUR',
   'SUPER_ADMIN',
 ];
 

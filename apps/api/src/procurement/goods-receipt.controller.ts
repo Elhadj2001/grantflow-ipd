@@ -75,11 +75,23 @@ export class GoodsReceiptController {
   // ------------------------------------------------------------------
 
   @Get('goods-receipts')
+  // Sprint F-RBAC-LISTES : la liste des réceptions est gated aux rôles
+  // qui en ont l'usage métier. BAILLEUR / DEMANDEUR / PI / CAISSIER en
+  // sont exclus côté endpoint. Le service filtre ensuite via
+  // FULL_VIEW_ROLES (BAILLEUR retiré en parallèle).
+  @Roles(
+    'MAGASINIER',
+    'ACHETEUR',
+    'COMPTABLE',
+    'CONTROLEUR',
+    'DAF',
+    'SUPER_ADMIN',
+  )
   @ApiOperation({
     summary: 'Liste paginée des GR',
     description:
-      'MAGASINIER / ACHETEUR / CONTROLEUR / DAF / COMPTABLE / TRESORIER / BAILLEUR / SUPER_ADMIN voient ' +
-      'tout. DEMANDEUR / PI : seulement les GR liés à leurs DAs.',
+      'MAGASINIER / ACHETEUR / CONTROLEUR / DAF / COMPTABLE / SUPER_ADMIN voient tout. ' +
+      'Les rôles externes (BAILLEUR) et non-opérationnels sont exclus.',
   })
   list(@CurrentUser() user: AuthenticatedUser, @Query() query: GrQueryDto) {
     return this.svc.findMany(user, query);

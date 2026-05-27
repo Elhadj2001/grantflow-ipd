@@ -117,11 +117,32 @@ export class InvoiceController {
   // ------------------------------------------------------------------
 
   @Get('invoices')
+  // Sprint F-RBAC-LISTES : on gate l'endpoint pour exclure BAILLEUR
+  // (aucun usage métier d'une liste globale de factures fournisseurs)
+  // et MAGASINIER / CAISSIER (hors workflow). ACHETEUR / DEMANDEUR / PI
+  // restent inclus — le service applique ensuite un filtre par rôle
+  // (ACHETEUR voit les factures de SES BC ; DEMANDEUR/PI celles de
+  // LEURS DAs). Le service expose donc une vue restreinte à leurs
+  // données — pas un leak global. C'est plus large que la
+  // recommandation initiale du brief pour préserver l'UX existante
+  // (/accounting/invoices déjà accessible à ces rôles via la sidebar
+  // "Comptabilité"). BAILLEUR retiré côté FULL_VIEW_ROLES en parallèle.
+  @Roles(
+    'ACHETEUR',
+    'COMPTABLE',
+    'CONTROLEUR',
+    'DAF',
+    'TRESORIER',
+    'DEMANDEUR',
+    'PI',
+    'SUPER_ADMIN',
+  )
   @ApiOperation({
     summary: 'Liste paginée des factures',
     description:
-      'COMPTABLE / TRESORIER / CONTROLEUR / DAF / BAILLEUR / SUPER_ADMIN voient tout. ' +
-      "ACHETEUR voit les factures de ses BC. DEMANDEUR/PI voient celles liées à leurs DAs.",
+      'COMPTABLE / TRESORIER / CONTROLEUR / DAF / SUPER_ADMIN voient tout. ' +
+      "ACHETEUR voit les factures de ses BC. DEMANDEUR/PI voient celles liées à leurs DAs. " +
+      'BAILLEUR / MAGASINIER / CAISSIER : 403 (aucun usage métier).',
   })
   list(@CurrentUser() user: AuthenticatedUser, @Query() query: InvoiceQueryDto) {
     return this.svc.findMany(user, query);
