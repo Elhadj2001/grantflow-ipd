@@ -180,6 +180,24 @@ export interface Permissions {
    */
   canDeleteProject: () => boolean;
 
+  // ------------------ Liste — gating fetch (sprint F-RBAC-LISTES) ------------------
+  /**
+   * Helpers calés EXACTEMENT sur les @Roles backend du sprint F-RBAC-LISTES.
+   * À utiliser comme `options.enabled` sur useList{POs,GRs,Invoices,PaymentRuns}
+   * pour éviter qu'un rôle non autorisé déclenche un 403 — le helper
+   * `canViewX()` reste plus large (concerne l'AFFICHAGE / la page),
+   * tandis que `canListX()` traduit la permission stricte de l'endpoint
+   * de LISTE.
+   */
+  /** GET /purchase-orders — aligné backend @Roles. */
+  canListPurchaseOrders: () => boolean;
+  /** GET /goods-receipts — aligné backend @Roles. */
+  canListGoodsReceipts: () => boolean;
+  /** GET /invoices — aligné backend @Roles. */
+  canListInvoices: () => boolean;
+  /** GET /payment-runs — aligné backend @Roles. */
+  canListPaymentRuns: () => boolean;
+
   // ------------------ Administration utilisateurs (sprint F-ADMIN-USERS) ------------------
   /**
    * Gérer les utilisateurs de l'application (CRUD + activate/deactivate
@@ -340,6 +358,41 @@ export function usePermissions(): Permissions {
       // même gating côté front ; le backend distinguera DAF pour le restore).
       canManageProjects: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
       canDeleteProject: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+
+      // Liste — F-RBAC-LISTES — STRICTEMENT aligné sur les @Roles backend.
+      // Toute modif ici doit être miroir dans le @Roles du controller.
+      canListPurchaseOrders: () =>
+        hasAny(
+          'ACHETEUR',
+          'MAGASINIER',
+          'COMPTABLE',
+          'CONTROLEUR',
+          'DAF',
+          'TRESORIER',
+          'SUPER_ADMIN',
+        ),
+      canListGoodsReceipts: () =>
+        hasAny(
+          'MAGASINIER',
+          'ACHETEUR',
+          'COMPTABLE',
+          'CONTROLEUR',
+          'DAF',
+          'SUPER_ADMIN',
+        ),
+      canListInvoices: () =>
+        hasAny(
+          'ACHETEUR',
+          'COMPTABLE',
+          'CONTROLEUR',
+          'DAF',
+          'TRESORIER',
+          'DEMANDEUR',
+          'PI',
+          'SUPER_ADMIN',
+        ),
+      canListPaymentRuns: () =>
+        hasAny('TRESORIER', 'COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
 
       // Administration des utilisateurs — F-ADMIN-USERS
       // Aligné sur @Roles('SUPER_ADMIN','DAF') côté AdminUsersController.

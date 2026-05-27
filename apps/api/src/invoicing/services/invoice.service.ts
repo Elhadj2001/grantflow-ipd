@@ -41,7 +41,8 @@ const FULL_VIEW_ROLES: ReadonlyArray<Role> = [
   'TRESORIER',
   'CONTROLEUR',
   'DAF',
-  'BAILLEUR',
+  // Sprint F-RBAC-LISTES : BAILLEUR retiré (aligné sur l'@Roles du
+  // controller qui bloque l'endpoint pour ce rôle).
   'SUPER_ADMIN',
 ];
 

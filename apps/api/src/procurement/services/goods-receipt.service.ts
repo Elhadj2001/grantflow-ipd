@@ -41,7 +41,9 @@ const FULL_VIEW_ROLES: ReadonlyArray<Role> = [
   'DAF',
   'COMPTABLE',
   'TRESORIER',
-  'BAILLEUR',
+  // Sprint F-RBAC-LISTES : BAILLEUR retiré du filtre service (aligné sur
+  // l'@Roles du controller qui l'exclut de l'endpoint). Conservé TRESORIER
+  // pour le besoin métier paiement → réceptions matched.
   'SUPER_ADMIN',
 ];
 

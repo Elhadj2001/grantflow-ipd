@@ -43,15 +43,24 @@ export function DashboardKpis() {
   const fromDate = firstOfMonth.toISOString().slice(0, 10);
 
   // pageSize=1 : on ne veut que le `total`, pas les items.
-  const prsQuery = useListPRs({ status: 'submitted', page: 1, pageSize: 1 });
-  const invoicesQuery = useListInvoices({ status: 'captured', page: 1, pageSize: 1 });
+  // Sprint F-RBAC-LISTES : `enabled` gates le fetch côté front pour éviter
+  // un 403 toast intempestif sur les rôles non autorisés par les @Roles
+  // backend (helpers canList* alignés exactement sur les endpoints).
+  // useListPRs reste sans gating front (le backend a déjà un filtre
+  // per-rôle ouvert à tous).
+  const prsQuery = useListPRs(
+    { status: 'submitted', page: 1, pageSize: 1 },
+    { enabled: !isBailleurOnly },
+  );
+  const invoicesQuery = useListInvoices(
+    { status: 'captured', page: 1, pageSize: 1 },
+    { enabled: perms.canListInvoices() && !isBailleurOnly },
+  );
   const grantsQuery = useGrantsList({ status: 'active', pageSize: 1 });
-  const paymentsQuery = useListPaymentRuns({
-    status: 'executed',
-    fromDate,
-    page: 1,
-    pageSize: 1,
-  });
+  const paymentsQuery = useListPaymentRuns(
+    { status: 'executed', fromDate, page: 1, pageSize: 1 },
+    { enabled: perms.canListPaymentRuns() && !isBailleurOnly },
+  );
 
   /** Formate un total : `undefined` (loading/error) → "—", sinon nombre. */
   const fmt = (n: number | undefined): string => (n === undefined ? '—' : String(n));

@@ -54,6 +54,11 @@ export class PaymentRunController {
   // ------------------------------------------------------------------
 
   @Get('payment-runs')
+  // Sprint F-RBAC-LISTES : la liste des runs paiement est ouverte aux
+  // rôles finance qui en ont besoin (trésorerie, compta, contrôle, DAF).
+  // BAILLEUR et rôles externes en sont exclus — ils n'ont aucun usage
+  // métier des runs et ne doivent pas voir les fournisseurs payés.
+  @Roles('TRESORIER', 'COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Liste paginée des payment runs' })
   list(@Query() query: PaymentRunQueryDto) {
     return this.svc.findMany(query);
