@@ -160,6 +160,26 @@ export interface Permissions {
   /** Soft delete + restore ligne budgétaire — DAF / SUPER_ADMIN. */
   canDeleteBudgetLine: () => boolean;
 
+  // ------------------ Référentiel — Bailleurs & Projets (sprint F-REF) ------------------
+  /**
+   * CRUD bailleur (donor). Paramétrage CG/DAF/SA — calé sur le RBAC
+   * backend (`@Roles('CONTROLEUR','DAF','SUPER_ADMIN')` sur POST/PUT/PATCH).
+   */
+  canManageDonors: () => boolean;
+  /** Soft delete + restore bailleur — DAF / SUPER_ADMIN. */
+  canDeleteDonor: () => boolean;
+  /**
+   * CRUD projet. Mêmes rôles que bailleur côté POST/PUT/PATCH/DELETE
+   * (`@Roles('CONTROLEUR','DAF','SUPER_ADMIN')` côté ProjectController).
+   */
+  canManageProjects: () => boolean;
+  /**
+   * Soft delete projet — CG/DAF/SA (le DELETE backend autorise CONTROLEUR,
+   * contrairement aux fournisseurs/bailleurs réservés au DAF). Restore =
+   * DAF/SA uniquement, mais ce helper couvre les deux côté UI.
+   */
+  canDeleteProject: () => boolean;
+
   // ------------------ Administration utilisateurs (sprint F-ADMIN-USERS) ------------------
   /**
    * Gérer les utilisateurs de l'application (CRUD + activate/deactivate
@@ -309,6 +329,17 @@ export function usePermissions(): Permissions {
       // BudgetLine : CONTROLEUR + DAF + SUPER_ADMIN (pas ACHETEUR).
       canManageBudgetLines: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
       canDeleteBudgetLine: () => hasAny('DAF', 'SUPER_ADMIN'),
+
+      // Référentiel — Bailleurs (F-REF). Aligné sur @Roles backend
+      // POST/PUT/PATCH /donors = CONTROLEUR/DAF/SA ; DELETE+restore = DAF/SA.
+      canManageDonors: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canDeleteDonor: () => hasAny('DAF', 'SUPER_ADMIN'),
+      // Référentiel — Projets (F-REF). POST/PUT/PATCH/DELETE = CG/DAF/SA ;
+      // restore = DAF/SA. On expose un seul helper canDeleteProject pour
+      // l'UI (le bouton "Supprimer" et le bouton "Restaurer" portent le
+      // même gating côté front ; le backend distinguera DAF pour le restore).
+      canManageProjects: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      canDeleteProject: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
 
       // Administration des utilisateurs — F-ADMIN-USERS
       // Aligné sur @Roles('SUPER_ADMIN','DAF') côté AdminUsersController.

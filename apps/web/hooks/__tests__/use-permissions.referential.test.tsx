@@ -104,3 +104,74 @@ describe('usePermissions — référentiel (sprint F5b-c)', () => {
     });
   });
 });
+
+// =====================================================================
+//  Sprint F-REF-BAILLEURS-PROJETS — Bailleurs + Projets
+// =====================================================================
+
+describe('usePermissions — bailleurs + projets (sprint F-REF)', () => {
+  describe('canManageDonors', () => {
+    it.each<[string]>([['CONTROLEUR'], ['DAF'], ['SUPER_ADMIN']])(
+      '%s : autorisé',
+      (role) => {
+        expect(withRoles([role as GrantflowRole]).canManageDonors()).toBe(true);
+      },
+    );
+
+    it.each<[string]>([
+      ['COMPTABLE'],
+      ['ACHETEUR'],
+      ['TRESORIER'],
+      ['MAGASINIER'],
+      ['PI'],
+      ['DEMANDEUR'],
+      ['BAILLEUR'],
+      ['CAISSIER'],
+    ])('%s : refusé', (role) => {
+      expect(withRoles([role as GrantflowRole]).canManageDonors()).toBe(false);
+    });
+  });
+
+  describe('canDeleteDonor', () => {
+    it('DAF / SUPER_ADMIN uniquement (CONTROLEUR peut créer/éditer mais pas supprimer)', () => {
+      expect(withRoles(['DAF']).canDeleteDonor()).toBe(true);
+      expect(withRoles(['SUPER_ADMIN']).canDeleteDonor()).toBe(true);
+      expect(withRoles(['CONTROLEUR']).canDeleteDonor()).toBe(false);
+      expect(withRoles(['ACHETEUR']).canDeleteDonor()).toBe(false);
+    });
+  });
+
+  describe('canManageProjects', () => {
+    it.each<[string]>([['CONTROLEUR'], ['DAF'], ['SUPER_ADMIN']])(
+      '%s : autorisé',
+      (role) => {
+        expect(withRoles([role as GrantflowRole]).canManageProjects()).toBe(true);
+      },
+    );
+
+    it.each<[string]>([
+      ['COMPTABLE'],
+      ['ACHETEUR'],
+      ['TRESORIER'],
+      ['MAGASINIER'],
+      ['PI'],
+      ['DEMANDEUR'],
+      ['BAILLEUR'],
+      ['CAISSIER'],
+    ])('%s : refusé', (role) => {
+      expect(withRoles([role as GrantflowRole]).canManageProjects()).toBe(false);
+    });
+  });
+
+  describe('canDeleteProject', () => {
+    it('CONTROLEUR / DAF / SUPER_ADMIN (asymétrie vs Donor : CG peut close un projet)', () => {
+      // Le DELETE backend autorise CONTROLEUR (cf. project.controller.ts L106).
+      // Distinction explicite avec canDeleteDonor (qui exige DAF/SA).
+      expect(withRoles(['CONTROLEUR']).canDeleteProject()).toBe(true);
+      expect(withRoles(['DAF']).canDeleteProject()).toBe(true);
+      expect(withRoles(['SUPER_ADMIN']).canDeleteProject()).toBe(true);
+      expect(withRoles(['COMPTABLE']).canDeleteProject()).toBe(false);
+      expect(withRoles(['ACHETEUR']).canDeleteProject()).toBe(false);
+    });
+  });
+});
