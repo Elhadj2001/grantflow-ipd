@@ -296,6 +296,10 @@ CREATE TABLE ref.supplier (
     vat_number        TEXT,
     address           TEXT,
     country           TEXT,
+    -- Sprint F-PO-EMAIL : adresse e-mail de contact pour l'envoi automatique
+    -- du Bon de Commande au fournisseur (best-effort, non bloquant). Champ
+    -- optionnel ; si NULL, le BC est marqué `sent` sans notification.
+    contact_email     TEXT,
     iban              TEXT,
     bic               TEXT,
     bank_name         TEXT,

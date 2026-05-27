@@ -29,6 +29,8 @@ export const UpdateSupplierSchema = z
     paymentTermsDays: z.number().int().min(0).max(120).optional(),
     currencyDefault: z.enum(SUPPLIER_CURRENCIES).optional(),
     riskScore: z.number().int().min(0).max(100).optional(),
+    /** Sprint F-PO-EMAIL : e-mail de contact (nullable pour effacement explicite). */
+    contactEmail: z.string().email('Adresse e-mail invalide').max(255).nullable().optional(),
   })
   .strict();
 

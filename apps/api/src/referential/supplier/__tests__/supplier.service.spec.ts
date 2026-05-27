@@ -49,6 +49,7 @@ describe('SupplierService', () => {
     riskScore: 10,
     isActive: true,
     createdAt: new Date('2026-05-01T00:00:00Z'),
+    contactEmail: null,
   };
 
   function baseQuery(overrides: Partial<SupplierQueryDto> = {}): SupplierQueryDto {
@@ -224,6 +225,16 @@ describe('SupplierService', () => {
       prisma.supplier.create.mockResolvedValue(fakeSupplier); // iban: null
       await svc.create(dto());
       expect(prisma.supplierIbanHistory.create).not.toHaveBeenCalled();
+    });
+
+    // Sprint F-PO-EMAIL — propagation contactEmail
+    it('persists contactEmail when provided', async () => {
+      const withEmail = { ...fakeSupplier, contactEmail: 'achats@biomed.demo' };
+      prisma.supplier.create.mockResolvedValue(withEmail);
+      await svc.create(dto({ contactEmail: 'achats@biomed.demo' }));
+      expect(prisma.supplier.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ contactEmail: 'achats@biomed.demo' }),
+      });
     });
   });
 

@@ -52,6 +52,8 @@ type SupplierFixture = {
   country?: string;
   paymentTermsDays?: number;
   currencyDefault?: string;
+  /** Sprint F-PO-EMAIL : destinataire du BC PDF (best-effort). */
+  contactEmail?: string;
 };
 
 function loadFixture<T>(filename: string, rootKey: string): T[] {
@@ -131,6 +133,7 @@ async function seedSuppliers() {
         country: s.country ?? null,
         paymentTermsDays: s.paymentTermsDays ?? 30,
         currencyDefault: s.currencyDefault ?? 'XOF',
+        contactEmail: s.contactEmail ?? null,
       },
       create: {
         code: s.code,
@@ -140,6 +143,7 @@ async function seedSuppliers() {
         country: s.country ?? null,
         paymentTermsDays: s.paymentTermsDays ?? 30,
         currencyDefault: s.currencyDefault ?? 'XOF',
+        contactEmail: s.contactEmail ?? null,
       },
     });
   }

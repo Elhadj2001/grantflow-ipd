@@ -127,6 +127,7 @@ export class SupplierService {
           s.risk_score       AS "riskScore",
           s.is_active        AS "isActive",
           s.created_at       AS "createdAt",
+          s.contact_email    AS "contactEmail",
           similarity(s.name, ${needle}) AS similarity
         FROM ref.supplier s
         WHERE similarity(s.name, ${needle}) > ${TRGM_THRESHOLD}

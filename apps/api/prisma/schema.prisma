@@ -1,12 +1,3 @@
-// =====================================================================
-//  GRANTFLOW IPD — Schéma Prisma complet
-//
-//  Généré à partir de docs/grantflow_ddl_postgresql.sql (source de vérité).
-//  Le DDL est exécuté directement via psql ; ce schéma reflète la structure
-//  côté client (Prisma ORM). Les contraintes CHECK, triggers et colonnes
-//  GENERATED ... STORED restent gérées par PostgreSQL.
-// =====================================================================
-
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["multiSchema"]
@@ -15,12 +6,1136 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["auth", "ref", "procurement", "ap", "gl", "co", "reporting", "audit"]
+  schemas  = ["ap", "audit", "auth", "co", "gl", "procurement", "ref", "reporting"]
 }
 
-// =====================================================================
-//  ENUMS
-// =====================================================================
+model EventLog {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  actorId       String?  @map("actor_id") @db.Uuid
+  actorEmail    String?  @map("actor_email") @db.Citext
+  action        String
+  entityType    String   @map("entity_type")
+  entityId      String?  @map("entity_id") @db.Uuid
+  payloadBefore Json?    @map("payload_before")
+  payloadAfter  Json?    @map("payload_after")
+  ipAddress     String?  @map("ip_address") @db.Inet
+  userAgent     String?  @map("user_agent")
+  result        String   @default("success")
+  errorCode     String?  @map("error_code")
+  requestId     String?  @map("request_id") @db.Uuid
+  hashChain     String?  @map("hash_chain")
+
+  @@index([entityType, entityId], map: "idx_audit_event_log_entity")
+  @@index([actorId, occurredAt(sort: Desc)], map: "idx_audit_event_log_actor")
+  @@index([requestId], map: "idx_audit_event_log_request_id")
+  @@map("event_log")
+  @@schema("audit")
+}
+
+model Role {
+  id          String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code        String           @unique
+  label       String
+  description String?
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("role")
+  @@schema("auth")
+}
+
+model Permission {
+  id     String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code   String           @unique
+  label  String
+  module String
+  roles  RolePermission[]
+
+  @@map("permission")
+  @@schema("auth")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([roleId, permissionId])
+  @@map("role_permission")
+  @@schema("auth")
+}
+
+model AppUser {
+  id                           String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email                        String                @unique @db.Citext
+  fullName                     String                @map("full_name")
+  employeeCode                 String?               @map("employee_code")
+  department                   String?
+  status                       UserStatus            @default(active)
+  mfaEnabled                   Boolean               @default(false) @map("mfa_enabled")
+  lastLoginAt                  DateTime?             @map("last_login_at") @db.Timestamptz(6)
+  createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                    DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  invoicesMatched              Invoice[]             @relation("InvoiceMatchedBy")
+  paymentRunsApproved          PaymentRun[]          @relation("PaymentRunApprover")
+  paymentRunsPrepared          PaymentRun[]          @relation("PaymentRunPreparer")
+  delegationsReceived          Delegation[]          @relation("DelegationDelegate")
+  delegationsGiven             Delegation[]          @relation("DelegationDelegator")
+  roles                        UserRole[]
+  fiscalPeriodsClosed          FiscalPeriod[]        @relation("FiscalPeriodClosedBy")
+  fiscalPeriodsReopened        FiscalPeriod[]        @relation("FiscalPeriodReopenedBy")
+  journalEntriesPosted         JournalEntry[]
+  periodCloseEvents            PeriodCloseEvent[]    @relation("PeriodCloseEventUser")
+  approvalSteps                ApprovalStep[]
+  goodsReceiptsCancelled       GoodsReceipt[]        @relation("GrCancelledBy")
+  goodsReceiptsCompleted       GoodsReceipt[]        @relation("GrCompletedBy")
+  goodsReceiptsReceived        GoodsReceipt[]        @relation("GrReceivedBy")
+  goodsReceiptsRejected        GoodsReceipt[]        @relation("GrRejectedBy")
+  purchaseOrdersAsBuyer        PurchaseOrder[]
+  prsRequested                 PurchaseRequest[]
+  cashBoxesCustodian           CashBox[]
+  cashSettlementsDone          CashSettlement[]
+  projectsAsPi                 Project[]
+  supplierIbanChanges          SupplierIbanHistory[] @relation("SupplierIbanHistoryChanger")
+  donorReportsGenerated        DonorReport[]         @relation("DonorReportGeneratedBy")
+  donorReportsLocked           DonorReport[]         @relation("DonorReportLockedBy")
+  donorReportsSent             DonorReport[]         @relation("DonorReportSentBy")
+  financialStatementsGenerated FinancialStatement[]  @relation("FinancialStatementGeneratedBy")
+  financialStatementsLocked    FinancialStatement[]  @relation("FinancialStatementLockedBy")
+  reportRunsGenerated          ReportRun[]
+
+  @@index([status], map: "idx_user_status")
+  @@map("app_user")
+  @@schema("auth")
+}
+
+model UserRole {
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user       AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([userId, roleId])
+  @@map("user_role")
+  @@schema("auth")
+}
+
+model Delegation {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  delegatorId String   @map("delegator_id") @db.Uuid
+  delegateId  String   @map("delegate_id") @db.Uuid
+  scope       Json
+  validFrom   DateTime @map("valid_from") @db.Date
+  validTo     DateTime @map("valid_to") @db.Date
+  delegate    AppUser  @relation("DelegationDelegate", fields: [delegateId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  delegator   AppUser  @relation("DelegationDelegator", fields: [delegatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("delegation")
+  @@schema("auth")
+}
+
+model GlAccount {
+  id                      String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code                    String                @unique
+  label                   String
+  class                   String                @db.Char(1)
+  parentCode              String?               @map("parent_code")
+  isMovement              Boolean               @default(true) @map("is_movement")
+  isActive                Boolean               @default(true) @map("is_active")
+  syscebnlSpecific        Boolean               @default(false) @map("syscebnl_specific")
+  description             String?
+  invoiceLines            InvoiceLine[]
+  allocationRulesAsSource AllocationRule[]
+  journalLines            JournalLine[]
+  prLinesAsDefault        PurchaseRequestLine[]
+  bankAccounts            BankAccount[]
+  budgetLinesAsDefault    BudgetLine[]
+  taxCodes                TaxCode[]
+  accountMappings         AccountMapping[]
+
+  @@index([class], map: "idx_gl_account_class")
+  @@map("gl_account")
+  @@schema("ref")
+}
+
+model BankAccount {
+  id            String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code          String       @unique
+  label         String
+  accountNumber String       @map("account_number")
+  bic           String?
+  bankName      String       @map("bank_name")
+  currency      String       @default("XOF") @db.Char(3)
+  glAccountCode String       @map("gl_account")
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+  paymentRuns   PaymentRun[]
+  glAccount     GlAccount    @relation(fields: [glAccountCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([currency], map: "idx_bank_account_currency")
+  @@map("bank_account")
+  @@schema("ref")
+}
+
+model AnalyticalAxis {
+  id                String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  type              AxisType
+  code              String
+  label             String
+  parentId          String?            @map("parent_id") @db.Uuid
+  isActive          Boolean            @default(true) @map("is_active")
+  metadata          Json?              @default("{}")
+  allocationTargets AllocationTarget[]
+  jlAsActivity      JournalLine[]      @relation("JlActivity")
+  jlAsCostCenter    JournalLine[]      @relation("JlCostCenter")
+  prsAsActivity     PurchaseRequest[]  @relation("PrActivity")
+  prsAsCostCenter   PurchaseRequest[]  @relation("PrCostCenter")
+  parent            AnalyticalAxis?    @relation("AxisHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children          AnalyticalAxis[]   @relation("AxisHierarchy")
+
+  @@unique([type, code])
+  @@index([type], map: "idx_axis_type")
+  @@map("analytical_axis")
+  @@schema("ref")
+}
+
+model Program {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code        String    @unique
+  label       String
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  projects    Project[]
+
+  @@map("program")
+  @@schema("ref")
+}
+
+model Project {
+  id                String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code              String             @unique
+  title             String
+  programId         String?            @map("program_id") @db.Uuid
+  piUserId          String?            @map("pi_user_id") @db.Uuid
+  startDate         DateTime           @map("start_date") @db.Date
+  endDate           DateTime?          @map("end_date") @db.Date
+  status            String             @default("active")
+  description       String?
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  allocationTargets AllocationTarget[]
+  journalLines      JournalLine[]
+  purchaseRequests  PurchaseRequest[]
+  grants            GrantAgreement[]
+  pi                AppUser?           @relation(fields: [piUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  program           Program?           @relation(fields: [programId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([piUserId], map: "idx_project_pi")
+  @@map("project")
+  @@schema("ref")
+}
+
+model Donor {
+  id                   String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code                 String                @unique
+  label                String
+  type                 DonorType
+  country              String?
+  contactEmail         String?               @map("contact_email") @db.Citext
+  reportingTemplateId  String?               @map("reporting_template_id") @db.Uuid
+  isActive             Boolean               @default(true) @map("is_active")
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  grants               GrantAgreement[]
+  donorReportTemplates DonorReportTemplate[]
+  reportTemplates      ReportTemplate[]
+
+  @@map("donor")
+  @@schema("ref")
+}
+
+model GrantAgreement {
+  id                String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  reference         String                  @unique
+  donorId           String                  @map("donor_id") @db.Uuid
+  projectId         String                  @map("project_id") @db.Uuid
+  amount            Decimal                 @db.Decimal(18, 2)
+  currency          String                  @db.Char(3)
+  overheadRate      Decimal                 @default(0) @map("overhead_rate") @db.Decimal(6, 4)
+  startDate         DateTime                @map("start_date") @db.Date
+  endDate           DateTime                @map("end_date") @db.Date
+  status            GrantStatus             @default(draft)
+  signedAt          DateTime?               @map("signed_at") @db.Date
+  notes             String?
+  allowsCashPayment Boolean                 @default(true) @map("allows_cash_payment")
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  allocationTargets AllocationTarget[]
+  dedicatedFunds    DedicatedFundMovement[]
+  overheadCalcs     OverheadCalculation[]
+  journalLines      JournalLine[]
+  purchaseRequests  PurchaseRequest[]
+  budgetLines       BudgetLine[]
+  donor             Donor                   @relation(fields: [donorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project           Project                 @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  donorReports      DonorReport[]
+  reportRuns        ReportRun[]
+
+  @@index([projectId], map: "idx_grant_project")
+  @@index([donorId], map: "idx_grant_donor")
+  @@map("grant_agreement")
+  @@schema("ref")
+}
+
+model BudgetLine {
+  id                   String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  grantId              String                @map("grant_id") @db.Uuid
+  code                 String
+  label                String
+  budgetedAmount       Decimal               @map("budgeted_amount") @db.Decimal(18, 2)
+  defaultAccount       String?               @map("default_account")
+  isOverheadEligible   Boolean               @default(true) @map("is_overhead_eligible")
+  isActive             Boolean               @default(true) @map("is_active")
+  journalLines         JournalLine[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  purchaseRequestLines PurchaseRequestLine[]
+  defaultAccountRef    GlAccount?            @relation(fields: [defaultAccount], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  grant                GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([grantId, code])
+  @@map("budget_line")
+  @@schema("ref")
+}
+
+model Supplier {
+  id               String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code             String                @unique
+  name             String
+  vatNumber        String?               @map("vat_number")
+  address          String?
+  country          String?
+  iban             String?
+  bic              String?
+  bankName         String?               @map("bank_name")
+  paymentTermsDays Int                   @default(30) @map("payment_terms_days")
+  currencyDefault  String                @default("XOF") @map("currency_default") @db.Char(3)
+  riskScore        Int?                  @default(0) @map("risk_score")
+  isActive         Boolean               @default(true) @map("is_active")
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  // Sprint F-PO-EMAIL : adresse e-mail du fournisseur (best-effort envoi PDF du BC).
+  contactEmail     String?               @map("contact_email")
+  invoices         Invoice[]
+  purchaseOrders   PurchaseOrder[]
+  ibanHistory      SupplierIbanHistory[]
+
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "idx_supplier_name_trgm", type: Gin)
+  @@map("supplier")
+  @@schema("ref")
+}
+
+/// Historique des changements d'IBAN fournisseur (sprint F4a — anti-fraude).
+/// Une ligne « courante » par supplier (effective_to=NULL), garantie par index
+/// partiel unique côté Postgres. Les anciennes lignes ont effective_to renseigné.
+model SupplierIbanHistory {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  supplierId    String    @map("supplier_id") @db.Uuid
+  iban          String?
+  bic           String?
+  bankName      String?   @map("bank_name")
+  effectiveFrom DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz(6)
+  changedBy     String?   @map("changed_by") @db.Uuid
+  changeReason  String?   @map("change_reason")
+  changer       AppUser?  @relation("SupplierIbanHistoryChanger", fields: [changedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier      Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([supplierId], map: "idx_supplier_iban_history_supplier")
+  @@map("supplier_iban_history")
+  @@schema("ref")
+}
+
+model ExchangeRate {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  fromCurrency String   @map("from_currency") @db.Char(3)
+  toCurrency   String   @map("to_currency") @db.Char(3)
+  rate         Decimal  @db.Decimal(18, 8)
+  rateDate     DateTime @map("rate_date") @db.Date
+  source       String?
+  isFixed      Boolean  @default(false) @map("is_fixed")
+
+  @@unique([fromCurrency, toCurrency, rateDate])
+  @@index([rateDate], map: "idx_exchange_rate_date")
+  @@map("exchange_rate")
+  @@schema("ref")
+}
+
+model TaxCode {
+  id                 String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code               String              @unique
+  label              String
+  rate               Decimal             @db.Decimal(6, 4)
+  accountCode        String?             @map("account_code")
+  isActive           Boolean             @default(true) @map("is_active")
+  invoiceLines       InvoiceLine[]
+  purchaseOrderLines PurchaseOrderLine[]
+  account            GlAccount?          @relation(fields: [accountCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("tax_code")
+  @@schema("ref")
+}
+
+/// Caisse en espèces (petite caisse). Plafonds appliqués au service —
+/// les CHECK protègent seulement les invariants positifs (cf. DDL §SPRINT 2.3).
+model CashBox {
+  id               String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code             String            @unique
+  label            String
+  custodianUserId  String?           @map("custodian_user_id") @db.Uuid
+  currency         String            @default("XOF") @db.Char(3)
+  currentBalance   Decimal           @default(0) @map("current_balance") @db.Decimal(18, 2)
+  ceiling          Decimal           @default(500000) @db.Decimal(18, 2)
+  perRequestMax    Decimal           @default(100000) @map("per_request_max") @db.Decimal(18, 2)
+  perDayUserMax    Decimal           @default(200000) @map("per_day_user_max") @db.Decimal(18, 2)
+  isActive         Boolean           @default(true) @map("is_active")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  purchaseRequests PurchaseRequest[]
+  custodian        AppUser?          @relation(fields: [custodianUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([isActive], map: "idx_cash_box_active")
+  @@map("cash_box")
+  @@schema("ref")
+}
+
+/// Régularisation d'une avance de mission (DA `cash_advance`). Une seule
+/// entrée par DA (UNIQUE sur purchase_request_id côté DDL).
+model CashSettlement {
+  id                String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  purchaseRequestId String          @unique @map("purchase_request_id") @db.Uuid
+  actualSpent       Decimal         @map("actual_spent") @db.Decimal(18, 2)
+  variance          Decimal         @db.Decimal(18, 2)
+  justifications    String?
+  settledBy         String?         @map("settled_by") @db.Uuid
+  settledAt         DateTime        @default(now()) @map("settled_at") @db.Timestamptz(6)
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  settler           AppUser?        @relation(fields: [settledBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([purchaseRequestId], map: "idx_cash_settlement_pr")
+  @@map("cash_settlement")
+  @@schema("ref")
+}
+
+model PurchaseRequest {
+  id              String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  prNumber        String                @unique @map("pr_number")
+  requestedBy     String                @map("requested_by") @db.Uuid
+  requestedAt     DateTime              @default(now()) @map("requested_at") @db.Timestamptz(6)
+  neededBy        DateTime?             @map("needed_by") @db.Date
+  status          PrStatus              @default(draft)
+  projectId       String                @map("project_id") @db.Uuid
+  grantId         String                @map("grant_id") @db.Uuid
+  costCenterId    String?               @map("cost_center_id") @db.Uuid
+  activityId      String?               @map("activity_id") @db.Uuid
+  totalAmount     Decimal               @default(0) @map("total_amount") @db.Decimal(18, 2)
+  currency        String                @default("XOF") @db.Char(3)
+  description     String?
+  requestType     PrType                @default(standard) @map("request_type")
+  rejectionReason String?               @map("rejection_reason")
+  updatedAt       DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  cashBoxId       String?               @map("cash_box_id") @db.Uuid
+  purchaseOrders  PurchaseOrder[]
+  poLinks         PurchaseOrderPr[]
+  activity        AnalyticalAxis?       @relation("PrActivity", fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cashBox         CashBox?              @relation(fields: [cashBoxId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  costCenter      AnalyticalAxis?       @relation("PrCostCenter", fields: [costCenterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grant           GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project         Project               @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  requester       AppUser               @relation(fields: [requestedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines           PurchaseRequestLine[]
+  cashSettlement  CashSettlement?
+
+  @@index([status], map: "idx_pr_status")
+  @@index([requestedBy], map: "idx_pr_requested_by")
+  @@index([projectId], map: "idx_pr_project")
+  @@index([requestType], map: "idx_pr_request_type")
+  @@map("purchase_request")
+  @@schema("procurement")
+}
+
+model PurchaseRequestLine {
+  id                 String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  prId               String              @map("pr_id") @db.Uuid
+  lineNumber         Int                 @map("line_number")
+  description        String
+  quantity           Decimal             @db.Decimal(18, 4)
+  unit               String              @default("unit")
+  unitPrice          Decimal             @map("unit_price") @db.Decimal(18, 4)
+  lineTotal          Decimal?            @default(dbgenerated("(quantity * unit_price)")) @map("line_total") @db.Decimal(18, 2)
+  budgetLineId       String              @map("budget_line_id") @db.Uuid
+  defaultAccount     String?             @map("default_account")
+  purchaseOrderLines PurchaseOrderLine[]
+  budgetLine         BudgetLine          @relation(fields: [budgetLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  defaultAccountRef  GlAccount?          @relation(fields: [defaultAccount], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  pr                 PurchaseRequest     @relation(fields: [prId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([prId, lineNumber])
+  @@map("purchase_request_line")
+  @@schema("procurement")
+}
+
+model ApprovalStep {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  entityType    String    @map("entity_type")
+  entityId      String    @map("entity_id") @db.Uuid
+  stepOrder     Int       @map("step_order")
+  approverId    String?   @map("approver_id") @db.Uuid
+  approverRole  String?   @map("approver_role")
+  status        String    @default("pending")
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(6)
+  decisionNotes String?   @map("decision_notes")
+  approver      AppUser?  @relation(fields: [approverId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([entityType, entityId], map: "idx_approval_entity")
+  @@map("approval_step")
+  @@schema("procurement")
+}
+
+model PurchaseOrder {
+  id                 String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  poNumber           String              @unique @map("po_number")
+  prId               String?             @map("pr_id") @db.Uuid
+  supplierId         String              @map("supplier_id") @db.Uuid
+  orderDate          DateTime            @default(dbgenerated("CURRENT_DATE")) @map("order_date") @db.Date
+  expectedDate       DateTime?           @map("expected_date") @db.Date
+  status             PoStatus            @default(draft)
+  totalHt            Decimal             @default(0) @map("total_ht") @db.Decimal(18, 2)
+  totalVat           Decimal             @default(0) @map("total_vat") @db.Decimal(18, 2)
+  totalTtc           Decimal             @default(0) @map("total_ttc") @db.Decimal(18, 2)
+  currency           String              @default("XOF") @db.Char(3)
+  incoterm           String?
+  deliveryAddress    String?             @map("delivery_address")
+  buyerId            String?             @map("buyer_id") @db.Uuid
+  sentAt             DateTime?           @map("sent_at") @db.Timestamptz(6)
+  acknowledgedAt     DateTime?           @map("acknowledged_at") @db.Timestamptz(6)
+  acknowledgedBy     String?             @map("acknowledged_by")
+  cancelledAt        DateTime?           @map("cancelled_at") @db.Timestamptz(6)
+  cancellationReason String?             @map("cancellation_reason")
+  pdfObjectKey       String?             @map("pdf_object_key")
+  emailSentAt        DateTime?           @map("email_sent_at") @db.Timestamptz(6)
+  emailSentTo        String?             @map("email_sent_to")
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  invoices           Invoice[]
+  goodsReceipts      GoodsReceipt[]
+  buyer              AppUser?            @relation(fields: [buyerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pr                 PurchaseRequest?    @relation(fields: [prId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier           Supplier            @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines              PurchaseOrderLine[]
+  prLinks            PurchaseOrderPr[]
+
+  @@index([supplierId], map: "idx_po_supplier")
+  @@index([status], map: "idx_po_status")
+  @@map("purchase_order")
+  @@schema("procurement")
+}
+
+/// Liaison N-N entre BC et DA (un BC peut consolider plusieurs DAs).
+/// Voir DDL §SPRINT 3.
+model PurchaseOrderPr {
+  poId String          @map("po_id") @db.Uuid
+  prId String          @map("pr_id") @db.Uuid
+  po   PurchaseOrder   @relation(fields: [poId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pr   PurchaseRequest @relation(fields: [prId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([poId, prId])
+  @@index([prId], map: "idx_po_pr_pr")
+  @@map("purchase_order_pr")
+  @@schema("procurement")
+}
+
+model PurchaseOrderLine {
+  id                String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  poId              String               @map("po_id") @db.Uuid
+  prLineId          String?              @map("pr_line_id") @db.Uuid
+  lineNumber        Int                  @map("line_number")
+  description       String
+  quantity          Decimal              @db.Decimal(18, 4)
+  quantityReceived  Decimal              @default(0) @map("quantity_received") @db.Decimal(18, 4)
+  quantityInvoiced  Decimal              @default(0) @map("quantity_invoiced") @db.Decimal(18, 4)
+  unit              String
+  unitPrice         Decimal              @map("unit_price") @db.Decimal(18, 4)
+  taxCodeId         String?              @map("tax_code_id") @db.Uuid
+  lineTotal         Decimal?             @default(dbgenerated("(quantity * unit_price)")) @map("line_total") @db.Decimal(18, 2)
+  budgetLineId      String               @map("budget_line_id") @db.Uuid
+  invoiceLines      InvoiceLine[]
+  invoiceMatches    InvoiceMatch[]
+  goodsReceiptLines GoodsReceiptLine[]
+  budgetLine        BudgetLine           @relation(fields: [budgetLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  po                PurchaseOrder        @relation(fields: [poId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prLine            PurchaseRequestLine? @relation(fields: [prLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  taxCode           TaxCode?             @relation(fields: [taxCodeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([poId, lineNumber])
+  @@map("purchase_order_line")
+  @@schema("procurement")
+}
+
+model GoodsReceipt {
+  id                String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  grNumber          String             @unique @map("gr_number")
+  poId              String             @map("po_id") @db.Uuid
+  receiptDate       DateTime           @default(dbgenerated("CURRENT_DATE")) @map("receipt_date") @db.Date
+  receivedBy        String             @map("received_by") @db.Uuid
+  status            GrStatus           @default(draft)
+  deliveryNoteRef   String?            @map("delivery_note_ref")
+  notes             String?
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  coldChainRequired Boolean            @default(false) @map("cold_chain_required")
+  rejectedReason    String?            @map("rejected_reason")
+  rejectedAt        DateTime?          @map("rejected_at") @db.Timestamptz(6)
+  rejectedBy        String?            @map("rejected_by") @db.Uuid
+  cancelledAt       DateTime?          @map("cancelled_at") @db.Timestamptz(6)
+  cancelledReason   String?            @map("cancelled_reason")
+  cancelledBy       String?            @map("cancelled_by") @db.Uuid
+  completedAt       DateTime?          @map("completed_at") @db.Timestamptz(6)
+  completedBy       String?            @map("completed_by") @db.Uuid
+  updatedAt         DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+  canceller         AppUser?           @relation("GrCancelledBy", fields: [cancelledBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  completer         AppUser?           @relation("GrCompletedBy", fields: [completedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  po                PurchaseOrder      @relation(fields: [poId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  receiver          AppUser            @relation("GrReceivedBy", fields: [receivedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rejecter          AppUser?           @relation("GrRejectedBy", fields: [rejectedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines             GoodsReceiptLine[]
+
+  @@index([poId], map: "idx_gr_po")
+  @@index([status], map: "idx_gr_status")
+  @@map("goods_receipt")
+  @@schema("procurement")
+}
+
+model GoodsReceiptLine {
+  id             String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  grId           String            @map("gr_id") @db.Uuid
+  poLineId       String            @map("po_line_id") @db.Uuid
+  quantity       Decimal           @db.Decimal(18, 4)
+  batchNumber    String?           @map("batch_number")
+  expiryDate     DateTime?         @map("expiry_date") @db.Date
+  serialNumbers  String[]          @map("serial_numbers")
+  qualityCheck   String?           @map("quality_check")
+  coldChainOk    Boolean?          @map("cold_chain_ok")
+  invoiceMatches InvoiceMatch[]
+  gr             GoodsReceipt      @relation(fields: [grId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  poLine         PurchaseOrderLine @relation(fields: [poLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([poLineId], map: "idx_gr_line_po")
+  @@map("goods_receipt_line")
+  @@schema("procurement")
+}
+
+model Invoice {
+  id              String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  invoiceNumber   String         @map("invoice_number")
+  supplierId      String         @map("supplier_id") @db.Uuid
+  invoiceDate     DateTime       @map("invoice_date") @db.Date
+  dueDate         DateTime       @map("due_date") @db.Date
+  receivedAt      DateTime       @default(now()) @map("received_at") @db.Timestamptz(6)
+  status          InvoiceStatus  @default(captured)
+  totalHt         Decimal        @map("total_ht") @db.Decimal(18, 2)
+  totalVat        Decimal        @default(0) @map("total_vat") @db.Decimal(18, 2)
+  totalTtc        Decimal        @map("total_ttc") @db.Decimal(18, 2)
+  currency        String         @default("XOF") @db.Char(3)
+  exchangeRate    Decimal?       @map("exchange_rate") @db.Decimal(18, 8)
+  poId            String?        @map("po_id") @db.Uuid
+  ocrConfidence   Decimal?       @map("ocr_confidence") @db.Decimal(5, 2)
+  pdfObjectKey    String?        @map("pdf_object_key")
+  capturedPayload Json?          @map("captured_payload")
+  rejectionReason String?        @map("rejection_reason")
+  postedAt        DateTime?      @map("posted_at") @db.Timestamptz(6)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  matchedBy       String?        @map("matched_by") @db.Uuid
+  matchedAt       DateTime?      @map("matched_at") @db.Timestamptz(6)
+  matchSummary    Json?          @map("match_summary")
+  matcher         AppUser?       @relation("InvoiceMatchedBy", fields: [matchedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  po              PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier        Supplier       @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines           InvoiceLine[]
+  payments        Payment[]
+
+  @@unique([supplierId, invoiceNumber])
+  @@index([status], map: "idx_invoice_status")
+  @@index([dueDate], map: "idx_invoice_due")
+  @@index([poId], map: "idx_invoice_po")
+  @@map("invoice")
+  @@schema("ap")
+}
+
+model InvoiceLine {
+  id             String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  invoiceId      String             @map("invoice_id") @db.Uuid
+  lineNumber     Int                @map("line_number")
+  description    String
+  quantity       Decimal?           @db.Decimal(18, 4)
+  unitPrice      Decimal?           @map("unit_price") @db.Decimal(18, 4)
+  lineTotal      Decimal            @map("line_total") @db.Decimal(18, 2)
+  taxCodeId      String?            @map("tax_code_id") @db.Uuid
+  poLineId       String?            @map("po_line_id") @db.Uuid
+  glAccount      String?            @map("gl_account")
+  glAccountRef   GlAccount?         @relation(fields: [glAccount], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  invoice        Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  poLine         PurchaseOrderLine? @relation(fields: [poLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  taxCode        TaxCode?           @relation(fields: [taxCodeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  invoiceMatches InvoiceMatch[]
+
+  @@unique([invoiceId, lineNumber])
+  @@map("invoice_line")
+  @@schema("ap")
+}
+
+model InvoiceMatch {
+  id            String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  invoiceLineId String            @map("invoice_line_id") @db.Uuid
+  poLineId      String            @map("po_line_id") @db.Uuid
+  grLineId      String?           @map("gr_line_id") @db.Uuid
+  qtyMatched    Decimal           @map("qty_matched") @db.Decimal(18, 4)
+  priceVariance Decimal?          @default(0) @map("price_variance") @db.Decimal(18, 2)
+  qtyVariance   Decimal?          @default(0) @map("qty_variance") @db.Decimal(18, 4)
+  matchResult   String            @map("match_result")
+  matchedAt     DateTime          @default(now()) @map("matched_at") @db.Timestamptz(6)
+  grLine        GoodsReceiptLine? @relation(fields: [grLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  invoiceLine   InvoiceLine       @relation(fields: [invoiceLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  poLine        PurchaseOrderLine @relation(fields: [poLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("invoice_match")
+  @@schema("ap")
+}
+
+model PaymentRun {
+  id                  String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  runNumber           String       @unique @map("run_number")
+  runDate             DateTime     @default(dbgenerated("CURRENT_DATE")) @map("run_date") @db.Date
+  currency            String       @default("XOF") @db.Char(3)
+  bankAccountId       String?      @map("bank_account_id") @db.Uuid
+  preparedBy          String?      @map("prepared_by") @db.Uuid
+  approvedBy          String?      @map("approved_by") @db.Uuid
+  totalAmount         Decimal      @default(0) @map("total_amount") @db.Decimal(18, 2)
+  status              String       @default("draft")
+  sepaFileKey         String?      @map("sepa_file_key")
+  preparationWarnings Json?        @map("preparation_warnings")
+  rejectionReason     String?      @map("rejection_reason")
+  approvedAt          DateTime?    @map("approved_at") @db.Timestamptz(6)
+  executedAt          DateTime?    @map("executed_at") @db.Timestamptz(6)
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Snapshot des alertes IBAN persistées au prepare (sprint F4a anti-fraude).
+  ibanAlerts          Json?        @map("iban_alerts")
+  /// XML pain.001.001.03 (sprint F4a, inline TEXT). Null tant que pas généré.
+  sepaXml             String?      @map("sepa_xml")
+  sepaGeneratedAt     DateTime?    @map("sepa_generated_at") @db.Timestamptz(6)
+  sepaSentAt          DateTime?    @map("sepa_sent_at") @db.Timestamptz(6)
+  payments            Payment[]
+  approver            AppUser?     @relation("PaymentRunApprover", fields: [approvedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  bankAccount         BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  preparer            AppUser?     @relation("PaymentRunPreparer", fields: [preparedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([status], map: "idx_payment_run_status")
+  @@map("payment_run")
+  @@schema("ap")
+}
+
+model Payment {
+  id               String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  paymentRunId     String?       @map("payment_run_id") @db.Uuid
+  invoiceId        String        @map("invoice_id") @db.Uuid
+  amount           Decimal       @db.Decimal(18, 2)
+  currency         String        @db.Char(3)
+  method           PaymentMethod
+  paymentDate      DateTime      @map("payment_date") @db.Date
+  status           PaymentStatus @default(queued)
+  bankReference    String?       @map("bank_reference")
+  fxGainLoss       Decimal?      @default(0) @map("fx_gain_loss") @db.Decimal(18, 2)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Sprint F4a — multidevises : montant original en devise étrangère
+  /// (ex EUR) si distinct de `currency` (devise du compte payeur, ex XOF).
+  originalAmount   Decimal?      @map("original_amount") @db.Decimal(18, 2)
+  originalCurrency String?       @map("original_currency") @db.Char(3)
+  exchangeRate     Decimal?      @map("exchange_rate") @db.Decimal(18, 8)
+  invoice          Invoice       @relation(fields: [invoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  paymentRun       PaymentRun?   @relation(fields: [paymentRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([invoiceId], map: "idx_payment_invoice")
+  @@index([status], map: "idx_payment_status")
+  @@map("payment")
+  @@schema("ap")
+}
+
+model FiscalPeriod {
+  id             String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code           String                  @unique
+  periodType     String                  @map("period_type")
+  startDate      DateTime                @map("start_date") @db.Date
+  endDate        DateTime                @map("end_date") @db.Date
+  isClosed       Boolean                 @default(false) @map("is_closed")
+  closedAt       DateTime?               @map("closed_at") @db.Timestamptz(6)
+  closedBy       String?                 @map("closed_by") @db.Uuid
+  reopenedAt     DateTime?               @map("reopened_at") @db.Timestamptz(6)
+  reopenedBy     String?                 @map("reopened_by") @db.Uuid
+  reopenReason   String?                 @map("reopen_reason")
+  dedicatedFunds DedicatedFundMovement[]
+  overheadCalcs  OverheadCalculation[]
+  closer         AppUser?                @relation("FiscalPeriodClosedBy", fields: [closedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reopener       AppUser?                @relation("FiscalPeriodReopenedBy", fields: [reopenedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journalEntries JournalEntry[]
+  closeChecks    PeriodCloseCheck[]
+  closeEvents    PeriodCloseEvent[]
+  statements     FinancialStatement[]
+  reportRuns     ReportRun[]
+
+  @@map("fiscal_period")
+  @@schema("gl")
+}
+
+model PeriodCloseCheck {
+  id         String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  periodId   String       @map("period_id") @db.Uuid
+  checkCode  String       @map("check_code")
+  severity   String
+  message    String
+  payload    Json         @default("{}")
+  detectedAt DateTime     @default(now()) @map("detected_at") @db.Timestamptz(6)
+  period     FiscalPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([periodId], map: "idx_period_close_check_period")
+  @@map("period_close_check")
+  @@schema("gl")
+}
+
+model PeriodCloseEvent {
+  id         String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  periodId   String       @map("period_id") @db.Uuid
+  action     String
+  userId     String       @map("user_id") @db.Uuid
+  reason     String?
+  payload    Json         @default("{}")
+  occurredAt DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  period     FiscalPeriod @relation(fields: [periodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user       AppUser      @relation("PeriodCloseEventUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([periodId], map: "idx_period_close_event_period")
+  @@index([userId], map: "idx_period_close_event_user")
+  @@map("period_close_event")
+  @@schema("gl")
+}
+
+model JournalEntry {
+  id             String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  entryNumber    String                  @unique @map("entry_number")
+  journal        JournalType
+  entryDate      DateTime                @map("entry_date") @db.Date
+  periodId       String                  @map("period_id") @db.Uuid
+  label          String
+  sourceType     String?                 @map("source_type")
+  sourceId       String?                 @map("source_id") @db.Uuid
+  status         EntryStatus             @default(draft)
+  postedAt       DateTime?               @map("posted_at") @db.Timestamptz(6)
+  postedBy       String?                 @map("posted_by") @db.Uuid
+  reversedById   String?                 @map("reversed_by_id") @db.Uuid
+  createdAt      DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  dedicatedFunds DedicatedFundMovement[]
+  overheadCalcs  OverheadCalculation[]
+  period         FiscalPeriod            @relation(fields: [periodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  poster         AppUser?                @relation(fields: [postedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reversedBy     JournalEntry?           @relation("EntryReversal", fields: [reversedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reversals      JournalEntry[]          @relation("EntryReversal")
+  lines          JournalLine[]
+
+  @@index([periodId], map: "idx_je_period")
+  @@index([status], map: "idx_je_status")
+  @@index([sourceType, sourceId], map: "idx_je_source")
+  @@map("journal_entry")
+  @@schema("gl")
+}
+
+model JournalLine {
+  id             String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  entryId        String          @map("entry_id") @db.Uuid
+  lineNumber     Int             @map("line_number")
+  accountCode    String          @map("account_code")
+  auxiliaryCode  String?         @map("auxiliary_code")
+  label          String?
+  debit          Decimal         @default(0) @db.Decimal(18, 2)
+  credit         Decimal         @default(0) @db.Decimal(18, 2)
+  currency       String          @default("XOF") @db.Char(3)
+  debitCurrency  Decimal?        @default(0) @map("debit_currency") @db.Decimal(18, 2)
+  creditCurrency Decimal?        @default(0) @map("credit_currency") @db.Decimal(18, 2)
+  projectId      String?         @map("project_id") @db.Uuid
+  grantId        String?         @map("grant_id") @db.Uuid
+  budgetLineId   String?         @map("budget_line_id") @db.Uuid
+  costCenterId   String?         @map("cost_center_id") @db.Uuid
+  activityId     String?         @map("activity_id") @db.Uuid
+  account        GlAccount       @relation(fields: [accountCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  activity       AnalyticalAxis? @relation("JlActivity", fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  budgetLine     BudgetLine?     @relation(fields: [budgetLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  costCenter     AnalyticalAxis? @relation("JlCostCenter", fields: [costCenterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  entry          JournalEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  grant          GrantAgreement? @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project        Project?        @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([entryId, lineNumber])
+  @@index([accountCode], map: "idx_jl_account")
+  @@index([projectId], map: "idx_jl_project")
+  @@index([grantId], map: "idx_jl_grant")
+  @@map("journal_line")
+  @@schema("gl")
+}
+
+model DedicatedFundMovement {
+  id             String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  grantId        String         @map("grant_id") @db.Uuid
+  periodId       String         @map("period_id") @db.Uuid
+  movementType   FundMovement   @map("movement_type")
+  amount         Decimal        @db.Decimal(18, 2)
+  currency       String         @default("XOF") @db.Char(3)
+  journalEntryId String?        @map("journal_entry_id") @db.Uuid
+  rationale      String?
+  computedAt     DateTime       @default(now()) @map("computed_at") @db.Timestamptz(6)
+  grant          GrantAgreement @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journalEntry   JournalEntry?  @relation(fields: [journalEntryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  period         FiscalPeriod   @relation(fields: [periodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([grantId], map: "idx_dfm_grant")
+  @@map("dedicated_fund_movement")
+  @@schema("co")
+}
+
+model OverheadCalculation {
+  id             String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  grantId        String         @map("grant_id") @db.Uuid
+  periodId       String         @map("period_id") @db.Uuid
+  eligibleBase   Decimal        @map("eligible_base") @db.Decimal(18, 2)
+  overheadRate   Decimal        @map("overhead_rate") @db.Decimal(6, 4)
+  overheadAmount Decimal?       @default(dbgenerated("(eligible_base * overhead_rate)")) @map("overhead_amount") @db.Decimal(18, 2)
+  journalEntryId String?        @map("journal_entry_id") @db.Uuid
+  computedAt     DateTime       @default(now()) @map("computed_at") @db.Timestamptz(6)
+  grant          GrantAgreement @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  journalEntry   JournalEntry?  @relation(fields: [journalEntryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  period         FiscalPeriod   @relation(fields: [periodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("overhead_calculation")
+  @@schema("co")
+}
+
+model AllocationRule {
+  id               String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code             String             @unique
+  label            String
+  sourceAccount    String?            @map("source_account")
+  method           String
+  isActive         Boolean            @default(true) @map("is_active")
+  parameters       Json?              @default("{}")
+  sourceAccountRef GlAccount?         @relation(fields: [sourceAccount], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  targets          AllocationTarget[]
+
+  @@map("allocation_rule")
+  @@schema("co")
+}
+
+model AllocationTarget {
+  id           String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  ruleId       String          @map("rule_id") @db.Uuid
+  projectId    String?         @map("project_id") @db.Uuid
+  grantId      String?         @map("grant_id") @db.Uuid
+  costCenterId String?         @map("cost_center_id") @db.Uuid
+  weight       Decimal         @db.Decimal(8, 4)
+  costCenter   AnalyticalAxis? @relation(fields: [costCenterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grant        GrantAgreement? @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project      Project?        @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rule         AllocationRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("allocation_target")
+  @@schema("co")
+}
+
+model ReportTemplate {
+  id              String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code            String      @unique
+  label           String
+  donorId         String?     @map("donor_id") @db.Uuid
+  outputFormat    String      @default("pdf") @map("output_format")
+  templatePayload Json        @default("{}") @map("template_payload")
+  runs            ReportRun[]
+  donor           Donor?      @relation(fields: [donorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("report_template")
+  @@schema("reporting")
+}
+
+model ReportRun {
+  id              String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  templateId      String          @map("template_id") @db.Uuid
+  periodId        String          @map("period_id") @db.Uuid
+  grantId         String?         @map("grant_id") @db.Uuid
+  generatedBy     String          @map("generated_by") @db.Uuid
+  generatedAt     DateTime        @default(now()) @map("generated_at") @db.Timestamptz(6)
+  fileObjectKey   String?         @map("file_object_key")
+  payloadSnapshot Json?           @map("payload_snapshot")
+  generator       AppUser         @relation(fields: [generatedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grant           GrantAgreement? @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  period          FiscalPeriod    @relation(fields: [periodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  template        ReportTemplate  @relation(fields: [templateId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("report_run")
+  @@schema("reporting")
+}
+
+model DonorReportTemplate {
+  id         String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  code       String           @unique
+  name       String
+  donorId    String?          @map("donor_id") @db.Uuid
+  currency   String           @default("XOF") @db.Char(3)
+  format     Json             @default("{}")
+  isActive   Boolean          @default(true) @map("is_active")
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime         @default(now()) @map("updated_at") @db.Timestamptz(6)
+  mappings   AccountMapping[]
+  categories DonorCategory[]
+  reports    DonorReport[]
+  donor      Donor?           @relation(fields: [donorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([donorId], map: "idx_donor_report_template_donor")
+  @@map("donor_report_template")
+  @@schema("reporting")
+}
+
+model DonorCategory {
+  id         String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  templateId String              @map("template_id") @db.Uuid
+  code       String
+  label      String
+  parentId   String?             @map("parent_id") @db.Uuid
+  sortOrder  Int                 @default(0) @map("sort_order")
+  mappings   AccountMapping[]
+  parent     DonorCategory?      @relation("DonorCategoryParent", fields: [parentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  children   DonorCategory[]     @relation("DonorCategoryParent")
+  template   DonorReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lines      DonorReportLine[]
+
+  @@unique([templateId, code])
+  @@index([templateId], map: "idx_donor_category_template")
+  @@map("donor_category")
+  @@schema("reporting")
+}
+
+model AccountMapping {
+  id              String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  templateId      String              @map("template_id") @db.Uuid
+  glAccountCode   String              @map("gl_account_code")
+  donorCategoryId String              @map("donor_category_id") @db.Uuid
+  sign            Int                 @default(1) @db.SmallInt
+  donorCategory   DonorCategory       @relation(fields: [donorCategoryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  glAccount       GlAccount           @relation(fields: [glAccountCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  template        DonorReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([templateId, glAccountCode])
+  @@index([templateId], map: "idx_account_mapping_template")
+  @@map("account_mapping")
+  @@schema("reporting")
+}
+
+model DonorReport {
+  id             String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  grantId        String              @map("grant_id") @db.Uuid
+  templateId     String              @map("template_id") @db.Uuid
+  periodStart    DateTime            @map("period_start") @db.Date
+  periodEnd      DateTime            @map("period_end") @db.Date
+  status         String              @default("draft")
+  currency       String              @db.Char(3)
+  fxRateUsed     Decimal?            @map("fx_rate_used") @db.Decimal(18, 8)
+  totalBudget    Decimal             @default(0) @map("total_budget") @db.Decimal(18, 2)
+  totalSpent     Decimal             @default(0) @map("total_spent") @db.Decimal(18, 2)
+  totalOverhead  Decimal             @default(0) @map("total_overhead") @db.Decimal(18, 2)
+  fundsCarried   Decimal             @default(0) @map("funds_carried") @db.Decimal(18, 2)
+  generatedBy    String              @map("generated_by") @db.Uuid
+  generatedAt    DateTime            @default(now()) @map("generated_at") @db.Timestamptz(6)
+  lockedBy       String?             @map("locked_by") @db.Uuid
+  lockedAt       DateTime?           @map("locked_at") @db.Timestamptz(6)
+  sentBy         String?             @map("sent_by") @db.Uuid
+  sentAt         DateTime?           @map("sent_at") @db.Timestamptz(6)
+  pdfObjectKey   String?             @map("pdf_object_key")
+  excelObjectKey String?             @map("excel_object_key")
+  notes          String?
+  generator      AppUser             @relation("DonorReportGeneratedBy", fields: [generatedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grant          GrantAgreement      @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  locker         AppUser?            @relation("DonorReportLockedBy", fields: [lockedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sender         AppUser?            @relation("DonorReportSentBy", fields: [sentBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  template       DonorReportTemplate @relation(fields: [templateId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines          DonorReportLine[]
+
+  @@index([grantId, periodStart, periodEnd], map: "idx_donor_report_grant_period")
+  @@index([status], map: "idx_donor_report_status")
+  @@map("donor_report")
+  @@schema("reporting")
+}
+
+model DonorReportLine {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  reportId        String        @map("report_id") @db.Uuid
+  donorCategoryId String        @map("donor_category_id") @db.Uuid
+  categoryCode    String        @map("category_code")
+  categoryLabel   String        @map("category_label")
+  budgetAmount    Decimal       @default(0) @map("budget_amount") @db.Decimal(18, 2)
+  spentAmount     Decimal       @default(0) @map("spent_amount") @db.Decimal(18, 2)
+  variance        Decimal       @default(0) @db.Decimal(18, 2)
+  variancePct     Decimal       @default(0) @map("variance_pct") @db.Decimal(8, 4)
+  donorCategory   DonorCategory @relation(fields: [donorCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  report          DonorReport   @relation(fields: [reportId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([reportId, donorCategoryId])
+  @@index([reportId], map: "idx_donor_report_line_report")
+  @@map("donor_report_line")
+  @@schema("reporting")
+}
+
+model FinancialStatement {
+  id            String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  periodId      String                   @map("period_id") @db.Uuid
+  type          String
+  generatedAt   DateTime                 @default(now()) @map("generated_at") @db.Timestamptz(6)
+  generatedBy   String                   @map("generated_by") @db.Uuid
+  locked        Boolean                  @default(false)
+  lockedAt      DateTime?                @map("locked_at") @db.Timestamptz(6)
+  lockedBy      String?                  @map("locked_by") @db.Uuid
+  pdfObjectKey  String?                  @map("pdf_object_key")
+  xlsxObjectKey String?                  @map("xlsx_object_key")
+  totals        Json                     @default("{}")
+  generator     AppUser                  @relation("FinancialStatementGeneratedBy", fields: [generatedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  locker        AppUser?                 @relation("FinancialStatementLockedBy", fields: [lockedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  period        FiscalPeriod             @relation(fields: [periodId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lines         FinancialStatementLine[]
+
+  @@unique([periodId, type])
+  @@index([periodId], map: "idx_financial_statement_period")
+  @@map("financial_statement")
+  @@schema("reporting")
+}
+
+model FinancialStatementLine {
+  id          String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  statementId String             @map("statement_id") @db.Uuid
+  section     String
+  label       String
+  accountCode String?            @map("account_code")
+  debit       Decimal            @default(0) @db.Decimal(18, 2)
+  credit      Decimal            @default(0) @db.Decimal(18, 2)
+  balance     Decimal            @default(0) @db.Decimal(18, 2)
+  sortOrder   Int                @default(0) @map("sort_order")
+  statement   FinancialStatement @relation(fields: [statementId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([statementId], map: "idx_financial_statement_line_statement")
+  @@map("financial_statement_line")
+  @@schema("reporting")
+}
 
 enum UserStatus {
   active
@@ -185,1223 +1300,4 @@ enum FundMovement {
 
   @@map("fund_movement")
   @@schema("co")
-}
-
-// =====================================================================
-//  AUDIT
-// =====================================================================
-
-model EventLog {
-  id            String   @id @default(uuid()) @db.Uuid
-  occurredAt    DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
-  actorId       String?  @map("actor_id") @db.Uuid
-  actorEmail    String?  @map("actor_email") @db.Citext
-  action        String
-  entityType    String   @map("entity_type")
-  entityId      String?  @map("entity_id") @db.Uuid
-  payloadBefore Json?    @map("payload_before") @db.JsonB
-  payloadAfter  Json?    @map("payload_after") @db.JsonB
-  ipAddress     String?  @map("ip_address") @db.Inet
-  userAgent     String?  @map("user_agent")
-  result        String   @default("success")
-  errorCode     String?  @map("error_code")
-  requestId     String?  @map("request_id") @db.Uuid
-  hashChain     String?  @map("hash_chain")
-
-  @@index([entityType, entityId], map: "idx_audit_event_log_entity")
-  @@index([actorId, occurredAt(sort: Desc)], map: "idx_audit_event_log_actor")
-  @@index([requestId], map: "idx_audit_event_log_request_id")
-  @@map("event_log")
-  @@schema("audit")
-}
-
-// =====================================================================
-//  AUTH
-// =====================================================================
-
-model Role {
-  id          String   @id @default(uuid()) @db.Uuid
-  code        String   @unique
-  label       String
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  users       UserRole[]
-  permissions RolePermission[]
-
-  @@map("role")
-  @@schema("auth")
-}
-
-model Permission {
-  id     String @id @default(uuid()) @db.Uuid
-  code   String @unique
-  label  String
-  module String
-
-  roles RolePermission[]
-
-  @@map("permission")
-  @@schema("auth")
-}
-
-model RolePermission {
-  roleId       String @map("role_id") @db.Uuid
-  permissionId String @map("permission_id") @db.Uuid
-
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@id([roleId, permissionId])
-  @@map("role_permission")
-  @@schema("auth")
-}
-
-model AppUser {
-  id           String     @id @default(uuid()) @db.Uuid
-  email        String     @unique @db.Citext
-  fullName     String     @map("full_name")
-  employeeCode String?    @map("employee_code")
-  department   String?
-  status       UserStatus @default(active)
-  mfaEnabled   Boolean    @default(false) @map("mfa_enabled")
-  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  roles                        UserRole[]
-  delegationsGiven             Delegation[]          @relation("DelegationDelegator")
-  delegationsReceived          Delegation[]          @relation("DelegationDelegate")
-  projectsAsPi                 Project[]
-  prsRequested                 PurchaseRequest[]
-  approvalSteps                ApprovalStep[]
-  purchaseOrdersAsBuyer        PurchaseOrder[]
-  goodsReceiptsReceived        GoodsReceipt[]        @relation("GrReceivedBy")
-  goodsReceiptsRejected        GoodsReceipt[]        @relation("GrRejectedBy")
-  goodsReceiptsCancelled       GoodsReceipt[]        @relation("GrCancelledBy")
-  goodsReceiptsCompleted       GoodsReceipt[]        @relation("GrCompletedBy")
-  paymentRunsPrepared          PaymentRun[]          @relation("PaymentRunPreparer")
-  paymentRunsApproved          PaymentRun[]          @relation("PaymentRunApprover")
-  fiscalPeriodsClosed          FiscalPeriod[]        @relation("FiscalPeriodClosedBy")
-  fiscalPeriodsReopened        FiscalPeriod[]        @relation("FiscalPeriodReopenedBy")
-  journalEntriesPosted         JournalEntry[]
-  reportRunsGenerated          ReportRun[]
-  cashBoxesCustodian           CashBox[]
-  cashSettlementsDone          CashSettlement[]
-  invoicesMatched              Invoice[]             @relation("InvoiceMatchedBy")
-  donorReportsGenerated        DonorReport[]         @relation("DonorReportGeneratedBy")
-  donorReportsLocked           DonorReport[]         @relation("DonorReportLockedBy")
-  donorReportsSent             DonorReport[]         @relation("DonorReportSentBy")
-  periodCloseEvents            PeriodCloseEvent[]    @relation("PeriodCloseEventUser")
-  financialStatementsGenerated FinancialStatement[]  @relation("FinancialStatementGeneratedBy")
-  financialStatementsLocked    FinancialStatement[]  @relation("FinancialStatementLockedBy")
-  // Sprint F4a — anti-fraude IBAN
-  supplierIbanChanges          SupplierIbanHistory[] @relation("SupplierIbanHistoryChanger")
-
-  @@index([status], map: "idx_user_status")
-  @@map("app_user")
-  @@schema("auth")
-}
-
-model UserRole {
-  userId     String   @map("user_id") @db.Uuid
-  roleId     String   @map("role_id") @db.Uuid
-  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
-
-  user AppUser @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@id([userId, roleId])
-  @@map("user_role")
-  @@schema("auth")
-}
-
-model Delegation {
-  id          String   @id @default(uuid()) @db.Uuid
-  delegatorId String   @map("delegator_id") @db.Uuid
-  delegateId  String   @map("delegate_id") @db.Uuid
-  scope       Json     @db.JsonB
-  validFrom   DateTime @map("valid_from") @db.Date
-  validTo     DateTime @map("valid_to") @db.Date
-
-  delegator AppUser @relation("DelegationDelegator", fields: [delegatorId], references: [id])
-  delegate  AppUser @relation("DelegationDelegate", fields: [delegateId], references: [id])
-
-  @@map("delegation")
-  @@schema("auth")
-}
-
-// =====================================================================
-//  REF
-// =====================================================================
-
-model GlAccount {
-  id               String  @id @default(uuid()) @db.Uuid
-  code             String  @unique
-  label            String
-  class            String  @db.Char(1)
-  parentCode       String? @map("parent_code")
-  isMovement       Boolean @default(true) @map("is_movement")
-  isActive         Boolean @default(true) @map("is_active")
-  syscebnlSpecific Boolean @default(false) @map("syscebnl_specific")
-  description      String?
-
-  budgetLinesAsDefault    BudgetLine[]
-  prLinesAsDefault        PurchaseRequestLine[]
-  invoiceLines            InvoiceLine[]
-  taxCodes                TaxCode[]
-  allocationRulesAsSource AllocationRule[]
-  journalLines            JournalLine[]
-  bankAccounts            BankAccount[]
-  accountMappings         AccountMapping[]
-
-  @@index([class], map: "idx_gl_account_class")
-  @@map("gl_account")
-  @@schema("ref")
-}
-
-model BankAccount {
-  id            String   @id @default(uuid()) @db.Uuid
-  code          String   @unique
-  label         String
-  accountNumber String   @map("account_number")
-  bic           String?
-  bankName      String   @map("bank_name")
-  currency      String   @default("XOF") @db.Char(3)
-  glAccountCode String   @map("gl_account")
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  glAccount   GlAccount    @relation(fields: [glAccountCode], references: [code])
-  paymentRuns PaymentRun[]
-
-  @@index([currency], map: "idx_bank_account_currency")
-  @@map("bank_account")
-  @@schema("ref")
-}
-
-model AnalyticalAxis {
-  id       String   @id @default(uuid()) @db.Uuid
-  type     AxisType
-  code     String
-  label    String
-  parentId String?  @map("parent_id") @db.Uuid
-  isActive Boolean  @default(true) @map("is_active")
-  metadata Json?    @default("{}") @db.JsonB
-
-  parent            AnalyticalAxis?    @relation("AxisHierarchy", fields: [parentId], references: [id])
-  children          AnalyticalAxis[]   @relation("AxisHierarchy")
-  prsAsCostCenter   PurchaseRequest[]  @relation("PrCostCenter")
-  prsAsActivity     PurchaseRequest[]  @relation("PrActivity")
-  jlAsCostCenter    JournalLine[]      @relation("JlCostCenter")
-  jlAsActivity      JournalLine[]      @relation("JlActivity")
-  allocationTargets AllocationTarget[]
-
-  @@unique([type, code])
-  @@index([type], map: "idx_axis_type")
-  @@map("analytical_axis")
-  @@schema("ref")
-}
-
-model Program {
-  id          String   @id @default(uuid()) @db.Uuid
-  code        String   @unique
-  label       String
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  projects Project[]
-
-  @@map("program")
-  @@schema("ref")
-}
-
-model Project {
-  id          String    @id @default(uuid()) @db.Uuid
-  code        String    @unique
-  title       String
-  programId   String?   @map("program_id") @db.Uuid
-  piUserId    String?   @map("pi_user_id") @db.Uuid
-  startDate   DateTime  @map("start_date") @db.Date
-  endDate     DateTime? @map("end_date") @db.Date
-  status      String    @default("active")
-  description String?
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  program           Program?           @relation(fields: [programId], references: [id])
-  pi                AppUser?           @relation(fields: [piUserId], references: [id])
-  grants            GrantAgreement[]
-  purchaseRequests  PurchaseRequest[]
-  journalLines      JournalLine[]
-  allocationTargets AllocationTarget[]
-
-  @@index([piUserId], map: "idx_project_pi")
-  @@map("project")
-  @@schema("ref")
-}
-
-model Donor {
-  id                  String    @id @default(uuid()) @db.Uuid
-  code                String    @unique
-  label               String
-  type                DonorType
-  country             String?
-  contactEmail        String?   @map("contact_email") @db.Citext
-  reportingTemplateId String?   @map("reporting_template_id") @db.Uuid
-  isActive            Boolean   @default(true) @map("is_active")
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  grants               GrantAgreement[]
-  reportTemplates      ReportTemplate[]
-  donorReportTemplates DonorReportTemplate[]
-
-  @@map("donor")
-  @@schema("ref")
-}
-
-model GrantAgreement {
-  id                String      @id @default(uuid()) @db.Uuid
-  reference         String      @unique
-  donorId           String      @map("donor_id") @db.Uuid
-  projectId         String      @map("project_id") @db.Uuid
-  amount            Decimal     @db.Decimal(18, 2)
-  currency          String      @db.Char(3)
-  overheadRate      Decimal     @default(0) @map("overhead_rate") @db.Decimal(6, 4)
-  startDate         DateTime    @map("start_date") @db.Date
-  endDate           DateTime    @map("end_date") @db.Date
-  status            GrantStatus @default(draft)
-  signedAt          DateTime?   @map("signed_at") @db.Date
-  notes             String?
-  allowsCashPayment Boolean     @default(true) @map("allows_cash_payment")
-  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  donor             Donor                   @relation(fields: [donorId], references: [id])
-  project           Project                 @relation(fields: [projectId], references: [id])
-  budgetLines       BudgetLine[]
-  purchaseRequests  PurchaseRequest[]
-  journalLines      JournalLine[]
-  dedicatedFunds    DedicatedFundMovement[]
-  overheadCalcs     OverheadCalculation[]
-  allocationTargets AllocationTarget[]
-  reportRuns        ReportRun[]
-  donorReports      DonorReport[]
-
-  @@index([projectId], map: "idx_grant_project")
-  @@index([donorId], map: "idx_grant_donor")
-  @@map("grant_agreement")
-  @@schema("ref")
-}
-
-model BudgetLine {
-  id                 String  @id @default(uuid()) @db.Uuid
-  grantId            String  @map("grant_id") @db.Uuid
-  code               String
-  label              String
-  budgetedAmount     Decimal @map("budgeted_amount") @db.Decimal(18, 2)
-  defaultAccount     String? @map("default_account")
-  isOverheadEligible Boolean @default(true) @map("is_overhead_eligible")
-  isActive           Boolean @default(true) @map("is_active")
-
-  grant                GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: Cascade)
-  defaultAccountRef    GlAccount?            @relation(fields: [defaultAccount], references: [code])
-  purchaseRequestLines PurchaseRequestLine[]
-  purchaseOrderLines   PurchaseOrderLine[]
-  journalLines         JournalLine[]
-
-  @@unique([grantId, code])
-  @@map("budget_line")
-  @@schema("ref")
-}
-
-model Supplier {
-  id               String   @id @default(uuid()) @db.Uuid
-  code             String   @unique
-  name             String
-  vatNumber        String?  @map("vat_number")
-  address          String?
-  country          String?
-  iban             String?
-  bic              String?
-  bankName         String?  @map("bank_name")
-  paymentTermsDays Int      @default(30) @map("payment_terms_days")
-  currencyDefault  String   @default("XOF") @map("currency_default") @db.Char(3)
-  riskScore        Int?     @default(0) @map("risk_score")
-  isActive         Boolean  @default(true) @map("is_active")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  purchaseOrders PurchaseOrder[]
-  invoices       Invoice[]
-  // Historique IBAN (sprint F4a anti-fraude)
-  ibanHistory    SupplierIbanHistory[]
-
-  @@map("supplier")
-  @@schema("ref")
-}
-
-/// Historique des changements d'IBAN fournisseur (sprint F4a — anti-fraude).
-/// Une ligne « courante » par supplier (effective_to=NULL), garantie par index
-/// partiel unique côté Postgres. Les anciennes lignes ont effective_to renseigné.
-model SupplierIbanHistory {
-  id            String    @id @default(uuid()) @db.Uuid
-  supplierId    String    @map("supplier_id") @db.Uuid
-  iban          String?
-  bic           String?
-  bankName      String?   @map("bank_name")
-  effectiveFrom DateTime  @default(now()) @map("effective_from") @db.Timestamptz(6)
-  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz(6)
-  changedBy     String?   @map("changed_by") @db.Uuid
-  changeReason  String?   @map("change_reason")
-
-  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  changer  AppUser? @relation("SupplierIbanHistoryChanger", fields: [changedBy], references: [id])
-
-  @@index([supplierId], map: "idx_supplier_iban_history_supplier")
-  @@map("supplier_iban_history")
-  @@schema("ref")
-}
-
-model ExchangeRate {
-  id           String   @id @default(uuid()) @db.Uuid
-  fromCurrency String   @map("from_currency") @db.Char(3)
-  toCurrency   String   @map("to_currency") @db.Char(3)
-  rate         Decimal  @db.Decimal(18, 8)
-  rateDate     DateTime @map("rate_date") @db.Date
-  source       String?
-  isFixed      Boolean  @default(false) @map("is_fixed")
-
-  @@unique([fromCurrency, toCurrency, rateDate])
-  @@index([rateDate], map: "idx_exchange_rate_date")
-  @@map("exchange_rate")
-  @@schema("ref")
-}
-
-model TaxCode {
-  id          String  @id @default(uuid()) @db.Uuid
-  code        String  @unique
-  label       String
-  rate        Decimal @db.Decimal(6, 4)
-  accountCode String? @map("account_code")
-  isActive    Boolean @default(true) @map("is_active")
-
-  account            GlAccount?          @relation(fields: [accountCode], references: [code])
-  purchaseOrderLines PurchaseOrderLine[]
-  invoiceLines       InvoiceLine[]
-
-  @@map("tax_code")
-  @@schema("ref")
-}
-
-/// Caisse en espèces (petite caisse). Plafonds appliqués au service —
-/// les CHECK protègent seulement les invariants positifs (cf. DDL §SPRINT 2.3).
-model CashBox {
-  id              String   @id @default(uuid()) @db.Uuid
-  code            String   @unique
-  label           String
-  custodianUserId String?  @map("custodian_user_id") @db.Uuid
-  currency        String   @default("XOF") @db.Char(3)
-  currentBalance  Decimal  @default(0) @map("current_balance") @db.Decimal(18, 2)
-  ceiling         Decimal  @default(500000) @db.Decimal(18, 2)
-  perRequestMax   Decimal  @default(100000) @map("per_request_max") @db.Decimal(18, 2)
-  perDayUserMax   Decimal  @default(200000) @map("per_day_user_max") @db.Decimal(18, 2)
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  custodian        AppUser?          @relation(fields: [custodianUserId], references: [id])
-  purchaseRequests PurchaseRequest[]
-
-  @@index([isActive], map: "idx_cash_box_active")
-  @@map("cash_box")
-  @@schema("ref")
-}
-
-/// Régularisation d'une avance de mission (DA `cash_advance`). Une seule
-/// entrée par DA (UNIQUE sur purchase_request_id côté DDL).
-model CashSettlement {
-  id                String   @id @default(uuid()) @db.Uuid
-  purchaseRequestId String   @unique @map("purchase_request_id") @db.Uuid
-  actualSpent       Decimal  @map("actual_spent") @db.Decimal(18, 2)
-  variance          Decimal  @db.Decimal(18, 2)
-  justifications    String?
-  settledBy         String?  @map("settled_by") @db.Uuid
-  settledAt         DateTime @default(now()) @map("settled_at") @db.Timestamptz(6)
-
-  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
-  settler         AppUser?        @relation(fields: [settledBy], references: [id])
-
-  @@index([purchaseRequestId], map: "idx_cash_settlement_pr")
-  @@map("cash_settlement")
-  @@schema("ref")
-}
-
-// =====================================================================
-//  PROCUREMENT
-// =====================================================================
-
-model PurchaseRequest {
-  id              String    @id @default(uuid()) @db.Uuid
-  prNumber        String    @unique @map("pr_number")
-  requestedBy     String    @map("requested_by") @db.Uuid
-  requestedAt     DateTime  @default(now()) @map("requested_at") @db.Timestamptz(6)
-  neededBy        DateTime? @map("needed_by") @db.Date
-  status          PrStatus  @default(draft)
-  projectId       String    @map("project_id") @db.Uuid
-  grantId         String    @map("grant_id") @db.Uuid
-  costCenterId    String?   @map("cost_center_id") @db.Uuid
-  activityId      String?   @map("activity_id") @db.Uuid
-  totalAmount     Decimal   @default(0) @map("total_amount") @db.Decimal(18, 2)
-  currency        String    @default("XOF") @db.Char(3)
-  description     String?
-  requestType     PrType    @default(standard) @map("request_type")
-  rejectionReason String?   @map("rejection_reason")
-  cashBoxId       String?   @map("cash_box_id") @db.Uuid
-  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  requester      AppUser               @relation(fields: [requestedBy], references: [id])
-  project        Project               @relation(fields: [projectId], references: [id])
-  grant          GrantAgreement        @relation(fields: [grantId], references: [id])
-  costCenter     AnalyticalAxis?       @relation("PrCostCenter", fields: [costCenterId], references: [id])
-  activity       AnalyticalAxis?       @relation("PrActivity", fields: [activityId], references: [id])
-  cashBox        CashBox?              @relation(fields: [cashBoxId], references: [id])
-  cashSettlement CashSettlement?
-  lines          PurchaseRequestLine[]
-  purchaseOrders PurchaseOrder[]
-  poLinks        PurchaseOrderPr[]
-
-  @@index([status], map: "idx_pr_status")
-  @@index([requestedBy], map: "idx_pr_requested_by")
-  @@index([projectId], map: "idx_pr_project")
-  @@map("purchase_request")
-  @@schema("procurement")
-}
-
-model PurchaseRequestLine {
-  id             String  @id @default(uuid()) @db.Uuid
-  prId           String  @map("pr_id") @db.Uuid
-  lineNumber     Int     @map("line_number")
-  description    String
-  quantity       Decimal @db.Decimal(18, 4)
-  unit           String  @default("unit")
-  unitPrice      Decimal @map("unit_price") @db.Decimal(18, 4)
-  // GENERATED ALWAYS AS (quantity * unit_price) STORED — PostgreSQL le calcule, NE PAS écrire (cf. CLAUDE.md §9).
-  lineTotal      Decimal @default(dbgenerated()) @map("line_total") @db.Decimal(18, 2)
-  budgetLineId   String  @map("budget_line_id") @db.Uuid
-  defaultAccount String? @map("default_account")
-
-  pr                 PurchaseRequest     @relation(fields: [prId], references: [id], onDelete: Cascade)
-  budgetLine         BudgetLine          @relation(fields: [budgetLineId], references: [id])
-  defaultAccountRef  GlAccount?          @relation(fields: [defaultAccount], references: [code])
-  purchaseOrderLines PurchaseOrderLine[]
-
-  @@unique([prId, lineNumber])
-  @@map("purchase_request_line")
-  @@schema("procurement")
-}
-
-model ApprovalStep {
-  id            String    @id @default(uuid()) @db.Uuid
-  entityType    String    @map("entity_type")
-  entityId      String    @map("entity_id") @db.Uuid
-  stepOrder     Int       @map("step_order")
-  approverId    String?   @map("approver_id") @db.Uuid
-  approverRole  String?   @map("approver_role")
-  status        String    @default("pending")
-  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(6)
-  decisionNotes String?   @map("decision_notes")
-
-  approver AppUser? @relation(fields: [approverId], references: [id])
-
-  @@index([entityType, entityId], map: "idx_approval_entity")
-  @@map("approval_step")
-  @@schema("procurement")
-}
-
-model PurchaseOrder {
-  id                 String    @id @default(uuid()) @db.Uuid
-  poNumber           String    @unique @map("po_number")
-  prId               String?   @map("pr_id") @db.Uuid
-  supplierId         String    @map("supplier_id") @db.Uuid
-  orderDate          DateTime  @default(now()) @map("order_date") @db.Date
-  expectedDate       DateTime? @map("expected_date") @db.Date
-  status             PoStatus  @default(draft)
-  totalHt            Decimal   @default(0) @map("total_ht") @db.Decimal(18, 2)
-  totalVat           Decimal   @default(0) @map("total_vat") @db.Decimal(18, 2)
-  totalTtc           Decimal   @default(0) @map("total_ttc") @db.Decimal(18, 2)
-  currency           String    @default("XOF") @db.Char(3)
-  incoterm           String?
-  deliveryAddress    String?   @map("delivery_address")
-  buyerId            String?   @map("buyer_id") @db.Uuid
-  sentAt             DateTime? @map("sent_at") @db.Timestamptz(6)
-  acknowledgedAt     DateTime? @map("acknowledged_at") @db.Timestamptz(6)
-  acknowledgedBy     String?   @map("acknowledged_by")
-  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(6)
-  cancellationReason String?   @map("cancellation_reason")
-  pdfObjectKey       String?   @map("pdf_object_key")
-  emailSentAt        DateTime? @map("email_sent_at") @db.Timestamptz(6)
-  emailSentTo        String?   @map("email_sent_to")
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  pr            PurchaseRequest?    @relation(fields: [prId], references: [id])
-  supplier      Supplier            @relation(fields: [supplierId], references: [id])
-  buyer         AppUser?            @relation(fields: [buyerId], references: [id])
-  lines         PurchaseOrderLine[]
-  goodsReceipts GoodsReceipt[]
-  invoices      Invoice[]
-  prLinks       PurchaseOrderPr[]
-
-  @@index([supplierId], map: "idx_po_supplier")
-  @@index([status], map: "idx_po_status")
-  @@map("purchase_order")
-  @@schema("procurement")
-}
-
-/// Liaison N-N entre BC et DA (un BC peut consolider plusieurs DAs).
-/// Voir DDL §SPRINT 3.
-model PurchaseOrderPr {
-  poId String @map("po_id") @db.Uuid
-  prId String @map("pr_id") @db.Uuid
-
-  po PurchaseOrder   @relation(fields: [poId], references: [id], onDelete: Cascade)
-  pr PurchaseRequest @relation(fields: [prId], references: [id])
-
-  @@id([poId, prId])
-  @@index([prId], map: "idx_po_pr_pr")
-  @@map("purchase_order_pr")
-  @@schema("procurement")
-}
-
-model PurchaseOrderLine {
-  id               String  @id @default(uuid()) @db.Uuid
-  poId             String  @map("po_id") @db.Uuid
-  prLineId         String? @map("pr_line_id") @db.Uuid
-  lineNumber       Int     @map("line_number")
-  description      String
-  quantity         Decimal @db.Decimal(18, 4)
-  quantityReceived Decimal @default(0) @map("quantity_received") @db.Decimal(18, 4)
-  quantityInvoiced Decimal @default(0) @map("quantity_invoiced") @db.Decimal(18, 4)
-  unit             String
-  unitPrice        Decimal @map("unit_price") @db.Decimal(18, 4)
-  taxCodeId        String? @map("tax_code_id") @db.Uuid
-  // GENERATED ALWAYS AS (quantity * unit_price) STORED — PostgreSQL le calcule, NE PAS écrire (cf. CLAUDE.md §9).
-  lineTotal        Decimal @default(dbgenerated()) @map("line_total") @db.Decimal(18, 2)
-  budgetLineId     String  @map("budget_line_id") @db.Uuid
-
-  po                PurchaseOrder        @relation(fields: [poId], references: [id], onDelete: Cascade)
-  prLine            PurchaseRequestLine? @relation(fields: [prLineId], references: [id])
-  taxCode           TaxCode?             @relation(fields: [taxCodeId], references: [id])
-  budgetLine        BudgetLine           @relation(fields: [budgetLineId], references: [id])
-  goodsReceiptLines GoodsReceiptLine[]
-  invoiceLines      InvoiceLine[]
-  invoiceMatches    InvoiceMatch[]
-
-  @@unique([poId, lineNumber])
-  @@map("purchase_order_line")
-  @@schema("procurement")
-}
-
-model GoodsReceipt {
-  id                String    @id @default(uuid()) @db.Uuid
-  grNumber          String    @unique @map("gr_number")
-  poId              String    @map("po_id") @db.Uuid
-  receiptDate       DateTime  @default(now()) @map("receipt_date") @db.Date
-  receivedBy        String    @map("received_by") @db.Uuid
-  status            GrStatus  @default(draft)
-  deliveryNoteRef   String?   @map("delivery_note_ref")
-  notes             String?
-  coldChainRequired Boolean   @default(false) @map("cold_chain_required")
-  rejectedReason    String?   @map("rejected_reason")
-  rejectedAt        DateTime? @map("rejected_at") @db.Timestamptz(6)
-  rejectedBy        String?   @map("rejected_by") @db.Uuid
-  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(6)
-  cancelledReason   String?   @map("cancelled_reason")
-  cancelledBy       String?   @map("cancelled_by") @db.Uuid
-  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
-  completedBy       String?   @map("completed_by") @db.Uuid
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  po        PurchaseOrder      @relation(fields: [poId], references: [id])
-  receiver  AppUser            @relation("GrReceivedBy", fields: [receivedBy], references: [id])
-  rejecter  AppUser?           @relation("GrRejectedBy", fields: [rejectedBy], references: [id])
-  canceller AppUser?           @relation("GrCancelledBy", fields: [cancelledBy], references: [id])
-  completer AppUser?           @relation("GrCompletedBy", fields: [completedBy], references: [id])
-  lines     GoodsReceiptLine[]
-
-  @@index([poId], map: "idx_gr_po")
-  @@index([status], map: "idx_gr_status")
-  @@map("goods_receipt")
-  @@schema("procurement")
-}
-
-model GoodsReceiptLine {
-  id            String    @id @default(uuid()) @db.Uuid
-  grId          String    @map("gr_id") @db.Uuid
-  poLineId      String    @map("po_line_id") @db.Uuid
-  quantity      Decimal   @db.Decimal(18, 4)
-  batchNumber   String?   @map("batch_number")
-  expiryDate    DateTime? @map("expiry_date") @db.Date
-  serialNumbers String[]  @map("serial_numbers")
-  qualityCheck  String?   @map("quality_check")
-  coldChainOk   Boolean?  @map("cold_chain_ok")
-
-  gr             GoodsReceipt      @relation(fields: [grId], references: [id], onDelete: Cascade)
-  poLine         PurchaseOrderLine @relation(fields: [poLineId], references: [id])
-  invoiceMatches InvoiceMatch[]
-
-  @@index([poLineId], map: "idx_gr_line_po")
-  @@map("goods_receipt_line")
-  @@schema("procurement")
-}
-
-// =====================================================================
-//  ACCOUNTS PAYABLE
-// =====================================================================
-
-model Invoice {
-  id              String        @id @default(uuid()) @db.Uuid
-  invoiceNumber   String        @map("invoice_number")
-  supplierId      String        @map("supplier_id") @db.Uuid
-  invoiceDate     DateTime      @map("invoice_date") @db.Date
-  dueDate         DateTime      @map("due_date") @db.Date
-  receivedAt      DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
-  status          InvoiceStatus @default(captured)
-  totalHt         Decimal       @map("total_ht") @db.Decimal(18, 2)
-  totalVat        Decimal       @default(0) @map("total_vat") @db.Decimal(18, 2)
-  totalTtc        Decimal       @map("total_ttc") @db.Decimal(18, 2)
-  currency        String        @default("XOF") @db.Char(3)
-  exchangeRate    Decimal?      @map("exchange_rate") @db.Decimal(18, 8)
-  poId            String?       @map("po_id") @db.Uuid
-  ocrConfidence   Decimal?      @map("ocr_confidence") @db.Decimal(5, 2)
-  pdfObjectKey    String?       @map("pdf_object_key")
-  capturedPayload Json?         @map("captured_payload") @db.JsonB
-  rejectionReason String?       @map("rejection_reason")
-  postedAt        DateTime?     @map("posted_at") @db.Timestamptz(6)
-  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  matchedBy       String?       @map("matched_by") @db.Uuid
-  matchedAt       DateTime?     @map("matched_at") @db.Timestamptz(6)
-  matchSummary    Json?         @map("match_summary") @db.JsonB
-
-  supplier Supplier       @relation(fields: [supplierId], references: [id])
-  po       PurchaseOrder? @relation(fields: [poId], references: [id])
-  matcher  AppUser?       @relation("InvoiceMatchedBy", fields: [matchedBy], references: [id])
-  lines    InvoiceLine[]
-  payments Payment[]
-
-  @@unique([supplierId, invoiceNumber])
-  @@index([status], map: "idx_invoice_status")
-  @@index([dueDate], map: "idx_invoice_due")
-  @@index([poId], map: "idx_invoice_po")
-  @@map("invoice")
-  @@schema("ap")
-}
-
-model InvoiceLine {
-  id          String   @id @default(uuid()) @db.Uuid
-  invoiceId   String   @map("invoice_id") @db.Uuid
-  lineNumber  Int      @map("line_number")
-  description String
-  quantity    Decimal? @db.Decimal(18, 4)
-  unitPrice   Decimal? @map("unit_price") @db.Decimal(18, 4)
-  lineTotal   Decimal  @map("line_total") @db.Decimal(18, 2)
-  taxCodeId   String?  @map("tax_code_id") @db.Uuid
-  poLineId    String?  @map("po_line_id") @db.Uuid
-  glAccount   String?  @map("gl_account")
-
-  invoice        Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  taxCode        TaxCode?           @relation(fields: [taxCodeId], references: [id])
-  poLine         PurchaseOrderLine? @relation(fields: [poLineId], references: [id])
-  glAccountRef   GlAccount?         @relation(fields: [glAccount], references: [code])
-  invoiceMatches InvoiceMatch[]
-
-  @@unique([invoiceId, lineNumber])
-  @@map("invoice_line")
-  @@schema("ap")
-}
-
-model InvoiceMatch {
-  id            String   @id @default(uuid()) @db.Uuid
-  invoiceLineId String   @map("invoice_line_id") @db.Uuid
-  poLineId      String   @map("po_line_id") @db.Uuid
-  grLineId      String?  @map("gr_line_id") @db.Uuid
-  qtyMatched    Decimal  @map("qty_matched") @db.Decimal(18, 4)
-  priceVariance Decimal? @default(0) @map("price_variance") @db.Decimal(18, 2)
-  qtyVariance   Decimal? @default(0) @map("qty_variance") @db.Decimal(18, 4)
-  matchResult   String   @map("match_result")
-  matchedAt     DateTime @default(now()) @map("matched_at") @db.Timestamptz(6)
-
-  invoiceLine InvoiceLine       @relation(fields: [invoiceLineId], references: [id])
-  poLine      PurchaseOrderLine @relation(fields: [poLineId], references: [id])
-  grLine      GoodsReceiptLine? @relation(fields: [grLineId], references: [id])
-
-  @@map("invoice_match")
-  @@schema("ap")
-}
-
-model PaymentRun {
-  id                  String    @id @default(uuid()) @db.Uuid
-  runNumber           String    @unique @map("run_number")
-  runDate             DateTime  @default(now()) @map("run_date") @db.Date
-  currency            String    @default("XOF") @db.Char(3)
-  bankAccountId       String?   @map("bank_account_id") @db.Uuid
-  preparedBy          String?   @map("prepared_by") @db.Uuid
-  approvedBy          String?   @map("approved_by") @db.Uuid
-  totalAmount         Decimal   @default(0) @map("total_amount") @db.Decimal(18, 2)
-  status              String    @default("draft")
-  sepaFileKey         String?   @map("sepa_file_key")
-  preparationWarnings Json?     @map("preparation_warnings") @db.JsonB
-  rejectionReason     String?   @map("rejection_reason")
-  /// Snapshot des alertes IBAN persistées au prepare (sprint F4a anti-fraude).
-  ibanAlerts          Json?     @map("iban_alerts") @db.JsonB
-  /// XML pain.001.001.03 (sprint F4a, inline TEXT). Null tant que pas généré.
-  sepaXml             String?   @map("sepa_xml")
-  sepaGeneratedAt     DateTime? @map("sepa_generated_at") @db.Timestamptz(6)
-  sepaSentAt          DateTime? @map("sepa_sent_at") @db.Timestamptz(6)
-  approvedAt          DateTime? @map("approved_at") @db.Timestamptz(6)
-  executedAt          DateTime? @map("executed_at") @db.Timestamptz(6)
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  preparer    AppUser?     @relation("PaymentRunPreparer", fields: [preparedBy], references: [id])
-  approver    AppUser?     @relation("PaymentRunApprover", fields: [approvedBy], references: [id])
-  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
-  payments    Payment[]
-
-  @@index([status], map: "idx_payment_run_status")
-  @@map("payment_run")
-  @@schema("ap")
-}
-
-model Payment {
-  id               String        @id @default(uuid()) @db.Uuid
-  paymentRunId     String?       @map("payment_run_id") @db.Uuid
-  invoiceId        String        @map("invoice_id") @db.Uuid
-  amount           Decimal       @db.Decimal(18, 2)
-  currency         String        @db.Char(3)
-  /// Sprint F4a — multidevises : montant original en devise étrangère
-  /// (ex EUR) si distinct de `currency` (devise du compte payeur, ex XOF).
-  originalAmount   Decimal?      @map("original_amount") @db.Decimal(18, 2)
-  originalCurrency String?       @map("original_currency") @db.Char(3)
-  exchangeRate     Decimal?      @map("exchange_rate") @db.Decimal(18, 8)
-  method           PaymentMethod
-  paymentDate      DateTime      @map("payment_date") @db.Date
-  status           PaymentStatus @default(queued)
-  bankReference    String?       @map("bank_reference")
-  fxGainLoss       Decimal?      @default(0) @map("fx_gain_loss") @db.Decimal(18, 2)
-  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  paymentRun PaymentRun? @relation(fields: [paymentRunId], references: [id])
-  invoice    Invoice     @relation(fields: [invoiceId], references: [id])
-
-  @@index([invoiceId], map: "idx_payment_invoice")
-  @@index([status], map: "idx_payment_status")
-  @@map("payment")
-  @@schema("ap")
-}
-
-// =====================================================================
-//  GENERAL LEDGER
-// =====================================================================
-
-model FiscalPeriod {
-  id           String    @id @default(uuid()) @db.Uuid
-  code         String    @unique
-  periodType   String    @map("period_type")
-  startDate    DateTime  @map("start_date") @db.Date
-  endDate      DateTime  @map("end_date") @db.Date
-  isClosed     Boolean   @default(false) @map("is_closed")
-  closedAt     DateTime? @map("closed_at") @db.Timestamptz(6)
-  closedBy     String?   @map("closed_by") @db.Uuid
-  reopenedAt   DateTime? @map("reopened_at") @db.Timestamptz(6)
-  reopenedBy   String?   @map("reopened_by") @db.Uuid
-  reopenReason String?   @map("reopen_reason")
-
-  closer         AppUser?                @relation("FiscalPeriodClosedBy", fields: [closedBy], references: [id])
-  reopener       AppUser?                @relation("FiscalPeriodReopenedBy", fields: [reopenedBy], references: [id])
-  journalEntries JournalEntry[]
-  dedicatedFunds DedicatedFundMovement[]
-  overheadCalcs  OverheadCalculation[]
-  reportRuns     ReportRun[]
-  closeChecks    PeriodCloseCheck[]
-  closeEvents    PeriodCloseEvent[]
-  statements     FinancialStatement[]
-
-  @@map("fiscal_period")
-  @@schema("gl")
-}
-
-model PeriodCloseCheck {
-  id         String   @id @default(uuid()) @db.Uuid
-  periodId   String   @map("period_id") @db.Uuid
-  checkCode  String   @map("check_code")
-  severity   String
-  message    String
-  payload    Json     @default("{}") @db.JsonB
-  detectedAt DateTime @default(now()) @map("detected_at") @db.Timestamptz(6)
-
-  period FiscalPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
-
-  @@index([periodId], map: "idx_period_close_check_period")
-  @@map("period_close_check")
-  @@schema("gl")
-}
-
-model PeriodCloseEvent {
-  id         String   @id @default(uuid()) @db.Uuid
-  periodId   String   @map("period_id") @db.Uuid
-  action     String
-  userId     String   @map("user_id") @db.Uuid
-  reason     String?
-  payload    Json     @default("{}") @db.JsonB
-  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
-
-  period FiscalPeriod @relation(fields: [periodId], references: [id])
-  user   AppUser      @relation("PeriodCloseEventUser", fields: [userId], references: [id])
-
-  @@index([periodId], map: "idx_period_close_event_period")
-  @@index([userId], map: "idx_period_close_event_user")
-  @@map("period_close_event")
-  @@schema("gl")
-}
-
-model JournalEntry {
-  id           String      @id @default(uuid()) @db.Uuid
-  entryNumber  String      @unique @map("entry_number")
-  journal      JournalType
-  entryDate    DateTime    @map("entry_date") @db.Date
-  periodId     String      @map("period_id") @db.Uuid
-  label        String
-  sourceType   String?     @map("source_type")
-  sourceId     String?     @map("source_id") @db.Uuid
-  status       EntryStatus @default(draft)
-  postedAt     DateTime?   @map("posted_at") @db.Timestamptz(6)
-  postedBy     String?     @map("posted_by") @db.Uuid
-  reversedById String?     @map("reversed_by_id") @db.Uuid
-  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  period         FiscalPeriod            @relation(fields: [periodId], references: [id])
-  poster         AppUser?                @relation(fields: [postedBy], references: [id])
-  reversedBy     JournalEntry?           @relation("EntryReversal", fields: [reversedById], references: [id])
-  reversals      JournalEntry[]          @relation("EntryReversal")
-  lines          JournalLine[]
-  dedicatedFunds DedicatedFundMovement[]
-  overheadCalcs  OverheadCalculation[]
-
-  @@index([periodId], map: "idx_je_period")
-  @@index([status], map: "idx_je_status")
-  @@index([sourceType, sourceId], map: "idx_je_source")
-  @@map("journal_entry")
-  @@schema("gl")
-}
-
-model JournalLine {
-  id             String   @id @default(uuid()) @db.Uuid
-  entryId        String   @map("entry_id") @db.Uuid
-  lineNumber     Int      @map("line_number")
-  accountCode    String   @map("account_code")
-  auxiliaryCode  String?  @map("auxiliary_code")
-  label          String?
-  debit          Decimal  @default(0) @db.Decimal(18, 2)
-  credit         Decimal  @default(0) @db.Decimal(18, 2)
-  currency       String   @default("XOF") @db.Char(3)
-  debitCurrency  Decimal? @default(0) @map("debit_currency") @db.Decimal(18, 2)
-  creditCurrency Decimal? @default(0) @map("credit_currency") @db.Decimal(18, 2)
-  projectId      String?  @map("project_id") @db.Uuid
-  grantId        String?  @map("grant_id") @db.Uuid
-  budgetLineId   String?  @map("budget_line_id") @db.Uuid
-  costCenterId   String?  @map("cost_center_id") @db.Uuid
-  activityId     String?  @map("activity_id") @db.Uuid
-
-  entry      JournalEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
-  account    GlAccount       @relation(fields: [accountCode], references: [code])
-  project    Project?        @relation(fields: [projectId], references: [id])
-  grant      GrantAgreement? @relation(fields: [grantId], references: [id])
-  budgetLine BudgetLine?     @relation(fields: [budgetLineId], references: [id])
-  costCenter AnalyticalAxis? @relation("JlCostCenter", fields: [costCenterId], references: [id])
-  activity   AnalyticalAxis? @relation("JlActivity", fields: [activityId], references: [id])
-
-  @@unique([entryId, lineNumber])
-  @@index([accountCode], map: "idx_jl_account")
-  @@index([projectId], map: "idx_jl_project")
-  @@index([grantId], map: "idx_jl_grant")
-  @@map("journal_line")
-  @@schema("gl")
-}
-
-// =====================================================================
-//  CONTROLLING
-// =====================================================================
-
-model DedicatedFundMovement {
-  id             String       @id @default(uuid()) @db.Uuid
-  grantId        String       @map("grant_id") @db.Uuid
-  periodId       String       @map("period_id") @db.Uuid
-  movementType   FundMovement @map("movement_type")
-  amount         Decimal      @db.Decimal(18, 2)
-  currency       String       @default("XOF") @db.Char(3)
-  journalEntryId String?      @map("journal_entry_id") @db.Uuid
-  rationale      String?
-  computedAt     DateTime     @default(now()) @map("computed_at") @db.Timestamptz(6)
-
-  grant        GrantAgreement @relation(fields: [grantId], references: [id])
-  period       FiscalPeriod   @relation(fields: [periodId], references: [id])
-  journalEntry JournalEntry?  @relation(fields: [journalEntryId], references: [id])
-
-  @@index([grantId], map: "idx_dfm_grant")
-  @@map("dedicated_fund_movement")
-  @@schema("co")
-}
-
-model OverheadCalculation {
-  id             String   @id @default(uuid()) @db.Uuid
-  grantId        String   @map("grant_id") @db.Uuid
-  periodId       String   @map("period_id") @db.Uuid
-  eligibleBase   Decimal  @map("eligible_base") @db.Decimal(18, 2)
-  overheadRate   Decimal  @map("overhead_rate") @db.Decimal(6, 4)
-  // GENERATED ALWAYS AS (eligible_base * overhead_rate) STORED — calculée par PostgreSQL (cf. CLAUDE.md §9).
-  overheadAmount Decimal  @default(dbgenerated()) @map("overhead_amount") @db.Decimal(18, 2)
-  journalEntryId String?  @map("journal_entry_id") @db.Uuid
-  computedAt     DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
-
-  grant        GrantAgreement @relation(fields: [grantId], references: [id])
-  period       FiscalPeriod   @relation(fields: [periodId], references: [id])
-  journalEntry JournalEntry?  @relation(fields: [journalEntryId], references: [id])
-
-  @@map("overhead_calculation")
-  @@schema("co")
-}
-
-model AllocationRule {
-  id            String  @id @default(uuid()) @db.Uuid
-  code          String  @unique
-  label         String
-  sourceAccount String? @map("source_account")
-  method        String
-  isActive      Boolean @default(true) @map("is_active")
-  parameters    Json?   @default("{}") @db.JsonB
-
-  sourceAccountRef GlAccount?         @relation(fields: [sourceAccount], references: [code])
-  targets          AllocationTarget[]
-
-  @@map("allocation_rule")
-  @@schema("co")
-}
-
-model AllocationTarget {
-  id           String  @id @default(uuid()) @db.Uuid
-  ruleId       String  @map("rule_id") @db.Uuid
-  projectId    String? @map("project_id") @db.Uuid
-  grantId      String? @map("grant_id") @db.Uuid
-  costCenterId String? @map("cost_center_id") @db.Uuid
-  weight       Decimal @db.Decimal(8, 4)
-
-  rule       AllocationRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  project    Project?        @relation(fields: [projectId], references: [id])
-  grant      GrantAgreement? @relation(fields: [grantId], references: [id])
-  costCenter AnalyticalAxis? @relation(fields: [costCenterId], references: [id])
-
-  @@map("allocation_target")
-  @@schema("co")
-}
-
-// =====================================================================
-//  REPORTING
-// =====================================================================
-
-model ReportTemplate {
-  id              String  @id @default(uuid()) @db.Uuid
-  code            String  @unique
-  label           String
-  donorId         String? @map("donor_id") @db.Uuid
-  outputFormat    String  @default("pdf") @map("output_format")
-  templatePayload Json    @default("{}") @map("template_payload") @db.JsonB
-
-  donor Donor?      @relation(fields: [donorId], references: [id])
-  runs  ReportRun[]
-
-  @@map("report_template")
-  @@schema("reporting")
-}
-
-model ReportRun {
-  id              String   @id @default(uuid()) @db.Uuid
-  templateId      String   @map("template_id") @db.Uuid
-  periodId        String   @map("period_id") @db.Uuid
-  grantId         String?  @map("grant_id") @db.Uuid
-  generatedBy     String   @map("generated_by") @db.Uuid
-  generatedAt     DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
-  fileObjectKey   String?  @map("file_object_key")
-  payloadSnapshot Json?    @map("payload_snapshot") @db.JsonB
-
-  template  ReportTemplate  @relation(fields: [templateId], references: [id])
-  period    FiscalPeriod    @relation(fields: [periodId], references: [id])
-  grant     GrantAgreement? @relation(fields: [grantId], references: [id])
-  generator AppUser         @relation(fields: [generatedBy], references: [id])
-
-  @@map("report_run")
-  @@schema("reporting")
-}
-
-// =====================================================================
-//  REPORTING — Sprint 6.1 — Templates donor-specific
-// =====================================================================
-
-model DonorReportTemplate {
-  id        String   @id @default(uuid()) @db.Uuid
-  code      String   @unique
-  name      String
-  donorId   String?  @map("donor_id") @db.Uuid
-  currency  String   @default("XOF") @db.Char(3)
-  format    Json     @default("{}") @db.JsonB
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
-
-  donor      Donor?           @relation(fields: [donorId], references: [id])
-  categories DonorCategory[]
-  mappings   AccountMapping[]
-  reports    DonorReport[]
-
-  @@index([donorId], map: "idx_donor_report_template_donor")
-  @@map("donor_report_template")
-  @@schema("reporting")
-}
-
-model DonorCategory {
-  id         String  @id @default(uuid()) @db.Uuid
-  templateId String  @map("template_id") @db.Uuid
-  code       String
-  label      String
-  parentId   String? @map("parent_id") @db.Uuid
-  sortOrder  Int     @default(0) @map("sort_order")
-
-  template DonorReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  parent   DonorCategory?      @relation("DonorCategoryParent", fields: [parentId], references: [id], onDelete: Cascade)
-  children DonorCategory[]     @relation("DonorCategoryParent")
-  mappings AccountMapping[]
-  lines    DonorReportLine[]
-
-  @@unique([templateId, code])
-  @@index([templateId], map: "idx_donor_category_template")
-  @@map("donor_category")
-  @@schema("reporting")
-}
-
-model AccountMapping {
-  id              String @id @default(uuid()) @db.Uuid
-  templateId      String @map("template_id") @db.Uuid
-  glAccountCode   String @map("gl_account_code")
-  donorCategoryId String @map("donor_category_id") @db.Uuid
-  sign            Int    @default(1) @db.SmallInt
-
-  template      DonorReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  glAccount     GlAccount           @relation(fields: [glAccountCode], references: [code])
-  donorCategory DonorCategory       @relation(fields: [donorCategoryId], references: [id], onDelete: Cascade)
-
-  @@unique([templateId, glAccountCode])
-  @@index([templateId], map: "idx_account_mapping_template")
-  @@map("account_mapping")
-  @@schema("reporting")
-}
-
-model DonorReport {
-  id             String    @id @default(uuid()) @db.Uuid
-  grantId        String    @map("grant_id") @db.Uuid
-  templateId     String    @map("template_id") @db.Uuid
-  periodStart    DateTime  @map("period_start") @db.Date
-  periodEnd      DateTime  @map("period_end") @db.Date
-  status         String    @default("draft")
-  currency       String    @db.Char(3)
-  fxRateUsed     Decimal?  @map("fx_rate_used") @db.Decimal(18, 8)
-  totalBudget    Decimal   @default(0) @map("total_budget") @db.Decimal(18, 2)
-  totalSpent     Decimal   @default(0) @map("total_spent") @db.Decimal(18, 2)
-  totalOverhead  Decimal   @default(0) @map("total_overhead") @db.Decimal(18, 2)
-  fundsCarried   Decimal   @default(0) @map("funds_carried") @db.Decimal(18, 2)
-  generatedBy    String    @map("generated_by") @db.Uuid
-  generatedAt    DateTime  @default(now()) @map("generated_at") @db.Timestamptz(6)
-  lockedBy       String?   @map("locked_by") @db.Uuid
-  lockedAt       DateTime? @map("locked_at") @db.Timestamptz(6)
-  sentBy         String?   @map("sent_by") @db.Uuid
-  sentAt         DateTime? @map("sent_at") @db.Timestamptz(6)
-  pdfObjectKey   String?   @map("pdf_object_key")
-  excelObjectKey String?   @map("excel_object_key")
-  notes          String?
-
-  grant     GrantAgreement      @relation(fields: [grantId], references: [id])
-  template  DonorReportTemplate @relation(fields: [templateId], references: [id])
-  generator AppUser             @relation("DonorReportGeneratedBy", fields: [generatedBy], references: [id])
-  locker    AppUser?            @relation("DonorReportLockedBy", fields: [lockedBy], references: [id])
-  sender    AppUser?            @relation("DonorReportSentBy", fields: [sentBy], references: [id])
-  lines     DonorReportLine[]
-
-  @@index([grantId, periodStart, periodEnd], map: "idx_donor_report_grant_period")
-  @@index([status], map: "idx_donor_report_status")
-  @@map("donor_report")
-  @@schema("reporting")
-}
-
-model DonorReportLine {
-  id              String  @id @default(uuid()) @db.Uuid
-  reportId        String  @map("report_id") @db.Uuid
-  donorCategoryId String  @map("donor_category_id") @db.Uuid
-  categoryCode    String  @map("category_code")
-  categoryLabel   String  @map("category_label")
-  budgetAmount    Decimal @default(0) @map("budget_amount") @db.Decimal(18, 2)
-  spentAmount     Decimal @default(0) @map("spent_amount") @db.Decimal(18, 2)
-  variance        Decimal @default(0) @db.Decimal(18, 2)
-  variancePct     Decimal @default(0) @map("variance_pct") @db.Decimal(8, 4)
-
-  report        DonorReport   @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  donorCategory DonorCategory @relation(fields: [donorCategoryId], references: [id])
-
-  @@unique([reportId, donorCategoryId])
-  @@index([reportId], map: "idx_donor_report_line_report")
-  @@map("donor_report_line")
-  @@schema("reporting")
-}
-
-// =====================================================================
-//  Sprint 6.2 — États financiers (TER, BILAN, RESULTAT)
-// =====================================================================
-
-model FinancialStatement {
-  id            String    @id @default(uuid()) @db.Uuid
-  periodId      String    @map("period_id") @db.Uuid
-  type          String
-  generatedAt   DateTime  @default(now()) @map("generated_at") @db.Timestamptz(6)
-  generatedBy   String    @map("generated_by") @db.Uuid
-  locked        Boolean   @default(false)
-  lockedAt      DateTime? @map("locked_at") @db.Timestamptz(6)
-  lockedBy      String?   @map("locked_by") @db.Uuid
-  pdfObjectKey  String?   @map("pdf_object_key")
-  xlsxObjectKey String?   @map("xlsx_object_key")
-  totals        Json      @default("{}") @db.JsonB
-
-  period    FiscalPeriod             @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  generator AppUser                  @relation("FinancialStatementGeneratedBy", fields: [generatedBy], references: [id])
-  locker    AppUser?                 @relation("FinancialStatementLockedBy", fields: [lockedBy], references: [id])
-  lines     FinancialStatementLine[]
-
-  @@unique([periodId, type])
-  @@index([periodId], map: "idx_financial_statement_period")
-  @@map("financial_statement")
-  @@schema("reporting")
-}
-
-model FinancialStatementLine {
-  id          String  @id @default(uuid()) @db.Uuid
-  statementId String  @map("statement_id") @db.Uuid
-  section     String
-  label       String
-  accountCode String? @map("account_code")
-  debit       Decimal @default(0) @db.Decimal(18, 2)
-  credit      Decimal @default(0) @db.Decimal(18, 2)
-  balance     Decimal @default(0) @db.Decimal(18, 2)
-  sortOrder   Int     @default(0) @map("sort_order")
-
-  statement FinancialStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
-
-  @@index([statementId], map: "idx_financial_statement_line_statement")
-  @@map("financial_statement_line")
-  @@schema("reporting")
 }
