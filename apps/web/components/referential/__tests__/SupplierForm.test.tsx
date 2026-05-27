@@ -18,6 +18,7 @@ describe('SupplierForm', () => {
     riskScore: 10,
     isActive: true,
     createdAt: '2026-01-01T00:00:00Z',
+    contactEmail: null,
   };
 
   it('mode create : champs vides, code éditable', () => {
@@ -126,5 +127,67 @@ describe('SupplierForm', () => {
       expect(screen.getByText(/Min 3 caractères/i)).toBeInTheDocument();
     });
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  // ----- Sprint F-PO-EMAIL : champ e-mail de contact -----
+
+  it('contactEmail : valeur valide envoyée dans le payload create', async () => {
+    const onSubmit = jest.fn().mockResolvedValue(undefined);
+    render(<SupplierForm mode="create" onSubmit={onSubmit} />);
+    fireEvent.change(screen.getByTestId('supplier-code'), { target: { value: 'FOURN-X' } });
+    fireEvent.change(screen.getByTestId('supplier-name'), { target: { value: 'Fournisseur X' } });
+    fireEvent.change(screen.getByTestId('supplier-contact-email'), {
+      target: { value: 'achats@fourn.demo' },
+    });
+    fireEvent.click(screen.getByTestId('supplier-form-submit'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ contactEmail: 'achats@fourn.demo' }),
+    );
+  });
+
+  it('contactEmail : adresse invalide → erreur Zod, pas de submit', async () => {
+    const onSubmit = jest.fn();
+    render(<SupplierForm mode="create" onSubmit={onSubmit} />);
+    fireEvent.change(screen.getByTestId('supplier-code'), { target: { value: 'FOURN-Y' } });
+    fireEvent.change(screen.getByTestId('supplier-name'), { target: { value: 'Fournisseur Y' } });
+    fireEvent.change(screen.getByTestId('supplier-contact-email'), {
+      target: { value: 'pas-une-adresse' },
+    });
+    fireEvent.click(screen.getByTestId('supplier-form-submit'));
+    await waitFor(() => {
+      expect(screen.getByText(/Adresse e-mail invalide/i)).toBeInTheDocument();
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('contactEmail : champ vide → undefined côté create (optionnel)', async () => {
+    const onSubmit = jest.fn().mockResolvedValue(undefined);
+    render(<SupplierForm mode="create" onSubmit={onSubmit} />);
+    fireEvent.change(screen.getByTestId('supplier-code'), { target: { value: 'FOURN-Z' } });
+    fireEvent.change(screen.getByTestId('supplier-name'), { target: { value: 'Fournisseur Z' } });
+    fireEvent.click(screen.getByTestId('supplier-form-submit'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ contactEmail: undefined }),
+    );
+  });
+
+  it('contactEmail : préremplit + efface en edit → null (clear)', async () => {
+    const onSubmit = jest.fn().mockResolvedValue(undefined);
+    render(
+      <SupplierForm
+        mode="edit"
+        defaultValues={{ ...baseSupplier, contactEmail: 'old@biomed.demo' }}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect((screen.getByTestId('supplier-contact-email') as HTMLInputElement).value).toBe(
+      'old@biomed.demo',
+    );
+    fireEvent.change(screen.getByTestId('supplier-contact-email'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('supplier-form-submit'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].contactEmail).toBeNull();
   });
 });

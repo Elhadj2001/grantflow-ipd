@@ -370,6 +370,18 @@ function SupplierCard({
             IBAN : {supplier.iban.slice(0, 4)}… (BIC : {supplier.bic ?? '—'})
           </p>
         )}
+        {supplier.contactEmail ? (
+          <p
+            className="text-xs text-slate-muted"
+            data-testid={`supplier-email-${supplier.code}`}
+          >
+            ✉︎ {supplier.contactEmail}
+          </p>
+        ) : (
+          <p className="text-xs text-state-warning" data-testid={`supplier-email-${supplier.code}-missing`}>
+            ⚠︎ Pas d'e-mail — les BC partiront sans notification
+          </p>
+        )}
         <div className="flex justify-end gap-1 pt-2">
           {supplier.isActive ? (
             <>
