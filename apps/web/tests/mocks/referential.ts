@@ -15,6 +15,7 @@
  */
 
 import type {
+  Donor,
   Grant,
   GrantDashboard,
   Project,
@@ -310,8 +311,42 @@ export function routeReferentialUrl(url: string) {
     return listResponse(mockSuppliers);
   }
 
+  // Sprint F-REF-BAILLEURS-PROJETS — bailleurs
+  if (path === '/api/v1/donors' || path === '/donors') {
+    const qMatch = url.match(/[?&]q=([^&]+)/);
+    if (qMatch) {
+      const q = decodeURIComponent(qMatch[1]).toLowerCase();
+      return listResponse(
+        mockDonors.filter(
+          (d) => d.code.toLowerCase().includes(q) || d.label.toLowerCase().includes(q),
+        ),
+      );
+    }
+    return listResponse(mockDonors);
+  }
+
   return listResponse([]);
 }
+
+/** Bailleurs mockés (sprint F-REF-BAILLEURS-PROJETS). */
+export const mockDonors: Donor[] = [
+  {
+    id: ID(101),
+    code: 'BMGF',
+    label: 'Bill & Melinda Gates Foundation',
+    type: 'private_foundation',
+    country: 'US',
+    isActive: true,
+  },
+  {
+    id: ID(102),
+    code: 'EDCTP',
+    label: 'European & Developing Countries Clinical Trials Partnership',
+    type: 'public_intl',
+    country: 'NL',
+    isActive: true,
+  },
+];
 
 /** Sucre : `ok(body)` → réponse fetch 200 application/json. */
 export function ok(body: unknown) {

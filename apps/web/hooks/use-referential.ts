@@ -4,23 +4,36 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import {
   createBudgetLine,
+  createDonor,
+  createProject,
   createSupplier,
   deleteBudgetLine,
+  deleteDonor,
+  deleteProject,
   deleteSupplier,
   getGrantDashboard,
   listBudgetLines,
+  listDonors,
   listGrants,
   listProjects,
   listSuppliers,
   restoreBudgetLine,
+  restoreDonor,
+  restoreProject,
   restoreSupplier,
   updateBudgetLine,
+  updateDonor,
+  updateProject,
   updateSupplier,
   type BudgetLine,
   type CreateBudgetLineInput,
+  type CreateDonorInput,
+  type CreateProjectInput,
   type CreateSupplierInput,
+  type Donor,
   type Grant,
   type GrantDashboard,
+  type ListDonorsQuery,
   type ListGrantsQuery,
   type ListProjectsQuery,
   type ListResponse,
@@ -28,6 +41,8 @@ import {
   type Project,
   type Supplier,
   type UpdateBudgetLineInput,
+  type UpdateDonorInput,
+  type UpdateProjectInput,
   type UpdateSupplierInput,
 } from '@/lib/api/referential';
 import { mapApiErrorToToast } from '@/lib/use-api';
@@ -42,7 +57,8 @@ const FIVE_MIN = 5 * 60 * 1000;
 
 const referentialKeys = {
   all: ['referential'] as const,
-  projects: (q: ListProjectsQuery) => [...referentialKeys.all, 'projects', q] as const,
+  projectsList: () => [...referentialKeys.all, 'projects'] as const,
+  projects: (q: ListProjectsQuery) => [...referentialKeys.projectsList(), q] as const,
   grants: (q: ListGrantsQuery) => [...referentialKeys.all, 'grants', 'list', q] as const,
   grantsByProject: (projectId: string) =>
     [...referentialKeys.all, 'grants', 'byProject', projectId] as const,
@@ -53,6 +69,8 @@ const referentialKeys = {
   suppliersList: () => [...referentialKeys.all, 'suppliers'] as const,
   suppliers: (q: ListSuppliersQuery) =>
     [...referentialKeys.suppliersList(), q] as const,
+  donorsList: () => [...referentialKeys.all, 'donors'] as const,
+  donors: (q: ListDonorsQuery) => [...referentialKeys.donorsList(), q] as const,
 };
 
 function useToken() {
@@ -302,6 +320,122 @@ export function useRestoreBudgetLine(grantId: string) {
   const invalidate = useInvalidateBudgetLines(grantId);
   return useMutation<BudgetLine, Error, string>({
     mutationFn: (id) => restoreBudgetLine(grantId, id, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+// =====================================================================
+//  Sprint F-REF-BAILLEURS-PROJETS — Donors queries + mutations
+// =====================================================================
+
+export function useDonorsList(query: ListDonorsQuery = {}) {
+  const { accessToken, sessionReady } = useToken();
+  const effective: ListDonorsQuery = { pageSize: 100, isActive: true, ...query };
+  return useQuery<ListResponse<Donor>>({
+    queryKey: referentialKeys.donors(effective),
+    enabled: sessionReady,
+    staleTime: FIVE_MIN,
+    queryFn: async () => {
+      try {
+        return await listDonors(effective, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
+
+/** Invalide toutes les listes bailleurs après create/update/delete. */
+function useInvalidateDonors() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: referentialKeys.donorsList() });
+  };
+}
+
+export function useCreateDonor() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateDonors();
+  return useMutation<Donor, Error, CreateDonorInput>({
+    mutationFn: (input) => createDonor(input, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateDonor(donorId: string) {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateDonors();
+  return useMutation<Donor, Error, UpdateDonorInput>({
+    mutationFn: (input) => updateDonor(donorId, input, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteDonor() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateDonors();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => deleteDonor(id, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreDonor() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateDonors();
+  return useMutation<Donor, Error, string>({
+    mutationFn: (id) => restoreDonor(id, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+// =====================================================================
+//  Sprint F-REF-BAILLEURS-PROJETS — Projects mutations
+// =====================================================================
+
+/** Invalide toutes les listes projets après mutation. Le détail GrantsByProject
+ *  reste sur sa clé propre — pas d'invalidation cross-grants ici (un changement
+ *  de status projet ne change pas les engagements comptables). */
+function useInvalidateProjects() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: referentialKeys.projectsList() });
+  };
+}
+
+export function useCreateProject() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateProjects();
+  return useMutation<Project, Error, CreateProjectInput>({
+    mutationFn: (input) => createProject(input, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateProject(projectId: string) {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateProjects();
+  return useMutation<Project, Error, UpdateProjectInput>({
+    mutationFn: (input) => updateProject(projectId, input, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteProject() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateProjects();
+  return useMutation<void, Error, string>({
+    mutationFn: (id) => deleteProject(id, { accessToken }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreProject() {
+  const { accessToken } = useToken();
+  const invalidate = useInvalidateProjects();
+  return useMutation<Project, Error, string>({
+    mutationFn: (id) => restoreProject(id, { accessToken }),
     onSuccess: invalidate,
   });
 }

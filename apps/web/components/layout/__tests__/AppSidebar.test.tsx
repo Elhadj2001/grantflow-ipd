@@ -26,13 +26,15 @@ jest.mock('../SystemStatus', () => ({
 import { AppSidebar } from '../AppSidebar';
 
 describe('AppSidebar', () => {
-  it('renders the navigation entries (SUPER_ADMIN voit tout : F5b-b + F5b-c)', () => {
+  it('renders the navigation entries (SUPER_ADMIN voit tout : F5b-b + F5b-c + F-ADMIN-USERS + F-REF)', () => {
     mockPathname = '/dashboard';
     mockRoles = ['SUPER_ADMIN'];
     render(<AppSidebar />);
     [
       'Dashboard',
       'Achats',
+      'Réception',
+      'Inventaire / Scan',
       'Comptabilité',
       'Clôture',
       'Trésorerie',
@@ -40,6 +42,9 @@ describe('AppSidebar', () => {
       'Reporting',
       'États financiers',
       'Fournisseurs',
+      'Bailleurs',
+      'Projets',
+      'Utilisateurs',
     ].forEach((label) => expect(screen.getByText(label)).toBeInTheDocument());
   });
 
@@ -395,5 +400,99 @@ describe('AppSidebar', () => {
     const link = screen.getByText('Utilisateurs').closest('a');
     expect(link).toHaveAttribute('aria-current', 'page');
     expect(link?.className).toMatch(/border-l-ipd/);
+  });
+
+  // -----------------------------------------------------------------
+  // Sprint F-REF-BAILLEURS-PROJETS — Bailleurs + Projets (référentiel)
+  // -----------------------------------------------------------------
+
+  it('Bailleurs visible pour CONTROLEUR → /referential/donors', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Bailleurs').closest('a');
+    expect(link).toHaveAttribute('href', '/referential/donors');
+  });
+
+  it('Bailleurs visible pour DAF et SUPER_ADMIN', () => {
+    for (const role of ['DAF', 'SUPER_ADMIN'] as const) {
+      mockPathname = '/dashboard';
+      mockRoles = [role];
+      const { unmount } = render(<AppSidebar />);
+      expect(screen.getByText('Bailleurs')).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('Bailleurs masqué pour ACHETEUR (peut gérer fournisseurs mais pas bailleurs)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['ACHETEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Bailleurs')).toBeNull();
+  });
+
+  it.each<[GrantflowRole]>([
+    ['COMPTABLE'],
+    ['TRESORIER'],
+    ['MAGASINIER'],
+    ['PI'],
+    ['DEMANDEUR'],
+    ['BAILLEUR'],
+    ['CAISSIER'],
+  ])('Bailleurs masqué pour %s', (role) => {
+    mockPathname = '/dashboard';
+    mockRoles = [role];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Bailleurs')).toBeNull();
+  });
+
+  it('match actif fin : sur /referential/donors → Bailleurs active', () => {
+    mockPathname = '/referential/donors';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Bailleurs').closest('a');
+    expect(link).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('Projets visible pour CONTROLEUR → /referential/projects', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Projets').closest('a');
+    expect(link).toHaveAttribute('href', '/referential/projects');
+  });
+
+  it('Projets visible pour DAF et SUPER_ADMIN', () => {
+    for (const role of ['DAF', 'SUPER_ADMIN'] as const) {
+      mockPathname = '/dashboard';
+      mockRoles = [role];
+      const { unmount } = render(<AppSidebar />);
+      expect(screen.getByText('Projets')).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it.each<[GrantflowRole]>([
+    ['COMPTABLE'],
+    ['ACHETEUR'],
+    ['TRESORIER'],
+    ['MAGASINIER'],
+    ['PI'],
+    ['DEMANDEUR'],
+    ['BAILLEUR'],
+    ['CAISSIER'],
+  ])('Projets masqué pour %s', (role) => {
+    mockPathname = '/dashboard';
+    mockRoles = [role];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Projets')).toBeNull();
+  });
+
+  it('match actif fin : sur /referential/projects → Projets active', () => {
+    mockPathname = '/referential/projects';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    const link = screen.getByText('Projets').closest('a');
+    expect(link).toHaveAttribute('aria-current', 'page');
   });
 });

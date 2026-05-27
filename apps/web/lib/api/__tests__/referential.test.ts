@@ -144,3 +144,120 @@ describe('lib/api/referential — budget-line mutations (F5b-c Lot A)', () => {
     );
   });
 });
+
+// =====================================================================
+//  Sprint F-REF-BAILLEURS-PROJETS — Donors + Projects mutations
+// =====================================================================
+import {
+  createDonor,
+  createProject,
+  deleteDonor,
+  deleteProject,
+  restoreDonor,
+  restoreProject,
+  updateDonor,
+  updateProject,
+  type CreateDonorInput,
+  type CreateProjectInput,
+  type UpdateDonorInput,
+  type UpdateProjectInput,
+} from '../referential';
+
+describe('lib/api/referential — donors mutations (F-REF Lot A)', () => {
+  const opts = { accessToken: 'TOK' };
+  const donorId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+  it('createDonor → POST /donors + body + token', async () => {
+    const input: CreateDonorInput = {
+      code: 'GAVI',
+      label: 'Global Alliance for Vaccines and Immunization',
+      type: 'multilateral',
+      country: 'CH',
+      contactEmail: 'audit@gavi.org',
+    };
+    await createDonor(input, opts);
+    expect(apiFetchMock).toHaveBeenCalledWith('/donors', {
+      accessToken: 'TOK',
+      method: 'POST',
+      json: input,
+    });
+  });
+
+  it('updateDonor → PATCH /donors/:id + body partiel', async () => {
+    const input: UpdateDonorInput = { label: 'Nouveau libellé', contactEmail: 'new@gavi.org' };
+    await updateDonor(donorId, input, opts);
+    expect(apiFetchMock).toHaveBeenCalledWith(`/donors/${donorId}`, {
+      accessToken: 'TOK',
+      method: 'PATCH',
+      json: input,
+    });
+  });
+
+  it('deleteDonor → DELETE /donors/:id (204 → void)', async () => {
+    await deleteDonor(donorId, opts);
+    expect(apiFetchMock).toHaveBeenCalledWith(`/donors/${donorId}`, {
+      accessToken: 'TOK',
+      method: 'DELETE',
+    });
+  });
+
+  it('restoreDonor → POST /donors/:id/restore', async () => {
+    await restoreDonor(donorId, opts);
+    expect(apiFetchMock).toHaveBeenCalledWith(`/donors/${donorId}/restore`, {
+      accessToken: 'TOK',
+      method: 'POST',
+    });
+  });
+});
+
+describe('lib/api/referential — projects mutations (F-REF Lot A)', () => {
+  const opts = { accessToken: 'TOK' };
+  const projectId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+  it('createProject → POST /projects + body + token', async () => {
+    const input: CreateProjectInput = {
+      code: 'MADIBA-VAC-2026',
+      title: 'Vaccine R&D platform — Pasteur',
+      startDate: '2026-01-01',
+      endDate: '2029-12-31',
+      status: 'active',
+      description: 'Multi-vaccine pipeline 2026-2029',
+    };
+    await createProject(input, opts);
+    expect(apiFetchMock).toHaveBeenCalledWith('/projects', {
+      accessToken: 'TOK',
+      method: 'POST',
+      json: input,
+    });
+  });
+
+  it('updateProject → PATCH /projects/:id avec null = clear (endDate, description)', async () => {
+    const input: UpdateProjectInput = {
+      title: 'Titre mis à jour',
+      endDate: null,
+      description: null,
+    };
+    await updateProject(projectId, input, opts);
+    expect(apiFetchMock).toHaveBeenCalledWith(`/projects/${projectId}`, {
+      accessToken: 'TOK',
+      method: 'PATCH',
+      json: input,
+    });
+  });
+
+  it('deleteProject → DELETE /projects/:id', async () => {
+    await deleteProject(projectId, opts);
+    expect(apiFetchMock).toHaveBeenCalledWith(`/projects/${projectId}`, {
+      accessToken: 'TOK',
+      method: 'DELETE',
+    });
+  });
+
+  it('restoreProject → POST /projects/:id/restore', async () => {
+    await restoreProject(projectId, opts);
+    expect(apiFetchMock).toHaveBeenCalledWith(`/projects/${projectId}/restore`, {
+      accessToken: 'TOK',
+      method: 'POST',
+    });
+  });
+});

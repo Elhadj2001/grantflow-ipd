@@ -14,7 +14,12 @@ import { apiFetch, type ApiFetchOptions } from '../api-client';
 //  Projects
 // =====================================================================
 
-export type ProjectStatus = 'active' | 'on_hold' | 'closed';
+/**
+ * Statuts projet — source de vérité côté backend :
+ * apps/api/src/referential/project/dto/create-project.dto.ts (PROJECT_STATUSES).
+ */
+export const PROJECT_STATUSES = ['active', 'suspended', 'closed'] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 export interface Project {
   id: string;
@@ -43,20 +48,43 @@ export interface ListProjectsQuery {
 //  Donors
 // =====================================================================
 
+/**
+ * Types bailleur — source de vérité côté backend :
+ * apps/api/src/referential/donor/dto/create-donor.dto.ts (DONOR_TYPES).
+ */
+export const DONOR_TYPES = [
+  'public_intl',
+  'private_foundation',
+  'bilateral',
+  'multilateral',
+  'government',
+  'own_funds',
+] as const;
+export type DonorType = (typeof DONOR_TYPES)[number];
+
 export interface Donor {
   id: string;
   code: string;
   label: string;
-  type: string;
+  type: DonorType;
   country: string | null;
+  /** Présent uniquement sur le détail (DonorDetailResponseDto), undefined sur la liste. */
+  contactEmail?: string | null;
+  /** Idem — présent uniquement sur le détail. */
+  reportingTemplateId?: string | null;
   isActive: boolean;
 }
 
 export interface ListDonorsQuery {
   q?: string;
+  type?: DonorType;
+  country?: string;
   isActive?: boolean;
+  includeInactive?: boolean;
   page?: number;
   pageSize?: number;
+  sort?: 'code' | 'label' | 'createdAt';
+  order?: 'asc' | 'desc';
 }
 
 // =====================================================================
@@ -464,6 +492,142 @@ export async function restoreBudgetLine(
   opts: FetchOpts = {},
 ): Promise<BudgetLine> {
   return apiFetch<BudgetLine>(`/grants/${grantId}/budget-lines/${id}/restore`, {
+    accessToken: opts.accessToken,
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------
+// Donors — mutations (sprint F-REF-BAILLEURS-PROJETS Lot A)
+// ---------------------------------------------------------------------
+
+/** Cf. CreateDonorDto. Code immuable après création (validation côté form). */
+export interface CreateDonorInput {
+  code: string;
+  label: string;
+  type: DonorType;
+  country?: string;
+  contactEmail?: string;
+  reportingTemplateId?: string;
+}
+
+/** Cf. UpdateDonorDto — partiel ; les champs optionnels du Create restent optionnels ici. */
+export interface UpdateDonorInput {
+  code?: string;
+  label?: string;
+  type?: DonorType;
+  country?: string;
+  contactEmail?: string;
+  reportingTemplateId?: string;
+}
+
+export async function getDonor(id: string, opts: FetchOpts = {}): Promise<Donor> {
+  return apiFetch<Donor>(`/donors/${id}`, opts);
+}
+
+export async function createDonor(
+  input: CreateDonorInput,
+  opts: FetchOpts = {},
+): Promise<Donor> {
+  return apiFetch<Donor>('/donors', {
+    accessToken: opts.accessToken,
+    method: 'POST',
+    json: input,
+  });
+}
+
+export async function updateDonor(
+  id: string,
+  input: UpdateDonorInput,
+  opts: FetchOpts = {},
+): Promise<Donor> {
+  return apiFetch<Donor>(`/donors/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'PATCH',
+    json: input,
+  });
+}
+
+/** Soft-delete — backend renvoie 204 NO_CONTENT. */
+export async function deleteDonor(id: string, opts: FetchOpts = {}): Promise<void> {
+  await apiFetch<void>(`/donors/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'DELETE',
+  });
+}
+
+export async function restoreDonor(id: string, opts: FetchOpts = {}): Promise<Donor> {
+  return apiFetch<Donor>(`/donors/${id}/restore`, {
+    accessToken: opts.accessToken,
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------
+// Projects — mutations (sprint F-REF-BAILLEURS-PROJETS Lot A)
+// ---------------------------------------------------------------------
+
+/** Cf. CreateProjectDto. `status` par défaut 'active' côté backend. */
+export interface CreateProjectInput {
+  code: string;
+  title: string;
+  programId?: string;
+  piUserId?: string;
+  /** Format ISO YYYY-MM-DD (validé côté backend par regex). */
+  startDate: string;
+  endDate?: string;
+  status?: ProjectStatus;
+  description?: string;
+}
+
+/** Cf. UpdateProjectDto. `null` = clear pour endDate / programId / piUserId / description. */
+export interface UpdateProjectInput {
+  code?: string;
+  title?: string;
+  programId?: string | null;
+  piUserId?: string | null;
+  startDate?: string;
+  endDate?: string | null;
+  status?: ProjectStatus;
+  description?: string | null;
+}
+
+export async function createProject(
+  input: CreateProjectInput,
+  opts: FetchOpts = {},
+): Promise<Project> {
+  return apiFetch<Project>('/projects', {
+    accessToken: opts.accessToken,
+    method: 'POST',
+    json: input,
+  });
+}
+
+export async function updateProject(
+  id: string,
+  input: UpdateProjectInput,
+  opts: FetchOpts = {},
+): Promise<Project> {
+  return apiFetch<Project>(`/projects/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'PATCH',
+    json: input,
+  });
+}
+
+/**
+ * Soft-delete via status='closed' côté backend — 204 NO_CONTENT.
+ * Conflit 409 si grants actifs sont rattachés (PROJECT_HAS_ACTIVE_GRANTS).
+ */
+export async function deleteProject(id: string, opts: FetchOpts = {}): Promise<void> {
+  await apiFetch<void>(`/projects/${id}`, {
+    accessToken: opts.accessToken,
+    method: 'DELETE',
+  });
+}
+
+export async function restoreProject(id: string, opts: FetchOpts = {}): Promise<Project> {
+  return apiFetch<Project>(`/projects/${id}/restore`, {
     accessToken: opts.accessToken,
     method: 'POST',
   });
