@@ -1,10 +1,10 @@
-import { Calendar, Inbox } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import type { GrantflowRole } from '@/lib/auth';
 import { PageHeader } from '@/components/common/PageHeader';
-import { EmptyState } from '@/components/common/EmptyState';
 import { DashboardHeaderActions } from '@/components/dashboard/DashboardHeaderActions';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
+import { DashboardRecentActivity } from '@/components/dashboard/DashboardRecentActivity';
 import { DashboardShortcuts } from '@/components/dashboard/DashboardShortcuts';
 
 const ROLE_LABELS_FR: Record<GrantflowRole, string> = {
@@ -44,8 +44,10 @@ function initialsOf(name: string): string {
  *  2. Carte hero "Bonjour {fullName}" + rôles + période active.
  *  3. Grille 4 KPIs câblés sur les endpoints réels (DashboardKpis client).
  *     BAILLEUR pur n'a que "Conventions actives".
- *  4. Section "Activité récente" : aucun endpoint d'audit généralisé
- *     côté backend → EmptyState neutre sans promesse de sprint futur.
+ *  4. Section "Activité récente" : agrégation côté front des listes DA /
+ *     BC / réceptions / factures / paiements (DashboardRecentActivity).
+ *     Filtrée par RBAC (perm helpers). À remplacer par un flux d'audit
+ *     unique quand /audit/events sera dispo côté backend.
  *  5. Section "Raccourcis" : 4 ShortcutCards cliquables (gating par rôle).
  *
  * La page reste un Server Component (auth lue avec `auth()`) — seules les
@@ -126,17 +128,12 @@ export default async function DashboardPage() {
             Activité récente
           </h2>
           {/*
-           * Aucun endpoint d'audit/activité généralisé n'est exposé côté
-           * backend (les audit logs `audit.event_log` ne sont pas surfacés
-           * en API publique). On rend un EmptyState neutre — pas de fausse
-           * promesse de sprint. Quand un endpoint sera ajouté, retirer
-           * l'EmptyState et brancher la liste compacte.
+           * Faute d'endpoint d'audit/activité généralisé côté backend,
+           * la section agrège les listes existantes (DA / BC / réceptions
+           * / factures / paiements) côté front, filtrées par RBAC. Cf.
+           * DashboardRecentActivity pour le détail.
            */}
-          <EmptyState
-            icon={Inbox}
-            title="Pas d'activité récente à afficher"
-            description="Cette section affichera les actions récentes (DA, BC, factures, paiements) dès qu'un flux d'audit côté API sera disponible."
-          />
+          <DashboardRecentActivity />
         </section>
 
         {/* ====================== Raccourcis ====================== */}
