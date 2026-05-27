@@ -85,6 +85,42 @@ describe('ClaudeVisionOcrProvider', () => {
       );
       expect(svc.name).toBe('vision');
     });
+
+    it("OCR_VISION_MODEL vide ('') → fallback DEFAULT_VISION_MODEL (anti-régression)", async () => {
+      // Reproduit le bug détecté pendant le smoke test : `OCR_VISION_MODEL=`
+      // dans .env retourne `""` côté ConfigService. Le `??` ne déclencherait
+      // PAS le fallback (chaîne vide n'est pas nullish), Anthropic
+      // répondrait 400 « model: String should have at least 1 character ».
+      const svc = new ClaudeVisionOcrProvider(
+        makeConfig({ ANTHROPIC_API_KEY: 'sk-test', OCR_VISION_MODEL: '' }),
+      );
+      fetchMock.mockResolvedValueOnce(
+        okResponse(anthropicToolUse({ invoiceNumber: 'INV-1' })),
+      );
+      await svc.extractFromPdf(Buffer.from('PDF'));
+      const body = JSON.parse(
+        (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+      );
+      // Le modèle envoyé doit être non vide ; on ne fige PAS l'id exact
+      // (il évolue avec les releases Anthropic), juste qu'il est défini.
+      expect(typeof body.model).toBe('string');
+      expect(body.model.length).toBeGreaterThan(0);
+    });
+
+    it('OCR_VISION_MODEL whitespace-only → fallback aussi', async () => {
+      const svc = new ClaudeVisionOcrProvider(
+        makeConfig({ ANTHROPIC_API_KEY: 'sk-test', OCR_VISION_MODEL: '   ' }),
+      );
+      fetchMock.mockResolvedValueOnce(
+        okResponse(anthropicToolUse({ invoiceNumber: 'INV-1' })),
+      );
+      await svc.extractFromPdf(Buffer.from('PDF'));
+      const body = JSON.parse(
+        (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+      );
+      expect(body.model.length).toBeGreaterThan(0);
+      expect(body.model.trim()).toBe(body.model);
+    });
   });
 
   // ---------------- Mapping happy path ----------------

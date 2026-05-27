@@ -41,8 +41,12 @@ const DEFAULT_MAX_PDF_BYTES = 5 * 1024 * 1024;
  * actuellement disponible sur l'API au moment du déploiement —
  * surchargable via OCR_VISION_MODEL (.env). Voir docs Anthropic pour
  * la liste des modèles supportant le bloc `document` PDF.
+ *
+ * Vérifié actif au 2026-05-27 (cf. https://platform.claude.com/docs/en/about-claude/models/overview).
+ * Ancien défaut `claude-sonnet-4-5` (Sonnet 4.5) reste compatible mais
+ * a été déclassé en "legacy" — on suit le Sonnet courant.
  */
-const DEFAULT_VISION_MODEL = 'claude-sonnet-4-5';
+const DEFAULT_VISION_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION = '2023-06-01';
 
@@ -131,7 +135,14 @@ export class ClaudeVisionOcrProvider implements OcrProvider {
       );
     }
     this.apiKey = key;
-    this.model = config.get<string>('OCR_VISION_MODEL') ?? DEFAULT_VISION_MODEL;
+    // Garde-fou : OCR_VISION_MODEL peut être présent dans .env mais VIDE
+    // (`OCR_VISION_MODEL=`) — config.get retourne alors `""`. Le `??` ne
+    // déclencherait pas le fallback (chaîne vide ≠ nullish), et l'API
+    // Anthropic répondrait 400 « model: String should have at least 1
+    // character ». On normalise en trim+truthy check explicite.
+    const modelFromEnv = config.get<string>('OCR_VISION_MODEL');
+    const modelTrimmed = typeof modelFromEnv === 'string' ? modelFromEnv.trim() : '';
+    this.model = modelTrimmed.length > 0 ? modelTrimmed : DEFAULT_VISION_MODEL;
     const maxBytesRaw = config.get<string>('OCR_VISION_MAX_BYTES');
     const parsed = maxBytesRaw ? Number.parseInt(maxBytesRaw, 10) : NaN;
     this.maxBytes =
