@@ -41,6 +41,7 @@ import {
   type PoRemainingLine,
   type PurchaseOrderDetail,
   type PurchaseRequestDetail,
+  type SendPoResult,
   type UpdatePurchaseRequestInput,
 } from '@/lib/api/procurement';
 import { mapApiErrorToToast } from '@/lib/use-api';
@@ -277,12 +278,42 @@ export function useCreatePoFromPr() {
 export function useSendPO(id: string) {
   const { accessToken } = useToken();
   const qc = useQueryClient();
-  return useMutation<unknown, ApiError, void>({
+  return useMutation<SendPoResult, ApiError, void>({
     mutationFn: () => sendPurchaseOrder(id, { accessToken }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: procurementKeys.po(id) });
       qc.invalidateQueries({ queryKey: procurementKeys.pos() });
-      toast({ variant: 'success', title: 'BC envoyé' });
+      // Sprint F-PO-EMAIL : feedback explicite sur l'envoi e-mail.
+      // L'écriture comptable classe 8 a été créée dans TOUS les cas
+      // (cf. SendResult.commitmentEntryNumber). On le rappelle.
+      const entry = res.commitmentEntryNumber ?? '—';
+      if (res.emailDispatched) {
+        toast({
+          variant: 'success',
+          title: 'BC envoyé au fournisseur',
+          description:
+            `Écriture comptable ${entry} créée. ` +
+            `PDF expédié par e-mail${res.emailDispatchedTo ? ` (${res.emailDispatchedTo})` : ''}.`,
+        });
+      } else if (res.emailSkippedReason === 'no-contact-email') {
+        toast({
+          variant: 'success',
+          title: 'BC validé — aucun e-mail fournisseur renseigné',
+          description:
+            `Statut « sent », écriture ${entry} créée. ` +
+            'Le fournisseur n\'a pas d\'adresse e-mail — ajoute-la sur sa fiche ' +
+            'puis utilise « Renvoyer ».',
+        });
+      } else {
+        // smtp-error : on prévient mais le BC reste valide.
+        toast({
+          variant: 'destructive',
+          title: 'BC envoyé — e-mail en échec',
+          description:
+            `Statut « sent », écriture ${entry} créée. ` +
+            'L\'envoi par e-mail a échoué — réessaie avec « Renvoyer ».',
+        });
+      }
     },
     onError: (err) => mapApiErrorToToast(err),
   });

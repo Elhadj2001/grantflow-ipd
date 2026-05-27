@@ -132,8 +132,33 @@ export class SendPoResponseDto {
   @ApiProperty()
   pdfObjectKey!: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'SMTP accept (alias historique).' })
   emailDelivered!: boolean;
+
+  @ApiProperty({
+    description:
+      'Sprint F-PO-EMAIL : alias clair pour le frontend. Vrai ssi emailDelivered.',
+  })
+  emailDispatched!: boolean;
+
+  @ApiProperty({
+    enum: ['no-contact-email', 'smtp-error'],
+    nullable: true,
+    description:
+      'Sprint F-PO-EMAIL : raison du non-envoi. null = envoi réussi. ' +
+      "'no-contact-email' = fournisseur sans e-mail (skip volontaire). " +
+      "'smtp-error' = SMTP a échoué (best-effort, le PO reste `sent`).",
+  })
+  emailSkippedReason!: 'no-contact-email' | 'smtp-error' | null;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    description:
+      'Sprint F-PO-EMAIL : e-mail destinataire MASQUÉ (ex. "a*****@biomed.demo"). ' +
+      'null si pas d\'envoi. À utiliser dans le toast UI.',
+  })
+  emailDispatchedTo!: string | null;
 
   @ApiProperty({ required: false, nullable: true })
   emailMessageId!: string | null;

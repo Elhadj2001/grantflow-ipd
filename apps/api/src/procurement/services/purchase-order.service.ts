@@ -100,6 +100,12 @@ export interface SendResult {
    * - `null`               : envoi réussi.
    */
   emailSkippedReason: 'no-contact-email' | 'smtp-error' | null;
+  /**
+   * Sprint F-PO-EMAIL : e-mail MASQUÉ du destinataire si l'envoi a réussi
+   * (`a*****@biomed-sn.demo`). null sinon. Le frontend peut l'afficher
+   * directement dans le toast sans avoir à recharger la fiche fournisseur.
+   */
+  emailDispatchedTo: string | null;
   emailMessageId: string | null;
   emailError: string | null;
   commitmentEntryId: string;
@@ -562,6 +568,7 @@ export class PurchaseOrderService {
       emailDelivered: mailResult.delivered,
       emailDispatched: mailResult.delivered,
       emailSkippedReason: skippedReason,
+      emailDispatchedTo: mailResult.delivered && supplierEmail ? maskEmail(supplierEmail) : null,
       emailMessageId: mailResult.messageId,
       emailError: mailResult.error,
       commitmentEntryId: entry.id,

@@ -96,6 +96,11 @@ des sources de vérité, l'email est secondaire). On stocke `emailSentAt
 = NULL`. Retry possible via **`POST /:id/resend`** (réutilise le PDF
 stocké, ne recrée pas d'écriture).
 
+> **Sprint F-PO-EMAIL** : la réponse expose désormais `emailDispatched`
+> + `emailSkippedReason` + `emailDispatchedTo` (e-mail masqué) — voir
+> [po-email.md](./po-email.md) pour le détail des cas (succès / pas
+> d'adresse / SMTP error), la recette MailHog et le masquage PII.
+
 ### 2.6 Ownership-scoped read
 
 - **ACHETEUR, CONTROLEUR, DAF, COMPTABLE, TRESORIER, BAILLEUR,
