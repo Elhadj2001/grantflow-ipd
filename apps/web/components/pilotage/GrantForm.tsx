@@ -1,15 +1,18 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import Link from 'next/link';
 import { AlertTriangle, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { DonorPicker } from '@/components/procurement/pickers/DonorPicker';
+import { ProjectPicker } from '@/components/procurement/pickers/ProjectPicker';
 import type { CreateGrantInput, Grant } from '@/lib/api/referential';
 
 const GRANT_STATUS = ['draft', 'active'] as const;
@@ -86,6 +89,7 @@ export function GrantForm({
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors },
   } = useForm<GrantFormValues>({
     resolver: zodResolver(GrantFormSchema),
@@ -156,18 +160,58 @@ export function GrantForm({
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Bailleur (UUID)" error={errors.donorId?.message}>
-              <Input
-                data-testid="field-donor"
-                {...register('donorId')}
-                disabled={loading || lockHard}
+            {/* Sprint F-REF-BAILLEURS-PROJETS : UUID brut remplacé par
+                un DonorPicker (combobox CODE — label). La valeur
+                envoyée reste l'UUID, l'utilisateur ne le voit pas. */}
+            <Field label="Bailleur" error={errors.donorId?.message}>
+              <Controller
+                control={control}
+                name="donorId"
+                render={({ field }) => (
+                  <div data-testid="field-donor">
+                    <DonorPicker
+                      value={field.value || null}
+                      onChange={(id) => field.onChange(id ?? '')}
+                      disabled={loading || lockHard}
+                    />
+                    <p className="mt-1 text-xs text-slate-muted">
+                      Pas de bailleur disponible ?{' '}
+                      <Link
+                        href="/referential/donors"
+                        className="text-ipd-darker underline-offset-2 hover:underline"
+                      >
+                        Créer un bailleur
+                      </Link>
+                    </p>
+                  </div>
+                )}
               />
             </Field>
-            <Field label="Projet (UUID)" error={errors.projectId?.message}>
-              <Input
-                data-testid="field-project"
-                {...register('projectId')}
-                disabled={loading || lockHard}
+            {/* Sprint F-REF-BAILLEURS-PROJETS : idem côté Projet — ProjectPicker
+                était déjà disponible côté procurement, on le réutilise. */}
+            <Field label="Projet" error={errors.projectId?.message}>
+              <Controller
+                control={control}
+                name="projectId"
+                render={({ field }) => (
+                  <div data-testid="field-project">
+                    <ProjectPicker
+                      value={field.value || null}
+                      onChange={(id) => field.onChange(id ?? '')}
+                      disabled={loading || lockHard}
+                      autoSelectSingle={false}
+                    />
+                    <p className="mt-1 text-xs text-slate-muted">
+                      Pas de projet disponible ?{' '}
+                      <Link
+                        href="/referential/projects"
+                        className="text-ipd-darker underline-offset-2 hover:underline"
+                      >
+                        Créer un projet
+                      </Link>
+                    </p>
+                  </div>
+                )}
               />
             </Field>
           </div>

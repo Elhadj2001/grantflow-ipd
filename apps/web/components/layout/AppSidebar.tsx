@@ -9,6 +9,8 @@ import {
   Calculator,
   CalendarCheck,
   FileBarChart,
+  FolderKanban,
+  HandCoins,
   LayoutDashboard,
   Package,
   ShoppingCart,
@@ -145,6 +147,26 @@ const NAV: SidebarNavItem[] = [
     icon: Building2,
     matchPrefix: '/referential/suppliers',
     visible: (p) => p.canManageSuppliers(),
+  },
+  {
+    // Sprint F-REF-BAILLEURS-PROJETS : référentiel Bailleurs (CRUD).
+    // Visible pour CONTROLEUR / DAF / SUPER_ADMIN — gating identique à
+    // @Roles backend POST /donors.
+    href: '/referential/donors',
+    label: 'Bailleurs',
+    icon: HandCoins,
+    matchPrefix: '/referential/donors',
+    visible: (p) => p.canManageDonors(),
+  },
+  {
+    // Sprint F-REF-BAILLEURS-PROJETS : référentiel Projets (CRUD).
+    // Visible pour CONTROLEUR / DAF / SUPER_ADMIN — gating identique à
+    // @Roles backend POST /projects.
+    href: '/referential/projects',
+    label: 'Projets',
+    icon: FolderKanban,
+    matchPrefix: '/referential/projects',
+    visible: (p) => p.canManageProjects(),
   },
   {
     // Sprint F-ADMIN-USERS : gestion des utilisateurs.
