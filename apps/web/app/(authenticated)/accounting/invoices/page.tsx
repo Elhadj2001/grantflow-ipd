@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, Upload } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -35,12 +35,24 @@ export default function InvoicesListPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | undefined>();
 
-  const { data, isLoading } = useListInvoices({
-    page,
-    pageSize: PAGE_SIZE,
-    status: statusFilter,
-    q: search || undefined,
-  });
+  // Sprint F-RBAC-LISTES : gate la page pour les rôles exclus de GET
+  // /invoices (BAILLEUR / MAGASINIER / CAISSIER) — sinon le hook
+  // déclencherait un 403 toast intempestif.
+  useEffect(() => {
+    if (permissions.roles.length > 0 && !permissions.canListInvoices()) {
+      router.replace('/dashboard');
+    }
+  }, [permissions, router]);
+
+  const { data, isLoading } = useListInvoices(
+    {
+      page,
+      pageSize: PAGE_SIZE,
+      status: statusFilter,
+      q: search || undefined,
+    },
+    { enabled: permissions.canListInvoices() },
+  );
 
   const columns: DataTableColumn<Invoice>[] = [
     {

@@ -249,33 +249,47 @@ export function DashboardRecentActivity() {
   const perms = usePermissions();
 
   // 5 items par flux — on agrège ≤ 25 → on garde les 8 plus récents.
-  // pageSize=5 + status undefined = "tout récent" côté backend (le
-  // controller a souvent un défaut tri createdAt desc — sinon on trie
-  // côté front juste après).
-  const prsQuery = useListPRs({ page: 1, pageSize: 5 });
-  const posQuery = useListPOs({ page: 1, pageSize: 5 });
-  const grsQuery = useListGRs({ page: 1, pageSize: 5 });
-  const invoicesQuery = useListInvoices({ page: 1, pageSize: 5 });
-  const paymentRunsQuery = useListPaymentRuns({ page: 1, pageSize: 5 });
+  // Sprint F-RBAC-LISTES : les hooks reçoivent `enabled` exactement aligné
+  // sur le @Roles backend (helpers canList*). Ainsi un rôle non autorisé
+  // ne déclenche AUCUN fetch (donc aucun toast d'erreur 403). Le
+  // filtrage d'affichage (push items) double-vérifie côté UI pour ne
+  // jamais exposer des données d'un domaine non-permis, même en cas de
+  // race condition / cache stale.
+  const canFetchPR = perms.canCreatePR();
+  const canFetchPO = perms.canListPurchaseOrders();
+  const canFetchGR = perms.canListGoodsReceipts();
+  const canFetchInvoice = perms.canListInvoices();
+  const canFetchPaymentRun = perms.canListPaymentRuns();
 
-  // Adaptation : on n'inclut un flux QUE si l'utilisateur a la permission
-  // de le voir (le backend filtrerait de toute façon, mais ça évite un
-  // 403 toast intempestif sur le dashboard).
+  const prsQuery = useListPRs({ page: 1, pageSize: 5 }, { enabled: canFetchPR });
+  const posQuery = useListPOs({ page: 1, pageSize: 5 }, { enabled: canFetchPO });
+  const grsQuery = useListGRs({ page: 1, pageSize: 5 }, { enabled: canFetchGR });
+  const invoicesQuery = useListInvoices(
+    { page: 1, pageSize: 5 },
+    { enabled: canFetchInvoice },
+  );
+  const paymentRunsQuery = useListPaymentRuns(
+    { page: 1, pageSize: 5 },
+    { enabled: canFetchPaymentRun },
+  );
+
+  // Double gating UI — défense en profondeur côté affichage (même si le
+  // fetch est désactivé, le filtre push s'assure que rien ne s'affiche).
   const items: ActivityItem[] = [];
 
-  if (perms.canCreatePR()) {
+  if (canFetchPR) {
     items.push(...(prsQuery.data?.data ?? []).map(fromPR));
   }
-  if (perms.canManagePO()) {
+  if (canFetchPO) {
     items.push(...(posQuery.data?.data ?? []).map(fromPO));
   }
-  if (perms.canReceive()) {
+  if (canFetchGR) {
     items.push(...(grsQuery.data?.data ?? []).map(fromGR));
   }
-  if (perms.canViewInvoice()) {
+  if (canFetchInvoice) {
     items.push(...(invoicesQuery.data?.data ?? []).map(fromInvoice));
   }
-  if (perms.canViewPaymentRun()) {
+  if (canFetchPaymentRun) {
     items.push(...(paymentRunsQuery.data?.data ?? []).map(fromPaymentRun));
   }
 

@@ -89,11 +89,18 @@ export function useBankAccount(id: string | null | undefined) {
 //  PaymentRun queries
 // =====================================================================
 
-export function useListPaymentRuns(query: ListPaymentRunsQuery = {}) {
+/**
+ * Sprint F-RBAC-LISTES : `options.enabled` pour gater le fetch (le
+ * GET /payment-runs est désormais @Roles côté backend).
+ */
+export function useListPaymentRuns(
+  query: ListPaymentRunsQuery = {},
+  options: { enabled?: boolean } = {},
+) {
   const { accessToken, sessionReady } = useToken();
   return useQuery<ListResponse<PaymentRun>>({
     queryKey: treasuryKeys.runList(query),
-    enabled: sessionReady,
+    enabled: sessionReady && (options.enabled ?? true),
     queryFn: async () => {
       try {
         return await listPaymentRuns(query, { accessToken });

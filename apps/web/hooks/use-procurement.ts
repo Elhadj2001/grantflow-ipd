@@ -73,11 +73,21 @@ function useToken() {
 //  Purchase Requests
 // =====================================================================
 
-export function useListPRs(query: ListPrQuery = {}) {
+/**
+ * Liste des DA. Sprint F-RBAC-LISTES : ajout d'un flag `enabled` pour
+ * gater le fetch côté front (utile pour Dashboard qui doit éviter les
+ * 403 sur les rôles non autorisés à voir les listes sensibles).
+ * Par défaut `enabled: true` → comportement inchangé pour les pages
+ * existantes.
+ */
+export function useListPRs(
+  query: ListPrQuery = {},
+  options: { enabled?: boolean } = {},
+) {
   const { accessToken, sessionReady } = useToken();
   return useQuery({
     queryKey: procurementKeys.prList(query),
-    enabled: sessionReady,
+    enabled: sessionReady && (options.enabled ?? true),
     queryFn: async () => {
       try {
         return await listPurchaseRequests(query, { accessToken });
@@ -225,11 +235,18 @@ export function useCancelPR(id: string) {
 //  Purchase Orders
 // =====================================================================
 
-export function useListPOs(query: ListPoQuery = {}) {
+/**
+ * Sprint F-RBAC-LISTES : `options.enabled` pour gater le fetch (le
+ * GET /purchase-orders est désormais @Roles côté backend).
+ */
+export function useListPOs(
+  query: ListPoQuery = {},
+  options: { enabled?: boolean } = {},
+) {
   const { accessToken, sessionReady } = useToken();
   return useQuery({
     queryKey: procurementKeys.poList(query),
-    enabled: sessionReady,
+    enabled: sessionReady && (options.enabled ?? true),
     queryFn: () => listPurchaseOrders(query, { accessToken }),
   });
 }
@@ -302,11 +319,18 @@ export function useCancelPO(id: string) {
 //  Goods Receipts
 // =====================================================================
 
-export function useListGRs(query: ListGrQuery = {}) {
+/**
+ * Sprint F-RBAC-LISTES : `options.enabled` pour gater le fetch (le
+ * GET /goods-receipts est désormais @Roles côté backend).
+ */
+export function useListGRs(
+  query: ListGrQuery = {},
+  options: { enabled?: boolean } = {},
+) {
   const { accessToken, sessionReady } = useToken();
   return useQuery({
     queryKey: procurementKeys.grList(query),
-    enabled: sessionReady,
+    enabled: sessionReady && (options.enabled ?? true),
     queryFn: () => listGoodsReceipts(query, { accessToken }),
   });
 }

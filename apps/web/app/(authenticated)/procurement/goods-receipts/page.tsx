@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PackageCheck, Truck } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -29,11 +29,22 @@ export default function GoodsReceiptsListPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<GrStatus | undefined>();
 
-  const { data, isLoading } = useListGRs({
-    page,
-    pageSize: PAGE_SIZE,
-    status: statusFilter,
-  });
+  // Sprint F-RBAC-LISTES : gate la page (BAILLEUR / DEMANDEUR / PI /
+  // TRESORIER / CAISSIER excluded from GET /goods-receipts).
+  useEffect(() => {
+    if (permissions.roles.length > 0 && !permissions.canListGoodsReceipts()) {
+      router.replace('/dashboard');
+    }
+  }, [permissions, router]);
+
+  const { data, isLoading } = useListGRs(
+    {
+      page,
+      pageSize: PAGE_SIZE,
+      status: statusFilter,
+    },
+    { enabled: permissions.canListGoodsReceipts() },
+  );
 
   const columns: DataTableColumn<GoodsReceipt>[] = [
     { key: 'grNumber', header: 'N° GR', cell: (r) => <span className="font-mono text-xs">{r.grNumber}</span>, width: '140px' },

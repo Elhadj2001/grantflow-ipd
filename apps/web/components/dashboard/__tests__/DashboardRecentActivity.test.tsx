@@ -204,7 +204,21 @@ describe('DashboardRecentActivity', () => {
     expect(wrap).toHaveAttribute('data-state', 'empty');
   });
 
-  it("DEMANDEUR n'inclut JAMAIS les paymentRuns même si la query renvoie (gate canViewPaymentRun=false)", () => {
+  it('BAILLEUR : aucun flux gated → empty (anti-leak F-RBAC-LISTES)', () => {
+    // BAILLEUR n'a aucun canList*. Même si on simulait du data en cache,
+    // le filtre push s'assure que rien ne s'affiche.
+    mockRoles = ['BAILLEUR'];
+    // On simule pour chaque flux une liste non-vide. Le gating doit
+    // les ignorer tous.
+    prsResult = { data: { data: [fakePR({ id: 'x', prNumber: 'X', requestedAt: '2026-01-01T00:00:00Z' })] }, isLoading: false };
+    posResult = { data: { data: [{ id: 'po-x', poNumber: 'BC-X', supplierId: 's', orderDate: '2026-01-01', expectedDate: null, status: 'sent', totalHt: '0', totalVat: '0', totalTtc: '0', currency: 'XOF', prId: null }] }, isLoading: false };
+
+    render(<DashboardRecentActivity />);
+    const wrap = screen.getByTestId('dashboard-activity');
+    expect(wrap).toHaveAttribute('data-state', 'empty');
+  });
+
+  it("DEMANDEUR n'inclut JAMAIS les paymentRuns même si la query renvoie (gate canListPaymentRuns=false)", () => {
     mockRoles = ['DEMANDEUR'];
     // Cas pathologique : si le backend renvoyait des paymentRuns malgré
     // un 403 absent, le composant doit IGNORER ces données pour ne pas

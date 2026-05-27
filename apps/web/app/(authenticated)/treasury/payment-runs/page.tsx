@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Wallet, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -32,11 +32,23 @@ export default function PaymentRunsListPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<PaymentRunStatus | undefined>();
 
-  const { data, isLoading } = useListPaymentRuns({
-    page,
-    pageSize: PAGE_SIZE,
-    status: statusFilter,
-  });
+  // Sprint F-RBAC-LISTES : gate la page pour les rôles exclus de GET
+  // /payment-runs (BAILLEUR / DEMANDEUR / PI / ACHETEUR / MAGASINIER /
+  // CAISSIER) — sinon 403 toast intempestif.
+  useEffect(() => {
+    if (permissions.roles.length > 0 && !permissions.canListPaymentRuns()) {
+      router.replace('/dashboard');
+    }
+  }, [permissions, router]);
+
+  const { data, isLoading } = useListPaymentRuns(
+    {
+      page,
+      pageSize: PAGE_SIZE,
+      status: statusFilter,
+    },
+    { enabled: permissions.canListPaymentRuns() },
+  );
 
   const columns: DataTableColumn<PaymentRun>[] = [
     {

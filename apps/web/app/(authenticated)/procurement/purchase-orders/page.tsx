@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShoppingCart } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -11,6 +11,7 @@ import { DateDisplay } from '@/components/common/DateDisplay';
 import { EmptyState } from '@/components/common/EmptyState';
 import { FilterBar } from '@/components/common/FilterBar';
 import { useListPOs } from '@/hooks/use-procurement';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { PoStatus, PurchaseOrder } from '@/lib/api/procurement';
 
 const PAGE_SIZE = 20;
@@ -27,16 +28,28 @@ const STATUS_VALUES: Array<{ value: PoStatus; label: string }> = [
 
 export default function PurchaseOrdersListPage() {
   const router = useRouter();
+  const permissions = usePermissions();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<PoStatus | undefined>();
 
-  const { data, isLoading } = useListPOs({
-    page,
-    pageSize: PAGE_SIZE,
-    status: statusFilter,
-    search: search || undefined,
-  });
+  // Sprint F-RBAC-LISTES : gate la page (BAILLEUR / DEMANDEUR / PI /
+  // CAISSIER excluded from GET /purchase-orders).
+  useEffect(() => {
+    if (permissions.roles.length > 0 && !permissions.canListPurchaseOrders()) {
+      router.replace('/dashboard');
+    }
+  }, [permissions, router]);
+
+  const { data, isLoading } = useListPOs(
+    {
+      page,
+      pageSize: PAGE_SIZE,
+      status: statusFilter,
+      search: search || undefined,
+    },
+    { enabled: permissions.canListPurchaseOrders() },
+  );
 
   const columns: DataTableColumn<PurchaseOrder>[] = [
     {

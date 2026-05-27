@@ -48,11 +48,18 @@ function useToken() {
 //  Queries
 // =====================================================================
 
-export function useListInvoices(query: ListInvoicesQuery = {}) {
+/**
+ * Sprint F-RBAC-LISTES : `options.enabled` pour gater le fetch (le
+ * GET /invoices est désormais @Roles côté backend).
+ */
+export function useListInvoices(
+  query: ListInvoicesQuery = {},
+  options: { enabled?: boolean } = {},
+) {
   const { accessToken, sessionReady } = useToken();
   return useQuery({
     queryKey: invoicingKeys.list(query),
-    enabled: sessionReady,
+    enabled: sessionReady && (options.enabled ?? true),
     queryFn: async () => {
       try {
         return await listInvoices(query, { accessToken });
