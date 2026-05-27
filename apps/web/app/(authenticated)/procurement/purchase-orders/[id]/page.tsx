@@ -189,7 +189,7 @@ export default function PurchaseOrderDetailPage() {
         open={dialog === 'send'}
         onOpenChange={(o) => !o && setDialog(null)}
         title="Envoyer le BC au fournisseur"
-        description="Le BC sera envoyé par email (PDF en pièce jointe) et son statut passera à `sent`."
+        description="Le BC sera émis : génération PDF, écriture comptable d'engagement (classe 8) et envoi par e-mail si le fournisseur a une adresse de contact (best-effort — l'engagement reste créé même si l'e-mail échoue)."
         confirmLabel="Envoyer"
         loading={sendM.isPending}
         onConfirm={async () => {

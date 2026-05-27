@@ -178,6 +178,8 @@ export interface Supplier {
   riskScore: number | null;
   isActive: boolean;
   createdAt: string;
+  /** Sprint F-PO-EMAIL : destinataire du PDF du BC. NULL = pas d'envoi. */
+  contactEmail: string | null;
 }
 
 export interface ListSuppliersQuery {
@@ -349,6 +351,8 @@ export interface CreateSupplierInput {
   paymentTermsDays?: number;
   currencyDefault?: SupplierCurrency;
   riskScore?: number;
+  /** Sprint F-PO-EMAIL : e-mail de contact (optionnel). */
+  contactEmail?: string;
 }
 
 /** Cf. UpdateSupplierDto — tous optionnels, certains nullable (null = clear). */
@@ -364,6 +368,8 @@ export interface UpdateSupplierInput {
   paymentTermsDays?: number;
   currencyDefault?: SupplierCurrency;
   riskScore?: number;
+  /** Sprint F-PO-EMAIL : null = clear, undefined = no-op. */
+  contactEmail?: string | null;
 }
 
 export async function createSupplier(

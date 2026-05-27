@@ -380,8 +380,29 @@ export function createPoFromPr(
   });
 }
 
-export function sendPurchaseOrder(id: string, opts: CallOpts = {}): Promise<PurchaseOrder> {
-  return apiFetch<PurchaseOrder>(`/purchase-orders/${id}/send`, {
+/**
+ * Sprint F-PO-EMAIL : forme exacte de POST /purchase-orders/:id/send.
+ * Le champ `emailDispatched` est l'indicateur lisible (true ⇔ SMTP a
+ * accepté). `emailSkippedReason` permet de distinguer "pas d'e-mail
+ * fournisseur" de "erreur SMTP" pour l'UI.
+ */
+export interface SendPoResult {
+  poId: string;
+  status: string;
+  pdfObjectKey: string;
+  emailDelivered: boolean;
+  emailDispatched: boolean;
+  emailSkippedReason: 'no-contact-email' | 'smtp-error' | null;
+  /** E-mail destinataire MASQUÉ (ex. "a*****@biomed.demo") ou null. */
+  emailDispatchedTo: string | null;
+  emailMessageId: string | null;
+  emailError: string | null;
+  commitmentEntryId: string | null;
+  commitmentEntryNumber: string | null;
+}
+
+export function sendPurchaseOrder(id: string, opts: CallOpts = {}): Promise<SendPoResult> {
+  return apiFetch<SendPoResult>(`/purchase-orders/${id}/send`, {
     method: 'POST',
     json: {},
     accessToken: opts.accessToken,

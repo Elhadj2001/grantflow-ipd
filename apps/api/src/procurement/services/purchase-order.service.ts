@@ -22,6 +22,7 @@ import {
 import { MailService } from '../../common/services/mail.service';
 import { StorageService } from '../../common/services/storage.service';
 import { PostingService } from '../../accounting/services/posting.service';
+import { maskEmail } from '../../common/utils/mask-email.util';
 import type {
   AcknowledgePoDto,
   CancelPoDto,
@@ -84,7 +85,27 @@ export interface PoWithLines extends PurchaseOrder {
 export interface SendResult {
   po: PurchaseOrder;
   pdfObjectKey: string;
+  /** SMTP a-t-il accepté l'envoi ? */
   emailDelivered: boolean;
+  /**
+   * Sprint F-PO-EMAIL : alias lisible pour le frontend.
+   * `true` ⇔ `emailDelivered === true`. Si `false`, voir `emailSkippedReason`
+   * pour distinguer « pas d'adresse fournisseur » d'« erreur SMTP ».
+   */
+  emailDispatched: boolean;
+  /**
+   * Raison du non-envoi quand `emailDispatched === false`.
+   * - `'no-contact-email'` : le fournisseur n'a pas de contactEmail (skip).
+   * - `'smtp-error'`       : SMTP a échoué (cf. emailError pour le détail).
+   * - `null`               : envoi réussi.
+   */
+  emailSkippedReason: 'no-contact-email' | 'smtp-error' | null;
+  /**
+   * Sprint F-PO-EMAIL : e-mail MASQUÉ du destinataire si l'envoi a réussi
+   * (`a*****@biomed-sn.demo`). null sinon. Le frontend peut l'afficher
+   * directement dans le toast sans avoir à recharger la fiche fournisseur.
+   */
+  emailDispatchedTo: string | null;
   emailMessageId: string | null;
   emailError: string | null;
   commitmentEntryId: string;
@@ -489,9 +510,11 @@ export class PurchaseOrderService {
       fullName: actor.fullName,
     });
 
-    // 4) Email (non bloquant)
+    // 4) Email (BEST-EFFORT — ne fait JAMAIS échouer la transition `sent`
+    //    ni l'engagement classe 8 créés en amont)
     const supplierEmail = this.resolveSupplierEmail(supplier);
     let mailResult: { delivered: boolean; messageId: string | null; error: string | null };
+    let skippedReason: 'no-contact-email' | 'smtp-error' | null = null;
     if (supplierEmail) {
       const result = await this.mail.send({
         to: supplierEmail,
@@ -503,7 +526,23 @@ export class PurchaseOrderService {
         ],
       });
       mailResult = { delivered: result.delivered, messageId: result.messageId, error: result.error };
+      if (!result.delivered) {
+        skippedReason = 'smtp-error';
+        // Log e-mail MASQUÉ — pas de PII. Le détail err vient de
+        // MailService et reflète l'erreur SMTP (timeout, auth, etc.).
+        this.logger.warn(
+          { poId: po.id, supplierId: supplier.id, to: maskEmail(supplierEmail), err: result.error },
+          'PO email dispatch failed — PO is still in `sent` status (best-effort)',
+        );
+      } else {
+        // Succès : on logue le succès + e-mail masqué pour traçabilité.
+        this.logger.log(
+          { poId: po.id, supplierId: supplier.id, to: maskEmail(supplierEmail), messageId: result.messageId },
+          'PO email dispatched to supplier',
+        );
+      }
     } else {
+      skippedReason = 'no-contact-email';
       this.logger.warn(
         { poId: po.id, supplierId: supplier.id },
         'supplier has no contact email — PO sent without notification',
@@ -527,6 +566,9 @@ export class PurchaseOrderService {
       po: updated,
       pdfObjectKey: objectKey,
       emailDelivered: mailResult.delivered,
+      emailDispatched: mailResult.delivered,
+      emailSkippedReason: skippedReason,
+      emailDispatchedTo: mailResult.delivered && supplierEmail ? maskEmail(supplierEmail) : null,
       emailMessageId: mailResult.messageId,
       emailError: mailResult.error,
       commitmentEntryId: entry.id,

@@ -383,8 +383,80 @@ describe('PurchaseOrderService', () => {
       prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
       const res = await svc.send(acheteur, poId);
       expect(res.emailDelivered).toBe(false);
+      expect(res.emailDispatched).toBe(false);
+      expect(res.emailSkippedReason).toBe('no-contact-email');
       expect(res.emailError).toBe('No supplier contact email');
       expect(mail.send).not.toHaveBeenCalled();
+    });
+
+    // Sprint F-PO-EMAIL — exposition emailDispatched + emailSkippedReason
+    it('happy path expose emailDispatched=true + emailSkippedReason=null', async () => {
+      prisma.purchaseOrder.findUnique.mockResolvedValue({
+        ...makePo(), lines: [], prLinks: [{ prId }],
+      });
+      prisma.purchaseRequest.findMany.mockResolvedValue([]);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
+      const res = await svc.send(acheteur, poId);
+      expect(res.emailDispatched).toBe(true);
+      expect(res.emailSkippedReason).toBeNull();
+    });
+
+    it('smtp-error : emailSkippedReason="smtp-error" + engagement créé', async () => {
+      mail.send.mockResolvedValue({
+        delivered: false,
+        to: 'sales@acme.example',
+        messageId: null,
+        error: 'connect ECONNREFUSED 127.0.0.1:1025',
+      });
+      prisma.purchaseOrder.findUnique.mockResolvedValue({
+        ...makePo(), lines: [], prLinks: [{ prId }],
+      });
+      prisma.purchaseRequest.findMany.mockResolvedValue([]);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
+      const res = await svc.send(acheteur, poId);
+      expect(res.emailDispatched).toBe(false);
+      expect(res.emailSkippedReason).toBe('smtp-error');
+      expect(res.emailError).toMatch(/ECONNREFUSED/);
+      expect(posting.createCommitmentEntry).toHaveBeenCalled();
+    });
+
+    // Sprint F-PO-EMAIL — confidentialité : aucun log ne doit contenir
+    // l'e-mail en clair (que ce soit succès ou échec SMTP).
+    it('logs masquent toujours l\'e-mail du fournisseur', async () => {
+      const SECRET_EMAIL = 'top-secret-customer@confidential.example';
+      // Cas A : SMTP succès → log "PO email dispatched" doit masquer.
+      mail.send.mockResolvedValue({
+        delivered: true,
+        to: SECRET_EMAIL,
+        messageId: 'msg-1',
+        error: null,
+      });
+      // Inject l'e-mail confidentiel côté supplier.
+      const supplierFixture = {
+        id: supplierId, isActive: true, name: 'Acme', code: 'A',
+        paymentTermsDays: 30, address: null, country: null,
+        contactEmail: SECRET_EMAIL,
+      };
+      prisma.supplier.findUnique.mockResolvedValue(supplierFixture);
+      prisma.purchaseOrder.findUnique.mockResolvedValue({
+        ...makePo(), lines: [], prLinks: [{ prId }],
+      });
+      prisma.purchaseRequest.findMany.mockResolvedValue([]);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const logSpy = jest.spyOn((svc as any).logger, 'log');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const warnSpy = jest.spyOn((svc as any).logger, 'warn');
+      await svc.send(acheteur, poId);
+
+      const allArgs = [...logSpy.mock.calls, ...warnSpy.mock.calls].flat();
+      for (const a of allArgs) {
+        const text = typeof a === 'string' ? a : JSON.stringify(a);
+        // Le local-part complet ne doit JAMAIS apparaître (maskEmail
+        // garde la 1ère lettre, masque le reste).
+        expect(text).not.toContain('top-secret-customer');
+      }
     });
   });
 

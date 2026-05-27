@@ -212,6 +212,7 @@ export const mockSuppliers: Supplier[] = [
     riskScore: 15,
     isActive: true,
     createdAt: '2024-01-15T00:00:00.000Z',
+    contactEmail: 'commande@thermofisher.demo',
   },
   {
     id: ID(52),
@@ -228,6 +229,7 @@ export const mockSuppliers: Supplier[] = [
     riskScore: null,
     isActive: true,
     createdAt: '2024-02-01T00:00:00.000Z',
+    contactEmail: null,
   },
   {
     id: ID(53),
@@ -244,6 +246,7 @@ export const mockSuppliers: Supplier[] = [
     riskScore: 25,
     isActive: true,
     createdAt: '2024-03-01T00:00:00.000Z',
+    contactEmail: 'orders@bio-rad.demo',
   },
 ];
 

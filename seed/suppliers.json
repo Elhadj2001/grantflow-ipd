@@ -12,7 +12,8 @@
       "address": "Km 4.5 Route de Rufisque, BP 4032, Dakar",
       "country": "SN",
       "paymentTermsDays": 30,
-      "currencyDefault": "XOF"
+      "currencyDefault": "XOF",
+      "contactEmail": "achats@biomed-sn.demo"
     },
     {
       "code": "FOURN-LABEQUIP",
@@ -21,7 +22,8 @@
       "address": "Zone Franche Industrielle, BP 11220, Dakar",
       "country": "SN",
       "paymentTermsDays": 45,
-      "currencyDefault": "XOF"
+      "currencyDefault": "XOF",
+      "contactEmail": "commande@labequip-wa.demo"
     },
     {
       "code": "FOURN-COLDCHAIN",
@@ -30,7 +32,8 @@
       "address": "Aéroport AIBD, Diass — Hangar Logistique 3",
       "country": "SN",
       "paymentTermsDays": 30,
-      "currencyDefault": "XOF"
+      "currencyDefault": "XOF",
+      "contactEmail": "service-client@coldchain.demo"
     }
   ]
 }

@@ -37,6 +37,13 @@ export const CreateSupplierSchema = z
     paymentTermsDays: z.number().int().min(0).max(120).default(30),
     currencyDefault: z.enum(SUPPLIER_CURRENCIES).default('XOF'),
     riskScore: z.number().int().min(0).max(100).default(0),
+    /**
+     * Sprint F-PO-EMAIL : e-mail de contact du fournisseur.
+     * Destinataire du PDF du BC envoyé lors de l'action « Envoyer ».
+     * Validation RFC 5322 (lite) côté Zod ; optionnel — si absent, le BC
+     * est marqué `sent` sans notification (best-effort, jamais bloquant).
+     */
+    contactEmail: z.string().email('Adresse e-mail invalide').max(255).optional(),
   })
   .strict();
 

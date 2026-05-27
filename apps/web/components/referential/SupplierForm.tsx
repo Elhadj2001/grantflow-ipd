@@ -42,6 +42,20 @@ const SupplierFormSchema = z.object({
     .max(120),
   currencyDefault: z.enum(SUPPLIER_CURRENCIES),
   riskScore: z.number().int().min(0).max(100),
+  // Sprint F-PO-EMAIL : destinataire du PDF du BC. Optionnel — si vide,
+  // l'envoi e-mail est skippé (l'engagement classe 8 et la transition
+  // `sent` se font quand même côté backend).
+  // On utilise un `refine` plutôt qu'une union pour que RHF reçoive un
+  // FieldError "plat" avec notre message lisible (l'union produit des
+  // erreurs imbriquées qui ne propagent pas joliment dans formState.errors).
+  contactEmail: z
+    .string()
+    .max(255)
+    .refine(
+      (v) => v.length === 0 || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+      { message: 'Adresse e-mail invalide' },
+    )
+    .optional(),
 });
 
 export type SupplierFormValues = z.infer<typeof SupplierFormSchema>;
@@ -86,6 +100,7 @@ export function SupplierForm({
       paymentTermsDays: defaultValues?.paymentTermsDays ?? 30,
       currencyDefault: (defaultValues?.currencyDefault as SupplierCurrency) ?? 'XOF',
       riskScore: defaultValues?.riskScore ?? 0,
+      contactEmail: defaultValues?.contactEmail ?? '',
     },
   });
 
@@ -104,6 +119,7 @@ export function SupplierForm({
         paymentTermsDays: defaultValues.paymentTermsDays,
         currencyDefault: defaultValues.currencyDefault as SupplierCurrency,
         riskScore: defaultValues.riskScore ?? 0,
+        contactEmail: defaultValues.contactEmail ?? '',
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,6 +146,7 @@ export function SupplierForm({
         paymentTermsDays: values.paymentTermsDays,
         currencyDefault: values.currencyDefault,
         riskScore: values.riskScore,
+        contactEmail: cleanStr(values.contactEmail),
       };
       return onSubmit(payload);
     }
@@ -147,6 +164,7 @@ export function SupplierForm({
       paymentTermsDays: values.paymentTermsDays,
       currencyDefault: values.currencyDefault,
       riskScore: values.riskScore,
+      contactEmail: cleanForUpdate(values.contactEmail),
     };
     return onSubmit(updatePayload);
   });
@@ -156,6 +174,10 @@ export function SupplierForm({
       data-testid="supplier-form"
       data-mode={mode}
       onSubmit={submit}
+      // noValidate : laisse Zod faire toute la validation (sinon l'input
+      // type="email" bloque le submit silencieusement sur les saisies
+      // invalides avant que RHF voie l'erreur).
+      noValidate
       className={cn('space-y-3', className)}
     >
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -221,6 +243,17 @@ export function SupplierForm({
             min={0}
             max={100}
             {...register('riskScore', { valueAsNumber: true })}
+          />
+        </Field>
+        <Field
+          label="E-mail de contact (optionnel — destinataire du PDF du BC)"
+          error={errors.contactEmail?.message}
+        >
+          <Input
+            data-testid="supplier-contact-email"
+            type="email"
+            {...register('contactEmail')}
+            placeholder="achats@fournisseur.sn"
           />
         </Field>
         <Field label="Numéro TVA (optionnel)" error={errors.vatNumber?.message}>
