@@ -1,181 +1,169 @@
-import { OcrService } from '../ocr.service';
-
 /**
- * Tests unitaires OcrService — on teste directement `parseText` plutôt
- * que `extractFromPdf` pour ne pas dépendre de pdfkit dans la fixture.
- * Le pipeline pdf-parse → texte est testé séparément par un cas e2e.
+ * Sprint F-OCR-VISION Lot A/C — tests de la FAÇADE OcrService.
+ *
+ * Couvre :
+ *   - sélection du provider via env (OCR_PROVIDER pdfparse|vision|auto)
+ *   - mode 'auto' : bascule sur Vision quand pdfparse renvoie
+ *     `isImageScan` ou `confidence` faible
+ *   - fallback Vision → pdfparse en cas d'erreur Vision
+ *   - défaut sans env = pdfparse strictement (anti-régression)
+ *   - cas dégradé : OCR_PROVIDER=vision sans provider Vision wiré
+ *     → fallback définitif pdfparse + log warning
+ *
+ * Les heuristiques d'extraction sont testées dans le spec dédié
+ * `ocr/__tests__/pdfparse-ocr.provider.spec.ts`.
  */
-describe('OcrService', () => {
-  const svc = new OcrService();
 
-  // ----------------------------------------------------------------
-  // Numéro de facture
-  // ----------------------------------------------------------------
-  describe('invoice number', () => {
-    it('extracts "Facture n° INV-2026-0042"', () => {
-      const r = svc.parseText('Facture n° INV-2026-0042\nClient : IPD Dakar');
-      expect(r.fields.invoiceNumber).toBe('INV-2026-0042');
-      expect(r.fieldConfidence.invoiceNumber).toBeGreaterThan(80);
-    });
+import { ConfigService } from '@nestjs/config';
+import { OcrService } from '../ocr.service';
+import type { PdfParseOcrProvider } from '../ocr/pdfparse-ocr.provider';
+import type { OcrProvider, OcrResult } from '../ocr/ocr-provider.interface';
 
-    it('extracts "Invoice Number: FAC-001"', () => {
-      const r = svc.parseText('Invoice Number: FAC-001');
-      expect(r.fields.invoiceNumber).toBe('FAC-001');
-    });
+function makePdfParseMock(result: OcrResult): jest.Mocked<PdfParseOcrProvider> {
+  return {
+    name: 'pdfparse',
+    extractFromPdf: jest.fn().mockResolvedValue(result),
+    // parseText n'est pas appelée par la façade — on met un stub vide.
+    parseText: jest.fn(),
+  } as unknown as jest.Mocked<PdfParseOcrProvider>;
+}
 
-    it('falls back to direct pattern FAC2026123 without label', () => {
-      const r = svc.parseText('Réf interne FAC-2026-99\nLignes ci-dessous');
-      expect(r.fields.invoiceNumber).toBe('FAC-2026-99');
-    });
+function makeVisionMock(result: OcrResult): jest.Mocked<OcrProvider> {
+  return {
+    name: 'vision',
+    extractFromPdf: jest.fn().mockResolvedValue(result),
+  } as unknown as jest.Mocked<OcrProvider>;
+}
 
-    it('returns undefined when no number present', () => {
-      const r = svc.parseText('Lorem ipsum dolor sit amet, no invoice here.');
-      expect(r.fields.invoiceNumber).toBeUndefined();
-    });
-  });
+function makeConfig(map: Record<string, string | undefined>): ConfigService {
+  return {
+    get: <T = string>(key: string): T | undefined => map[key] as T | undefined,
+  } as unknown as ConfigService;
+}
 
-  // ----------------------------------------------------------------
-  // Dates
-  // ----------------------------------------------------------------
-  describe('dates', () => {
-    it('extracts labelled invoice date DD/MM/YYYY', () => {
-      const r = svc.parseText('Date facture : 14/05/2026\nTotal HT : 100');
-      expect(r.fields.invoiceDate?.toISOString().slice(0, 10)).toBe('2026-05-14');
-      expect(r.fieldConfidence.invoiceDate).toBeGreaterThan(80);
-    });
+const HIGH_CONF_RESULT: OcrResult = {
+  rawText: 'Facture INV-1',
+  isImageScan: false,
+  confidence: 90,
+  fields: { invoiceNumber: 'INV-1' },
+  fieldConfidence: { invoiceNumber: 95 },
+};
 
-    it('extracts ISO date 2026-05-14', () => {
-      const r = svc.parseText('Date facture: 2026-05-14');
-      expect(r.fields.invoiceDate?.toISOString().slice(0, 10)).toBe('2026-05-14');
-    });
+const IMAGE_SCAN_RESULT: OcrResult = {
+  rawText: '',
+  isImageScan: true,
+  confidence: 0,
+  fields: {},
+  fieldConfidence: {},
+};
 
-    it('falls back to any date in document', () => {
-      const r = svc.parseText('Document du 14/05/2026 sans label précis');
-      expect(r.fields.invoiceDate?.toISOString().slice(0, 10)).toBe('2026-05-14');
-    });
+const VISION_RESULT: OcrResult = {
+  rawText: '',
+  isImageScan: false,
+  confidence: 88,
+  fields: { invoiceNumber: 'INV-VISION' },
+  fieldConfidence: { invoiceNumber: 88 },
+};
 
-    it('extracts due date when present', () => {
-      const r = svc.parseText('Échéance : 14/06/2026');
-      expect(r.fields.dueDate?.toISOString().slice(0, 10)).toBe('2026-06-14');
-    });
-  });
-
-  // ----------------------------------------------------------------
-  // Montants
-  // ----------------------------------------------------------------
-  describe('totals', () => {
-    it('extracts total HT/TVA/TTC from a French invoice', () => {
-      const text = `
-Facture INV-2026-001
-Total HT      : 100 000,00 XOF
-TVA           :  18 000,00 XOF
-Total TTC     : 118 000,00 XOF
-`;
-      const r = svc.parseText(text);
-      expect(r.fields.totalHt).toBe(100000);
-      expect(r.fields.totalVat).toBe(18000);
-      expect(r.fields.totalTtc).toBe(118000);
-    });
-
-    it('computes VAT when HT and TTC are present but VAT label missing', () => {
-      const text = 'Total HT : 100\nGrand Total : 118';
-      const r = svc.parseText(text);
-      expect(r.fields.totalHt).toBe(100);
-      expect(r.fields.totalTtc).toBe(118);
-      expect(r.fields.totalVat).toBe(18); // calculé
-    });
-
-    it('parses US-style numbers (1,234.56)', () => {
-      const text = 'Subtotal: 1,234.56 USD\nAmount Due: 1,456.78 USD';
-      const r = svc.parseText(text);
-      expect(r.fields.totalHt).toBe(1234.56);
-      expect(r.fields.totalTtc).toBe(1456.78);
-    });
-
-    it('parses bare integers without separator', () => {
-      const text = 'Total HT: 100000\nTotal TTC: 118000';
-      const r = svc.parseText(text);
-      expect(r.fields.totalHt).toBe(100000);
-      expect(r.fields.totalTtc).toBe(118000);
+describe('OcrService (façade)', () => {
+  describe('OCR_PROVIDER non défini', () => {
+    it('défaut = pdfparse (anti-régression)', async () => {
+      const pdf = makePdfParseMock(HIGH_CONF_RESULT);
+      const svc = new OcrService(pdf, null, makeConfig({}));
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(pdf.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(r).toBe(HIGH_CONF_RESULT);
     });
   });
 
-  // ----------------------------------------------------------------
-  // Devise
-  // ----------------------------------------------------------------
-  describe('currency', () => {
-    it('extracts XOF', () => {
-      const r = svc.parseText('Total HT : 100 000,00 XOF');
-      expect(r.fields.currency).toBe('XOF');
-    });
-
-    it('normalises CFA to XOF', () => {
-      const r = svc.parseText('Total HT : 100 000 CFA');
-      expect(r.fields.currency).toBe('XOF');
-    });
-
-    it('extracts EUR via €', () => {
-      const r = svc.parseText('Total TTC : 1 234,56 €');
-      expect(r.fields.currency).toBe('EUR');
-    });
-
-    it('returns undefined if no currency hint', () => {
-      const r = svc.parseText('Numéro: FAC-001\nMontant : 100');
-      expect(r.fields.currency).toBeUndefined();
+  describe('OCR_PROVIDER=pdfparse', () => {
+    it('utilise pdfparse exclusivement', async () => {
+      const pdf = makePdfParseMock(HIGH_CONF_RESULT);
+      const vision = makeVisionMock(VISION_RESULT);
+      const svc = new OcrService(pdf, vision, makeConfig({ OCR_PROVIDER: 'pdfparse' }));
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(pdf.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(vision.extractFromPdf).not.toHaveBeenCalled();
+      expect(r).toBe(HIGH_CONF_RESULT);
     });
   });
 
-  // ----------------------------------------------------------------
-  // Référence BC
-  // ----------------------------------------------------------------
-  describe('PO reference', () => {
-    it('extracts BC-2026-0042', () => {
-      const r = svc.parseText('Votre BC-2026-0042\nMerci');
-      expect(r.fields.poReference).toBe('BC-2026-0042');
+  describe('OCR_PROVIDER=vision', () => {
+    it('utilise vision', async () => {
+      const pdf = makePdfParseMock(HIGH_CONF_RESULT);
+      const vision = makeVisionMock(VISION_RESULT);
+      const svc = new OcrService(pdf, vision, makeConfig({ OCR_PROVIDER: 'vision' }));
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(vision.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(pdf.extractFromPdf).not.toHaveBeenCalled();
+      expect(r).toBe(VISION_RESULT);
     });
 
-    it('extracts PO inline', () => {
-      const r = svc.parseText('PO 2026-99 referenced on delivery');
-      expect(r.fields.poReference?.replace(/\s/g, '')).toBe('PO2026-99');
+    it("fallback pdfparse si Vision échoue (jamais d'upload bloqué)", async () => {
+      const pdf = makePdfParseMock(HIGH_CONF_RESULT);
+      const vision = makeVisionMock(VISION_RESULT);
+      vision.extractFromPdf.mockRejectedValueOnce(new Error('anthropic-api-down'));
+      const svc = new OcrService(pdf, vision, makeConfig({ OCR_PROVIDER: 'vision' }));
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(vision.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(pdf.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(r).toBe(HIGH_CONF_RESULT);
     });
 
-    it('undefined when no PO ref', () => {
-      const r = svc.parseText('Just an invoice.');
-      expect(r.fields.poReference).toBeUndefined();
+    it("vision demandée mais provider absent → fallback pdfparse + warning", async () => {
+      const pdf = makePdfParseMock(HIGH_CONF_RESULT);
+      const svc = new OcrService(pdf, null, makeConfig({ OCR_PROVIDER: 'vision' }));
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(pdf.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(r).toBe(HIGH_CONF_RESULT);
     });
   });
 
-  // ----------------------------------------------------------------
-  // Cas d'ensemble
-  // ----------------------------------------------------------------
-  describe('overall result', () => {
-    it('full French invoice → high confidence', () => {
-      const text = `
-FOURNISSEUR ACME LAB
-Facture n° INV-2026-0042
-Date facture : 14/05/2026
-Échéance : 13/06/2026
-Votre BC-2026-0017
-
-Total HT  : 100 000,00 XOF
-TVA       :  18 000,00 XOF
-Total TTC : 118 000,00 XOF
-`;
-      const r = svc.parseText(text);
-      expect(r.fields.invoiceNumber).toBe('INV-2026-0042');
-      expect(r.fields.totalTtc).toBe(118000);
-      expect(r.fields.currency).toBe('XOF');
-      expect(r.fields.poReference).toBe('BC-2026-0017');
-      expect(r.confidence).toBeGreaterThan(80);
-      expect(r.isImageScan).toBe(false);
+  describe('OCR_PROVIDER=auto', () => {
+    it('reste sur pdfparse si confidence ≥ seuil par défaut (50)', async () => {
+      const pdf = makePdfParseMock(HIGH_CONF_RESULT); // confidence=90
+      const vision = makeVisionMock(VISION_RESULT);
+      const svc = new OcrService(pdf, vision, makeConfig({ OCR_PROVIDER: 'auto' }));
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(pdf.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(vision.extractFromPdf).not.toHaveBeenCalled();
+      expect(r).toBe(HIGH_CONF_RESULT);
     });
 
-    it('empty text → isImageScan stays false (parseText only)', () => {
-      // parseText doit retourner un résultat avec confiance 0, mais
-      // isImageScan reste true via extractFromPdf — pas parseText
-      const r = svc.parseText('aaaaa bbbbb ccccc ddddd eeeee fffff'); // > 20 chars mais aucun champ
-      expect(r.fields.invoiceNumber).toBeUndefined();
-      expect(r.confidence).toBe(0);
+    it("bascule sur Vision si pdfparse renvoie isImageScan", async () => {
+      const pdf = makePdfParseMock(IMAGE_SCAN_RESULT);
+      const vision = makeVisionMock(VISION_RESULT);
+      const svc = new OcrService(pdf, vision, makeConfig({ OCR_PROVIDER: 'auto' }));
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(pdf.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(vision.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(r).toBe(VISION_RESULT);
+    });
+
+    it("bascule sur Vision si pdfparse confidence < seuil (override env)", async () => {
+      const pdf = makePdfParseMock({ ...HIGH_CONF_RESULT, confidence: 40 });
+      const vision = makeVisionMock(VISION_RESULT);
+      const svc = new OcrService(
+        pdf,
+        vision,
+        makeConfig({ OCR_PROVIDER: 'auto', OCR_VISION_FALLBACK_THRESHOLD: '50' }),
+      );
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(vision.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(r).toBe(VISION_RESULT);
+    });
+
+    it("auto + Vision en panne → conserve le résultat pdfparse (best-effort)", async () => {
+      const pdfResult = { ...HIGH_CONF_RESULT, confidence: 30 }; // faible
+      const pdf = makePdfParseMock(pdfResult);
+      const vision = makeVisionMock(VISION_RESULT);
+      vision.extractFromPdf.mockRejectedValueOnce(new Error('anthropic-down'));
+      const svc = new OcrService(pdf, vision, makeConfig({ OCR_PROVIDER: 'auto' }));
+      const r = await svc.extractFromPdf(Buffer.from('pdf'));
+      expect(pdf.extractFromPdf).toHaveBeenCalledTimes(1);
+      expect(vision.extractFromPdf).toHaveBeenCalledTimes(1);
+      // Vision échoue → on garde le résultat pdfparse pré-calculé
+      expect(r).toBe(pdfResult);
     });
   });
 });

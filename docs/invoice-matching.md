@@ -58,8 +58,11 @@ Formats numériques tolérés : `100 000,00`, `100,000.00`, `100000.00`, `100000
 le front affiche une alerte (l'API ne bloque pas — c'est `OCR_LOW_CONFIDENCE`
 informatif).
 
-> **Niveau 2 (futur)** : intégration `tesseract.js` ou LLM multimodal pour les
-> PDF image. TODO commenté dans le code, hors-scope sprint 4.2a.
+> **Niveau 2 (sprint F-OCR-VISION)** : provider OCR Claude Vision optionnel
+> pour les PDF scannés / sans couche texte. Architecture multi-provider
+> (`pdfparse` défaut | `vision` opt-in | `auto`) — voir
+> [ocr.md](./ocr.md) pour la sélection via env, la stratégie de fallback
+> et les règles de confidentialité.
 
 ## 3. Matching 3-way
 
