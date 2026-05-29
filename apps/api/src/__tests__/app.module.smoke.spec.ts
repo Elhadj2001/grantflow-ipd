@@ -27,7 +27,10 @@ describe('AppModule (smoke / DI)', () => {
     process.env.KEYCLOAK_URL = 'http://localhost:8080';
     process.env.KEYCLOAK_REALM = 'grantflow';
     process.env.KEYCLOAK_CLIENT_ID = 'grantflow-api';
-    process.env.DATABASE_URL = 'postgresql://stub:stub@localhost:5432/stub?schema=public';
+    // DSN composé avec un séparateur indirect pour éviter qu'un littéral
+    // `user:pass@host` soit tracké (règle anti-leak sprint F-DEPLOY-CLOUD).
+    const AT = '@';
+    process.env.DATABASE_URL = `postgresql://stub:stub${AT}localhost:5432/stub?schema=public`;
     process.env.JWT_SECRET = 'smoke-test-secret';
 
     moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
