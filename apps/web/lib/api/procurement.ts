@@ -409,6 +409,55 @@ export function sendPurchaseOrder(id: string, opts: CallOpts = {}): Promise<Send
   });
 }
 
+// =====================================================================
+//  Sprint F-INVOICE-SIM — simulateur de facture fournisseur (mode démo)
+// =====================================================================
+
+export interface SimulateInvoiceInjectResult {
+  invoiceId: string;
+  invoiceNumber: string;
+  mode: 'inject';
+}
+
+/**
+ * Mode 'inject' : crée directement une Invoice `captured`. Renvoie l'id
+ * pour rediriger l'utilisateur vers la fiche facture.
+ */
+export function simulateInvoiceInject(
+  poId: string,
+  opts: CallOpts = {},
+): Promise<SimulateInvoiceInjectResult> {
+  return apiFetch<SimulateInvoiceInjectResult>(
+    `/purchase-orders/${poId}/simulate-invoice`,
+    { method: 'POST', json: { mode: 'inject' }, accessToken: opts.accessToken },
+  );
+}
+
+/**
+ * Mode 'download' : renvoie le PDF en blob + le nom de fichier (parsé
+ * depuis Content-Disposition). Le caller crée un download via anchor.
+ */
+export async function simulateInvoiceDownload(
+  poId: string,
+  opts: CallOpts = {},
+): Promise<{ blob: Blob; filename: string }> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+  const res = await fetch(`${baseUrl}/purchase-orders/${poId}/simulate-invoice`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts.accessToken ? { Authorization: `Bearer ${opts.accessToken}` } : {}),
+    },
+    body: JSON.stringify({ mode: 'download' }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} — invoice simulation failed`);
+  const blob = await res.blob();
+  const cd = res.headers.get('content-disposition') ?? '';
+  const match = /filename="?([^"]+)"?/.exec(cd);
+  const filename = match?.[1] ?? `facture-simulee-${poId}.pdf`;
+  return { blob, filename };
+}
+
 export function acknowledgePurchaseOrder(
   id: string,
   contactEmail?: string,

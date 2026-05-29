@@ -205,6 +205,15 @@ export interface Permissions {
    * (`@Roles('SUPER_ADMIN', 'DAF')`).
    */
   canManageUsers: () => boolean;
+
+  // ------------------ Simulateur facture démo (sprint F-INVOICE-SIM) ------------------
+  /**
+   * Déclencher le simulateur de facture fournisseur (mode démo). Calé sur
+   * le @Roles backend (`@Roles('SUPER_ADMIN', 'CONTROLEUR', 'DAF')`).
+   * Le bouton n'est de toute façon affiché que si le flag serveur
+   * `demoInvoiceSimulator` est actif (cf. useFeatures).
+   */
+  canSimulateInvoice: () => boolean;
 }
 
 /**
@@ -397,6 +406,9 @@ export function usePermissions(): Permissions {
       // Administration des utilisateurs — F-ADMIN-USERS
       // Aligné sur @Roles('SUPER_ADMIN','DAF') côté AdminUsersController.
       canManageUsers: () => hasAny('SUPER_ADMIN', 'DAF'),
+
+      // Simulateur facture démo (sprint F-INVOICE-SIM)
+      canSimulateInvoice: () => hasAny('SUPER_ADMIN', 'CONTROLEUR', 'DAF'),
     };
   }, [roles]);
 }
