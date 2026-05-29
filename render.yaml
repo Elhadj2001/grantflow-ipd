@@ -1,0 +1,137 @@
+# =====================================================================
+#  GRANTFLOW IPD — Render Blueprint (sprint F-DEPLOY-CLOUD Lot B)
+# =====================================================================
+#
+# Render lit ce fichier à l'action "Apply Blueprint" et provisionne les
+# services + disques décrits ci-dessous. Les variables d'env SENSIBLES
+# (clés API, mots de passe) sont marquées `sync: false` — Render les
+# demande à l'utilisateur dans le dashboard au lieu de les lire du repo.
+#
+# ⚠ AUCUNE valeur sensible n'apparaît dans ce fichier.
+#
+# Voir docs/deploy/render.md pour la procédure pas-à-pas (Apply Blueprint
+# → coller les vars dans le dashboard → vérifier les URLs publiques).
+
+services:
+  # -------------------------------------------------------------------
+  # API NestJS — exposée publiquement (Vercel l'appelle pour les requêtes)
+  # -------------------------------------------------------------------
+  - type: web
+    name: grantflow-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      # ----- Postgres (Neon) — DSN composé hors-repo --------------
+      # DATABASE_URL = postgresql://USER:PASS<AT>HOST/db?sslmode=require&channel_binding=require
+      # Pris depuis le dashboard Neon ("Connection string" → "Pooled" recommandé).
+      - key: DATABASE_URL
+        sync: false
+      # ----- Keycloak (autre service Render ci-dessous) ----------
+      # KEYCLOAK_URL : URL publique de grantflow-keycloak (https://...onrender.com)
+      - key: KEYCLOAK_URL
+        sync: false
+      - key: KEYCLOAK_REALM
+        value: grantflow
+      - key: KEYCLOAK_CLIENT_ID
+        value: grantflow-api
+      - key: KEYCLOAK_CLIENT_SECRET
+        sync: false
+      # ----- JWT (signature next-auth côté API si réutilisé) -----
+      - key: JWT_SECRET
+        generateValue: true
+      # ----- Anthropic Vision OCR (provider opt-in) --------------
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OCR_PROVIDER
+        value: auto
+      - key: OCR_VISION_MODEL
+        sync: false           # vide = défaut interne (claude-sonnet-4-6)
+      - key: OCR_VISION_FALLBACK_THRESHOLD
+        value: "50"
+      - key: OCR_VISION_MAX_BYTES
+        value: "5242880"
+      # ----- Stockage S3-compatible (Cloudflare R2) --------------
+      - key: S3_ENDPOINT
+        sync: false           # https://<accountid>.r2.cloudflarestorage.com
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_BUCKET
+        sync: false           # ex. grantflow-pdf (unique, single-bucket routing)
+      - key: S3_REGION
+        value: auto           # R2 = "auto"
+      # ----- SMTP (Mailtrap Sandbox) ------------------------------
+      - key: SMTP_HOST
+        value: sandbox.smtp.mailtrap.io
+      - key: SMTP_PORT
+        value: "2525"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_SECURE
+        value: "false"
+      - key: MAIL_FROM
+        value: GRANTFLOW IPD <no-reply@grantflow.demo>
+      # ----- Démo (simulateur facture — OFF par défaut prod) -----
+      - key: ENABLE_DEMO_INVOICE_SIMULATOR
+        value: "true"         # cloud = environnement de démonstration
+      # ----- Misc -------------------------------------------------
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: TIMEZONE
+        value: Africa/Dakar
+      - key: DEFAULT_CURRENCY
+        value: XOF
+      - key: DEFAULT_LOCALE
+        value: fr
+
+  # -------------------------------------------------------------------
+  # Keycloak — exposé publiquement (le frontend Vercel + l'API le contactent)
+  # -------------------------------------------------------------------
+  - type: web
+    name: grantflow-keycloak
+    runtime: docker
+    plan: free
+    dockerfilePath: ./docker/keycloak/Dockerfile.cloud
+    dockerContext: .
+    healthCheckPath: /health/ready
+    autoDeploy: true
+    # Commande de démarrage : --import-realm pour charger realm.json au
+    # 1er boot, --hostname pour que Keycloak génère des URLs cohérentes,
+    # --db dev-file pour utiliser le disque persistant Render (free tier ;
+    # passer à postgres pour la phase 2 IPD — voir docs/deploy/migration-to-ipd-cloud.md).
+    dockerCommand: /opt/keycloak/bin/kc.sh start --import-realm --hostname-strict=false --http-enabled=true
+    disk:
+      name: keycloak-data
+      mountPath: /opt/keycloak/data
+      sizeGB: 1
+    envVars:
+      - key: KEYCLOAK_ADMIN
+        value: admin
+      - key: KEYCLOAK_ADMIN_PASSWORD
+        sync: false
+      # KC_HOSTNAME : injecté par Render via l'auto-binding RENDER_EXTERNAL_URL
+      # à l'utilisateur de le coller manuellement la 1ère fois (le service
+      # n'a pas encore d'URL au moment de l'Apply Blueprint).
+      - key: KC_HOSTNAME
+        sync: false
+      # KC_DB=dev-file → H2 file local sur le disque persistant Render.
+      # Trade-off free-tier : non-clustered, mais persiste à travers les
+      # redéploiements grâce au disque /opt/keycloak/data monté ci-dessus.
+      - key: KC_DB
+        value: dev-file
+      - key: KC_HEALTH_ENABLED
+        value: "true"
+      - key: KC_HTTP_ENABLED
+        value: "true"
+      # Render expose le port via $PORT — Keycloak lit KC_HTTP_PORT.
+      - key: KC_HTTP_PORT
+        value: "8080"

@@ -1,0 +1,33 @@
+# =====================================================================
+#  GRANTFLOW IPD — Keycloak pour Render (sprint F-DEPLOY-CLOUD Lot B)
+# =====================================================================
+#
+# Image dédiée pour le déploiement cloud :
+#  - FROM quay.io/keycloak/keycloak:24.0 (même version que docker-compose,
+#    le realm.json est testé contre cette version).
+#  - COPY realm.json dans /opt/keycloak/data/import → importé au démarrage
+#    avec --import-realm (les utilisateurs créés en runtime s'ajoutent
+#    par-dessus et persistent sur le disque monté par Render).
+#
+# ⚠ Le realm.json contient un secret PLACEHOLDER "grantflow-api-dev-secret-2026"
+# pour le client `grantflow-api`. En cloud, l'API doit pointer sur la VRAIE
+# valeur via la variable d'env KEYCLOAK_CLIENT_SECRET (côté Render), et il
+# faut soit :
+#  (a) régénérer ce secret côté Keycloak après le 1er boot (admin console),
+#  (b) ou pré-charger le bon secret via un realm.json variantisé (option
+#      plus lourde, non couverte par ce sprint).
+# Voir docs/deploy/render.md §"Premier boot Keycloak".
+#
+# Build (cf. render.yaml — Render exécute cette commande automatiquement) :
+#   docker build -f docker/keycloak/Dockerfile.cloud -t grantflow-keycloak .
+
+FROM quay.io/keycloak/keycloak:24.0
+
+# Le realm.json est copié dans le répertoire d'import — Keycloak l'importe
+# au démarrage grâce au flag --import-realm passé via render.yaml.
+COPY --chown=keycloak:root docker/keycloak/realm.json /opt/keycloak/data/import/realm.json
+
+# Commande par défaut héritée de l'image upstream (kc.sh). Le mode (start
+# vs start-dev, flags --import-realm / --hostname / --db) est passé par
+# render.yaml dans le champ `dockerCommand` pour rester explicite et
+# facile à modifier par le DevOps sans reconstruire l'image.
