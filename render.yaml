@@ -109,10 +109,6 @@ services:
     # --db dev-file pour utiliser le disque persistant Render (free tier ;
     # passer à postgres pour la phase 2 IPD — voir docs/deploy/migration-to-ipd-cloud.md).
     dockerCommand: /opt/keycloak/bin/kc.sh start --import-realm --hostname-strict=false --http-enabled=true
-    disk:
-      name: keycloak-data
-      mountPath: /opt/keycloak/data
-      sizeGB: 1
     envVars:
       - key: KEYCLOAK_ADMIN
         value: admin
