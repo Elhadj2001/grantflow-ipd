@@ -32,8 +32,10 @@ import {
   CancelPoDto,
   CreatePoFromMultiplePrsDto,
   CreatePoFromPrDto,
+  SimulateInvoiceDto,
   UpdatePoDto,
 } from './dto/create-po.dto';
+import { DemoFeatureDisabledException } from '../common/exceptions/business.exception';
 import { PoQueryDto } from './dto/po-query.dto';
 import {
   PurchaseOrderDetailResponseDto,
@@ -214,6 +216,43 @@ export class PurchaseOrderController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.svc.resend(user, id);
+  }
+
+  // ------------------------------------------------------------------
+  // Sprint F-INVOICE-SIM — Simulateur de facture fournisseur (MODE DÉMO)
+  // ------------------------------------------------------------------
+
+  @Post(':id/simulate-invoice')
+  @Roles('SUPER_ADMIN', 'CONTROLEUR', 'DAF')
+  @ApiOperation({
+    summary: '[DÉMO] Générer une facture fournisseur simulée depuis un BC sent',
+    description:
+      "⚠️ Fonctionnalité de DÉMONSTRATION, gated par ENABLE_DEMO_INVOICE_SIMULATOR. " +
+      "Si le flag n'est pas 'true', l'endpoint répond 404 (n'existe pas en prod). " +
+      "mode 'download' → renvoie le PDF (à re-uploader via /invoices/upload pour l'OCR). " +
+      "mode 'inject' → crée directement une Invoice en statut captured.",
+  })
+  @ApiConflictResponse({ description: 'PO_NOT_SENT_FOR_SIMULATION si statut ≠ sent' })
+  @ApiNotFoundResponse({ description: 'DEMO_FEATURE_DISABLED si le flag est off' })
+  async simulateInvoice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SimulateInvoiceDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    // Garde-fou runtime : l'endpoint n'existe PAS si le flag est off.
+    if (process.env.ENABLE_DEMO_INVOICE_SIMULATOR !== 'true') {
+      throw new DemoFeatureDisabledException('invoice-simulator');
+    }
+    const result = await this.svc.simulateInvoice(user, id, dto.mode);
+    if (result.mode === 'download') {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+      res.setHeader('Content-Length', result.pdfBuffer.length.toString());
+      res.end(result.pdfBuffer);
+      return;
+    }
+    res.status(201).json({ invoiceId: result.invoiceId, invoiceNumber: result.invoiceNumber, mode: 'inject' });
   }
 
   @Post(':id/acknowledge')

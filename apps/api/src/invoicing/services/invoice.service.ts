@@ -245,6 +245,85 @@ export class InvoiceService {
   }
 
   // ------------------------------------------------------------------
+  // Sprint F-INVOICE-SIM — création depuis le simulateur (mode démo, inject)
+  // ------------------------------------------------------------------
+
+  /**
+   * Crée une Invoice en statut `captured` à partir d'une facture SIMULÉE
+   * (le PDF a déjà été généré + stocké en amont). Skip l'OCR : les champs
+   * sont fournis directement par le générateur (cohérents avec le BC).
+   *
+   * ⚠️ Réservé au flux démo (endpoint gated par flag). Le `capturedPayload`
+   * porte un marqueur `sourceType: 'DEMO_SIMULATOR'` pour la traçabilité —
+   * pas de modification du DDL (champ JSONB existant).
+   */
+  async createFromSimulatedPdf(
+    actor: AuthenticatedUser,
+    params: {
+      supplierId: string;
+      poId: string;
+      invoiceNumber: string;
+      invoiceDate: Date;
+      dueDate: Date;
+      currency: string;
+      totalHt: number;
+      totalVat: number;
+      totalTtc: number;
+      pdfObjectKey: string;
+      lines: Array<{
+        lineNumber: number;
+        description: string;
+        quantity: number | null;
+        unitPrice: number | null;
+        lineTotal: number;
+      }>;
+    },
+  ): Promise<InvoiceWithLines> {
+    await this.assertUniqueInvoiceNumber(params.supplierId, params.invoiceNumber);
+
+    const invoice = await this.prisma.invoice.create({
+      data: {
+        invoiceNumber: params.invoiceNumber,
+        supplierId: params.supplierId,
+        invoiceDate: params.invoiceDate,
+        dueDate: params.dueDate,
+        currency: params.currency,
+        poId: params.poId,
+        totalHt: params.totalHt,
+        totalVat: params.totalVat,
+        totalTtc: params.totalTtc,
+        pdfObjectKey: params.pdfObjectKey,
+        // Marqueur de provenance (mode démo) — pas de colonne dédiée.
+        capturedPayload: { sourceType: 'DEMO_SIMULATOR' } as Prisma.InputJsonValue,
+        status: InvoiceStatus.captured,
+        lines: {
+          create: params.lines.map((l) => ({
+            lineNumber: l.lineNumber,
+            description: l.description,
+            quantity: l.quantity != null ? new Prisma.Decimal(l.quantity) : null,
+            unitPrice: l.unitPrice != null ? new Prisma.Decimal(l.unitPrice) : null,
+            lineTotal: new Prisma.Decimal(l.lineTotal),
+          })),
+        },
+      },
+      include: { lines: { orderBy: { lineNumber: 'asc' } } },
+    });
+
+    this.logger.log(
+      {
+        invoiceId: invoice.id,
+        supplierId: params.supplierId,
+        poId: params.poId,
+        source: 'DEMO_SIMULATOR',
+        actor: actor.email,
+      },
+      'invoice created from demo simulator (inject mode)',
+    );
+
+    return invoice;
+  }
+
+  // ------------------------------------------------------------------
   // Update / Reject
   // ------------------------------------------------------------------
 

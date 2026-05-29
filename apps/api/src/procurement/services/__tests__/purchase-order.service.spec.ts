@@ -25,6 +25,7 @@ describe('PurchaseOrderService', () => {
     purchaseOrderPr: { findFirst: jest.Mock };
     supplier: { findUnique: jest.Mock };
     appUser: { findUnique: jest.Mock; create: jest.Mock };
+    invoice: { count: jest.Mock };
     $transaction: jest.Mock;
     $executeRawUnsafe: jest.Mock;
   };
@@ -32,6 +33,8 @@ describe('PurchaseOrderService', () => {
   let mail: { send: jest.Mock };
   let storage: { putObject: jest.Mock; getObject: jest.Mock };
   let posting: { createCommitmentEntry: jest.Mock; reverseCommitmentEntry: jest.Mock; listEntriesForPo: jest.Mock };
+  let supplierInvoicePdf: { generate: jest.Mock };
+  let invoiceSvc: { createFromSimulatedPdf: jest.Mock };
   let svc: PurchaseOrderService;
 
   const userOwn = 'usr00000-0000-0000-0000-000000000001';
@@ -152,6 +155,8 @@ describe('PurchaseOrderService', () => {
         }),
         create: jest.fn(),
       },
+      // Sprint F-INVOICE-SIM : compteur d'invoices SIM (séquence n° facture).
+      invoice: { count: jest.fn().mockResolvedValue(0) },
       $transaction: jest.fn(async (cb: unknown) => {
         if (typeof cb === 'function') return (cb as (tx: unknown) => unknown)(prisma);
         return Promise.all(cb as unknown[]);
@@ -169,12 +174,21 @@ describe('PurchaseOrderService', () => {
       reverseCommitmentEntry: jest.fn().mockResolvedValue({ id: 'je-2', entryNumber: 'OD-2026-0002' }),
       listEntriesForPo: jest.fn().mockResolvedValue([]),
     };
+    // Sprint F-INVOICE-SIM : nouveaux deps injectés.
+    supplierInvoicePdf = {
+      generate: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 sim-invoice')),
+    };
+    invoiceSvc = {
+      createFromSimulatedPdf: jest.fn().mockResolvedValue({ id: 'inv-sim-1', invoiceNumber: 'FAC-SIM-X' }),
+    };
     svc = new PurchaseOrderService(
       prisma as unknown as PrismaService,
       pdf as never,
       mail as never,
       storage as never,
       posting as never,
+      supplierInvoicePdf as never,
+      invoiceSvc as never,
     );
   });
 
@@ -456,6 +470,82 @@ describe('PurchaseOrderService', () => {
         // Le local-part complet ne doit JAMAIS apparaître (maskEmail
         // garde la 1ère lettre, masque le reste).
         expect(text).not.toContain('top-secret-customer');
+      }
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Sprint F-INVOICE-SIM — simulateur de facture (mode démo)
+  describe('simulateInvoice', () => {
+    const poWithLines = () => ({
+      ...makePo({ status: PoStatus.sent }),
+      lines: [
+        {
+          id: 'l-1',
+          lineNumber: 1,
+          description: 'Réactif PCR',
+          quantity: new Prisma.Decimal('10'),
+          unit: 'boite',
+          unitPrice: new Prisma.Decimal('10000'),
+          lineTotal: new Prisma.Decimal('100000'),
+          budgetLineId: 'bl-1',
+        },
+      ],
+    });
+
+    it('mode download → renvoie un PDF non vide + filename, ne crée pas d\'Invoice', async () => {
+      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines());
+      prisma.invoice.count.mockResolvedValue(0);
+      const res = await svc.simulateInvoice(sa, poId, 'download');
+      expect(res.mode).toBe('download');
+      if (res.mode === 'download') {
+        expect(res.pdfBuffer.length).toBeGreaterThan(0);
+        expect(res.filename).toMatch(/^FAC-SIM-BC-2026-0001-1\.pdf$/);
+      }
+      expect(supplierInvoicePdf.generate).toHaveBeenCalled();
+      expect(invoiceSvc.createFromSimulatedPdf).not.toHaveBeenCalled();
+    });
+
+    it('mode inject → stocke le PDF + crée l\'Invoice via InvoiceService', async () => {
+      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines());
+      prisma.invoice.count.mockResolvedValue(0);
+      const res = await svc.simulateInvoice(sa, poId, 'inject');
+      expect(res.mode).toBe('inject');
+      if (res.mode === 'inject') {
+        expect(res.invoiceId).toBe('inv-sim-1');
+      }
+      expect(storage.putObject).toHaveBeenCalledWith(
+        expect.objectContaining({ bucket: 'grantflow-invoices' }),
+      );
+      // TVA 18 % : HT 100000 → TVA 18000 → TTC 118000
+      expect(invoiceSvc.createFromSimulatedPdf).toHaveBeenCalledWith(
+        sa,
+        expect.objectContaining({
+          poId,
+          supplierId,
+          totalHt: 100000,
+          totalVat: 18000,
+          totalTtc: 118000,
+        }),
+      );
+    });
+
+    it('rejette si le PO n\'est pas en statut sent', async () => {
+      prisma.purchaseOrder.findUnique.mockResolvedValue({
+        ...makePo({ status: PoStatus.draft }),
+        lines: [],
+      });
+      await expect(svc.simulateInvoice(sa, poId, 'download')).rejects.toMatchObject({
+        code: 'BUSINESS.PO_NOT_SENT_FOR_SIMULATION',
+      });
+    });
+
+    it('numéro de facture incrémente selon le nombre d\'invoices SIM existantes', async () => {
+      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines());
+      prisma.invoice.count.mockResolvedValue(2);
+      const res = await svc.simulateInvoice(sa, poId, 'download');
+      if (res.mode === 'download') {
+        expect(res.filename).toBe('FAC-SIM-BC-2026-0001-3.pdf');
       }
     });
   });
