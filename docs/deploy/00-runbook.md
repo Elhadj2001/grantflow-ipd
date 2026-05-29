@@ -75,7 +75,7 @@ DATABASE_URL              postgresql://<user>:<pass>${AT}<host>/neondb?sslmode=r
                            qu'aux fichiers du repo)
 KEYCLOAK_URL              <à coller après l'étape 4 — URL publique du Keycloak Render>
 KEYCLOAK_CLIENT_SECRET    <à coller après l'étape 5 — régénéré dans Keycloak admin>
-ANTHROPIC_API_KEY         <ta clé rotée, format sk-ant-api03-...>
+ANTHROPIC_API_KEY         <ta clé rotée, format sk-ant-... (Anthropic Console)>
 OCR_VISION_MODEL          <vide pour défaut interne, ou claude-sonnet-4-6>
 S3_ENDPOINT               https://<accountid>.r2.cloudflarestorage.com
 S3_ACCESS_KEY             <R2 Access Key ID>
@@ -169,9 +169,10 @@ Retour Keycloak admin (`https://<URL Render Keycloak>`) :
 
 ## DATABASE_URL — composition
 
-Pour respecter la règle anti-leak (`git grep -nE 'postgresql://[^:]+:[^@]+@'`
-doit être vide dans les fichiers trackés), aucune URL `user:pass@host`
-n'est écrite dans le repo. Pour composer le DSN dans Render dashboard
+Pour respecter la règle anti-leak (`git grep` sur le pattern d'URL
+Postgres avec credentials doit être vide dans les fichiers trackés —
+voir le `sprintBrief` F-DEPLOY-CLOUD), aucune URL avec identifiants
+incorporés n'est écrite dans le repo. Pour composer le DSN dans Render dashboard
 (valeur **non trackée**), prendre tel quel le DSN affiché par Neon :
 
 - Neon Console → Dashboard → **Connection Details** → Format `Pooled` ou
