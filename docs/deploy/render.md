@@ -38,7 +38,7 @@ Dashboard Render → service `grantflow-api` → **Environment** → coller :
 | `DATABASE_URL` | Neon dashboard → Connection string (mode "Pooled") |
 | `KEYCLOAK_URL` | URL publique de `grantflow-keycloak` (à coller APRÈS son 1er boot, étape 5) |
 | `KEYCLOAK_CLIENT_SECRET` | La valeur que tu as générée localement (PAS le placeholder du repo) |
-| `ANTHROPIC_API_KEY` | Clé rotée (sk-ant-api03-...) |
+| `ANTHROPIC_API_KEY` | Clé rotée (format `sk-ant-…`, voir Anthropic Console → API Keys) |
 | `OCR_VISION_MODEL` | Vide (= défaut interne `claude-sonnet-4-6`) ou ID Sonnet récent |
 | `S3_ENDPOINT` | `https://<accountid>.r2.cloudflarestorage.com` — Cloudflare R2 → API Tokens → S3 endpoint |
 | `S3_ACCESS_KEY` | Access Key ID R2 |
