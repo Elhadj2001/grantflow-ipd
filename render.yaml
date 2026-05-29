@@ -123,7 +123,13 @@ services:
       # Trade-off free-tier : non-clustered, mais persiste à travers les
       # redéploiements grâce au disque /opt/keycloak/data monté ci-dessus.
       - key: KC_DB
-        value: dev-file
+        value: postgres
+      - key: KC_DB_URL
+        sync: false           # JDBC URL pleine, fournie en dashboard
+      - key: KC_DB_USERNAME
+        sync: false           # rôle Neon, fourni en dashboard
+      - key: KC_DB_PASSWORD
+        sync: false           # password Neon, fourni en dashboard
       - key: KC_HEALTH_ENABLED
         value: "true"
       - key: KC_HTTP_ENABLED
