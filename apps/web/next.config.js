@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Sprint F-DEPLOY-CLOUD : `output: 'standalone'` produit un dossier
+  // `.next/standalone/` self-contained (server.js + minimal node_modules)
+  // utilisé par le Dockerfile de phase 2 (migration vers le cloud IPD).
+  // Vercel l'ignore — leur build pipeline a son propre packager. Sans effet
+  // négatif sur le déploiement Vercel courant.
+  output: 'standalone',
   // typedRoutes désactivé pour permettre des hrefs string vers des routes
   // pas encore créées (ex: /procurement, /accounting affichés en disabled
   // dans la sidebar). À ré-activer une fois toutes les routes en place.

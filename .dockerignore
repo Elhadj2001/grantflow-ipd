@@ -1,0 +1,52 @@
+# Sprint F-DEPLOY-CLOUD — contexte de build minimal
+# Évite d'envoyer node_modules / .git / artefacts à Docker à chaque build.
+
+# Outputs et caches Node
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/.turbo
+**/.vercel
+
+# Git / VCS
+.git
+.gitignore
+.github
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Tests / dev only
+**/__tests__/__snapshots__
+**/playwright-report
+**/test-results
+
+# Secrets locaux — DOUBLE garde-fou (déjà gitignored, on bloque aussi
+# au cas où un dev les copierait dans le contexte par erreur).
+.env
+.env.local
+.env.*.local
+apps/**/.env
+apps/**/.env.local
+apps/**/.env.*.local
+
+# Docs / images / mémoire — pas utiles à l'image runtime
+docs/
+*.md
+*.pdf
+*.png
+*.jpg
+
+# Dockerfiles eux-mêmes (déjà chargés par Docker)
+**/Dockerfile
+**/Dockerfile.*
+**/.dockerignore
+docker-compose*.yml
+
+# Logs
+*.log
+npm-debug.log*
