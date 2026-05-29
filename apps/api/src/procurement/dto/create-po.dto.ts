@@ -69,3 +69,16 @@ export const CancelPoSchema = z
   .strict();
 
 export class CancelPoDto extends createZodDto(CancelPoSchema) {}
+
+/**
+ * Sprint F-INVOICE-SIM — payload du simulateur de facture (mode démo).
+ *   - 'download' : renvoie le PDF (l'utilisateur le re-upload → OCR).
+ *   - 'inject'   : crée directement une Invoice `captured`.
+ */
+export const SimulateInvoiceSchema = z
+  .object({
+    mode: z.enum(['download', 'inject']),
+  })
+  .strict();
+
+export class SimulateInvoiceDto extends createZodDto(SimulateInvoiceSchema) {}

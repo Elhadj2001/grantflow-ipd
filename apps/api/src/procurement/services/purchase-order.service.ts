@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Prisma, PoStatus, PrStatus } from '@prisma/client';
 import type { PurchaseOrder, PurchaseOrderLine, PurchaseRequest } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -18,11 +19,14 @@ import {
   PrNotOwnedException,
   PrTypePettyCashNoPoException,
   SupplierInactiveException,
+  PoNotSentForSimulationException,
 } from '../../common/exceptions/business.exception';
 import { MailService } from '../../common/services/mail.service';
 import { StorageService } from '../../common/services/storage.service';
 import { PostingService } from '../../accounting/services/posting.service';
 import { maskEmail } from '../../common/utils/mask-email.util';
+import { SupplierInvoicePdfService } from './supplier-invoice-pdf.service';
+import { InvoiceService } from '../../invoicing/services/invoice.service';
 import type {
   AcknowledgePoDto,
   CancelPoDto,
@@ -35,6 +39,10 @@ import { PoPdfService } from './po-pdf.service';
 
 const ENTITY_NAME = 'PurchaseOrder';
 const PO_BUCKET = 'grantflow-pos';
+/** Bucket des factures (réutilisé par le simulateur F-INVOICE-SIM). */
+const INVOICE_BUCKET = 'grantflow-invoices';
+/** Taux de TVA standard Sénégal (18 %) pour la facture simulée. */
+const SIM_VAT_RATE = 0.18;
 
 /**
  * Rôles qui voient tous les BCs (pas seulement ceux liés à leurs DAs).
@@ -112,6 +120,14 @@ export interface SendResult {
   commitmentEntryNumber: string;
 }
 
+/**
+ * Sprint F-INVOICE-SIM — résultat du simulateur de facture (mode démo).
+ * Union discriminée par `mode`.
+ */
+export type SimulateInvoiceResult =
+  | { mode: 'download'; pdfBuffer: Buffer; filename: string }
+  | { mode: 'inject'; invoiceId: string; invoiceNumber: string };
+
 @Injectable()
 export class PurchaseOrderService {
   private readonly logger = new Logger(PurchaseOrderService.name);
@@ -122,6 +138,9 @@ export class PurchaseOrderService {
     private readonly mail: MailService,
     private readonly storage: StorageService,
     private readonly posting: PostingService,
+    // Sprint F-INVOICE-SIM (mode démo) :
+    private readonly supplierInvoicePdf: SupplierInvoicePdfService,
+    private readonly invoiceSvc: InvoiceService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -622,6 +641,140 @@ export class PurchaseOrderService {
       error: result.error,
       to: supplierEmail,
     };
+  }
+
+  // ------------------------------------------------------------------
+  // Sprint F-INVOICE-SIM — Simulateur de facture fournisseur (mode démo)
+  // ------------------------------------------------------------------
+
+  /**
+   * Génère une facture fournisseur SIMULÉE à partir d'un BC `sent`.
+   *
+   * ⚠️ Le gating du flag (ENABLE_DEMO_INVOICE_SIMULATOR) est fait par le
+   * controller (404 si désactivé). Ici on valide juste les pré-conditions
+   * métier : PO existe, accessible en lecture, statut === `sent`.
+   *
+   * - mode 'download' : renvoie le buffer PDF (l'utilisateur le re-upload
+   *   via /invoices/upload → l'OCR Vision s'exécute = effet démo).
+   * - mode 'inject' : stocke le PDF + crée une Invoice `captured` avec les
+   *   champs déjà remplis (skip OCR, parcours rapide pour les répétitions).
+   *
+   * Les montants sont recalculés à partir des lignes du BC avec TVA 18 % —
+   * HT/TVA/TTC cohérents et alignés sur le BC (matching 3-way garanti).
+   */
+  async simulateInvoice(
+    actor: AuthenticatedUser,
+    poId: string,
+    mode: 'download' | 'inject',
+  ): Promise<SimulateInvoiceResult> {
+    const po = await this.prisma.purchaseOrder.findUnique({
+      where: { id: poId },
+      include: { lines: { orderBy: { lineNumber: 'asc' } } },
+    });
+    if (!po) throw new EntityNotFoundException(ENTITY_NAME, { id: poId });
+    await this.assertCanRead(actor, po);
+    if (po.status !== PoStatus.sent) {
+      throw new PoNotSentForSimulationException(po.id, po.status);
+    }
+    const supplier = await this.assertSupplierActive(po.supplierId);
+
+    // Séquence pour le n° de facture (évite les collisions sur re-simulation).
+    const existingCount = await this.prisma.invoice.count({
+      where: {
+        supplierId: po.supplierId,
+        invoiceNumber: { startsWith: `FAC-SIM-${po.poNumber}-` },
+      },
+    });
+    const seq = existingCount + 1;
+    const invoiceNumber = `FAC-SIM-${po.poNumber}-${seq}`;
+
+    // Montants : HT = somme des lignes du BC, TVA 18 %, TTC = HT + TVA.
+    const lines = po.lines.map((l) => ({
+      lineNumber: l.lineNumber,
+      description: l.description,
+      quantity: Number(l.quantity),
+      unit: l.unit,
+      unitPrice: Number(l.unitPrice),
+      lineTotal: Number(l.lineTotal),
+    }));
+    const totalHt = lines.reduce((s, l) => s + l.lineTotal, 0);
+    const totalVat = Math.round(totalHt * SIM_VAT_RATE * 100) / 100;
+    const totalTtc = Math.round((totalHt + totalVat) * 100) / 100;
+
+    const invoiceDate = new Date();
+    const dueDate = new Date(invoiceDate);
+    dueDate.setUTCDate(dueDate.getUTCDate() + supplier.paymentTermsDays);
+
+    const pdfBuffer = await this.supplierInvoicePdf.generate({
+      invoiceNumber,
+      invoiceDate,
+      dueDate,
+      poNumber: po.poNumber,
+      currency: po.currency,
+      supplier: {
+        name: supplier.name,
+        vatNumber: supplier.vatNumber,
+        address: supplier.address,
+        country: supplier.country,
+      },
+      lines,
+      totalHt,
+      totalVat,
+      totalTtc,
+      vatRate: SIM_VAT_RATE,
+      paymentTermsDays: supplier.paymentTermsDays,
+    });
+
+    if (mode === 'download') {
+      this.logger.log(
+        { poId: po.id, mode, invoiceNumber },
+        'simulated supplier invoice generated (download mode)',
+      );
+      return {
+        mode: 'download',
+        pdfBuffer,
+        filename: `${invoiceNumber}.pdf`,
+      };
+    }
+
+    // mode === 'inject' : stocke le PDF + crée l'Invoice captured.
+    const now = new Date();
+    const objectKey = `invoices/${now.getUTCFullYear()}/${String(
+      now.getUTCMonth() + 1,
+    ).padStart(2, '0')}/sim-${randomUUID()}.pdf`;
+    await this.storage.putObject({
+      bucket: INVOICE_BUCKET,
+      objectKey,
+      buffer: pdfBuffer,
+      contentType: 'application/pdf',
+      metadata: { 'x-invoice-number': invoiceNumber, 'x-source': 'demo-simulator' },
+    });
+
+    const invoice = await this.invoiceSvc.createFromSimulatedPdf(actor, {
+      supplierId: po.supplierId,
+      poId: po.id,
+      invoiceNumber,
+      invoiceDate,
+      dueDate,
+      currency: po.currency,
+      totalHt,
+      totalVat,
+      totalTtc,
+      pdfObjectKey: objectKey,
+      lines: lines.map((l) => ({
+        lineNumber: l.lineNumber,
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        lineTotal: l.lineTotal,
+      })),
+    });
+
+    this.logger.log(
+      { poId: po.id, mode, invoiceId: invoice.id, invoiceNumber },
+      'simulated supplier invoice injected (captured)',
+    );
+    return { mode: 'inject', invoiceId: invoice.id, invoiceNumber };
   }
 
   // ------------------------------------------------------------------

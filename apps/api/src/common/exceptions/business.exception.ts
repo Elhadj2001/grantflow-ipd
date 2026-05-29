@@ -819,6 +819,35 @@ export class PoNoPdfException extends BusinessException {
   }
 }
 
+/**
+ * Sprint F-INVOICE-SIM — 404 quand le simulateur de facture (mode démo)
+ * est désactivé (ENABLE_DEMO_INVOICE_SIMULATOR ≠ 'true'). On renvoie 404
+ * (et pas 403) pour que l'endpoint n'existe PAS du point de vue d'un
+ * client en production.
+ */
+export class DemoFeatureDisabledException extends BusinessException {
+  constructor(feature: string) {
+    super(
+      ErrorCode.BUSINESS.DEMO_FEATURE_DISABLED,
+      HttpStatus.NOT_FOUND,
+      `Demo feature "${feature}" is disabled (set ENABLE_DEMO_INVOICE_SIMULATOR=true in a demo env)`,
+      { feature },
+    );
+  }
+}
+
+/** Sprint F-INVOICE-SIM — 409 : on ne simule une facture que depuis un BC `sent`. */
+export class PoNotSentForSimulationException extends BusinessException {
+  constructor(poId: string, status: string) {
+    super(
+      ErrorCode.BUSINESS.PO_NOT_SENT_FOR_SIMULATION,
+      HttpStatus.CONFLICT,
+      `Purchase order status "${status}" forbids invoice simulation (only sent allowed)`,
+      { poId, status },
+    );
+  }
+}
+
 /** 409 — création de PO sur DA non approuvée. */
 export class PrNotApprovedException extends BusinessException {
   constructor(prId: string, status: string) {

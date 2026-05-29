@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, PackageCheck, Send, XCircle } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { ArrowLeft, CheckCircle2, Download, FileText, PackageCheck, Send, XCircle, Zap } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { AmountDisplay } from '@/components/common/AmountDisplay';
@@ -11,6 +12,14 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -26,20 +35,26 @@ import {
   useSendPO,
 } from '@/hooks/use-procurement';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useFeatures } from '@/hooks/use-features';
+import { simulateInvoiceDownload, simulateInvoiceInject } from '@/lib/api/procurement';
+import { toast } from '@/hooks/use-toast';
 
-type DialogKind = 'send' | 'acknowledge' | 'cancel' | null;
+type DialogKind = 'send' | 'acknowledge' | 'cancel' | 'simulate' | null;
 
 export default function PurchaseOrderDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params?.id ?? '';
   const permissions = usePermissions();
+  const { features } = useFeatures();
+  const { data: session } = useSession();
   const po = usePO(id);
 
   const sendM = useSendPO(id);
   const ackM = useAcknowledgePO(id);
   const cancelM = useCancelPO(id);
   const [dialog, setDialog] = useState<DialogKind>(null);
+  const [simBusy, setSimBusy] = useState<'download' | 'inject' | null>(null);
 
   if (po.isLoading || !po.data) {
     return (
@@ -57,6 +72,59 @@ export default function PurchaseOrderDetailPage() {
   const canAck = data.status === 'sent' && permissions.canManagePO();
   const canReceive = data.status !== 'cancelled' && permissions.canReceive();
   const canCancel = ['draft', 'sent'].includes(data.status) && permissions.canManagePO();
+  // Sprint F-INVOICE-SIM : bouton visible seulement si BC sent + rôle
+  // autorisé + flag serveur actif.
+  const canSimulate =
+    data.status === 'sent' &&
+    permissions.canSimulateInvoice() &&
+    features.demoInvoiceSimulator;
+
+  async function handleSimulateDownload() {
+    setSimBusy('download');
+    try {
+      const { blob, filename } = await simulateInvoiceDownload(id, {
+        accessToken: session?.accessToken ?? null,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({
+        variant: 'success',
+        title: 'Facture simulée téléchargée',
+        description: 'Re-uploadez-la via Comptabilité › Factures pour déclencher l\'OCR.',
+      });
+      setDialog(null);
+    } catch {
+      toast({ variant: 'destructive', title: 'Échec de la génération de la facture simulée' });
+    } finally {
+      setSimBusy(null);
+    }
+  }
+
+  async function handleSimulateInject() {
+    setSimBusy('inject');
+    try {
+      const res = await simulateInvoiceInject(id, {
+        accessToken: session?.accessToken ?? null,
+      });
+      toast({
+        variant: 'success',
+        title: 'Facture injectée (statut Capturée)',
+        description: `Facture ${res.invoiceNumber} créée.`,
+      });
+      setDialog(null);
+      router.push(`/accounting/invoices/${res.invoiceId}`);
+    } catch {
+      toast({ variant: 'destructive', title: 'Échec de l\'injection de la facture simulée' });
+    } finally {
+      setSimBusy(null);
+    }
+  }
 
   return (
     <>
@@ -93,6 +161,16 @@ export default function PurchaseOrderDetailPage() {
                 onClick={() => router.push(`/procurement/goods-receipts/new?fromPO=${id}`)}
               >
                 <PackageCheck className="mr-2 h-4 w-4" /> Nouvelle réception
+              </Button>
+            )}
+            {canSimulate && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDialog('simulate')}
+                data-testid="action-simulate-invoice"
+              >
+                <FileText className="mr-2 h-4 w-4" /> Simuler la facture fournisseur (démo)
               </Button>
             )}
             {canCancel && (
@@ -224,6 +302,58 @@ export default function PurchaseOrderDetailPage() {
           setDialog(null);
         }}
       />
+
+      {/* Sprint F-INVOICE-SIM — dialog simulateur (2 modes) */}
+      <Dialog open={dialog === 'simulate'} onOpenChange={(o) => !o && setDialog(null)}>
+        <DialogContent data-testid="simulate-invoice-dialog">
+          <DialogHeader>
+            <DialogTitle>Simuler la facture fournisseur</DialogTitle>
+            <DialogDescription>
+              Génère une facture fournisseur cohérente avec ce BC (TVA 18 %,
+              référence BC pré-remplie). Choisissez le mode.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-md border border-state-warning/30 bg-state-warning/5 px-3 py-2 text-xs text-state-warning">
+            Mode démo — désactivé en production.
+          </div>
+
+          <div className="space-y-3 pt-2">
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              disabled={simBusy !== null}
+              onClick={handleSimulateDownload}
+              data-testid="simulate-mode-download"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {simBusy === 'download' ? 'Génération…' : '📥 Télécharger la facture simulée'}
+            </Button>
+            <p className="px-1 text-xs text-slate-muted">
+              Re-uploadez le PDF via Comptabilité › Factures pour déclencher l&apos;OCR Vision (démo jury).
+            </p>
+
+            <Button
+              className="w-full justify-start"
+              disabled={simBusy !== null}
+              onClick={handleSimulateInject}
+              data-testid="simulate-mode-inject"
+            >
+              <Zap className="mr-2 h-4 w-4" />
+              {simBusy === 'inject' ? 'Injection…' : '⚡ Injecter directement (statut Capturée)'}
+            </Button>
+            <p className="px-1 text-xs text-slate-muted">
+              Crée immédiatement la facture en statut « Capturée » (skip OCR, parcours rapide).
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDialog(null)} disabled={simBusy !== null}>
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

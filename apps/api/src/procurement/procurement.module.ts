@@ -5,21 +5,27 @@ import { ApprovalWorkflowService } from './services/approval-workflow.service';
 import { PurchaseOrderController } from './purchase-order.controller';
 import { PurchaseOrderService } from './services/purchase-order.service';
 import { PoPdfService } from './services/po-pdf.service';
+import { SupplierInvoicePdfService } from './services/supplier-invoice-pdf.service';
 import { GoodsReceiptController } from './goods-receipt.controller';
 import { GoodsReceiptService } from './services/goods-receipt.service';
 import { GrLabelsService } from './services/gr-labels.service';
 import { MailService } from '../common/services/mail.service';
 import { StorageService } from '../common/services/storage.service';
 import { AccountingModule } from '../accounting/accounting.module';
+import { InvoicingModule } from '../invoicing/invoicing.module';
 
 @Module({
-  imports: [AccountingModule],
+  // Sprint F-INVOICE-SIM : import d'InvoicingModule pour réutiliser
+  // InvoiceService (création d'Invoice `captured` en mode inject). Pas de
+  // cycle : InvoicingModule n'importe pas ProcurementModule.
+  imports: [AccountingModule, InvoicingModule],
   controllers: [PurchaseRequestController, PurchaseOrderController, GoodsReceiptController],
   providers: [
     PurchaseRequestService,
     ApprovalWorkflowService,
     PurchaseOrderService,
     PoPdfService,
+    SupplierInvoicePdfService,
     GoodsReceiptService,
     GrLabelsService,
     MailService,
