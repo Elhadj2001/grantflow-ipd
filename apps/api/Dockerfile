@@ -102,4 +102,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # tini gère SIGTERM proprement (graceful shutdown Nest).
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "apps/api/dist/main.js"]
+# `nest build` sans tsconfig.build.json (rootDir forcé) produit dist/src/main.js
+# (et non dist/main.js). On pointe le CMD au bon endroit.
+CMD ["node", "apps/api/dist/src/main.js"]
