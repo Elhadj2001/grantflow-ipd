@@ -306,6 +306,62 @@ describe('PurchaseRequestService', () => {
       prisma.purchaseRequest.findUnique.mockResolvedValue(null);
       await expect(svc.findOne(daf, pr.id)).rejects.toBeInstanceOf(EntityNotFoundException);
     });
+
+    // ----------------------------------------------------------------
+    // Régression — bug 404 chez les valideurs (PI/CG/DAF/CAISSIER)
+    // ----------------------------------------------------------------
+    it('PI assigned via project.piUserId sees pending_pi DA they did not request', async () => {
+      // Le PI clique sur une DA depuis sa file d'attente "pending_pi".
+      // Avant le fix, `assertCanRead` levait PrNotOwnedException (404) car
+      // pr.requestedBy ≠ appUserId(PI). Désormais, le helper voit
+      // pr.project.piUserId === appUserId(PI) et autorise la lecture.
+      const piId = 'usr-pi';
+      const pi: AuthenticatedUser = {
+        id: piId, email: 'pi@x', fullName: 'PI', roles: ['PI'],
+      };
+      // Étendre le bridge email → app_user.id pour ce test.
+      prisma.appUser.findUnique.mockImplementation(({ where }: { where: { email: string } }) => {
+        const map: Record<string, string> = {
+          'd@x': userOwn,
+          'b@x': userOther,
+          'daf@x': 'usr-daf',
+          'sa@x': 'usr-sa',
+          'pi@x': piId,
+        };
+        const id = map[where.email];
+        return Promise.resolve(id ? { id } : null);
+      });
+      // `project` n'est pas dans `PurchaseRequest` natif (c'est une relation
+      // chargée via include). On builde l'objet enrichi via unknown narrow.
+      const prWithProject: unknown = {
+        ...makePrWithLines([], { status: 'pending_pi', requestedBy: userOther }),
+        project: { piUserId: piId },
+      };
+      prisma.purchaseRequest.findUnique.mockResolvedValue(prWithProject);
+      const res = await svc.findOne(pi, pr.id);
+      expect(res.id).toBe(pr.id);
+    });
+
+    it('PI not assigned (foreign project) → PrNotOwnedException (regression guard)', async () => {
+      // Un PI qui n'est PAS le PI du projet de la DA ne doit pas voir cette DA.
+      // 404 (PrNotOwnedException) pour ne pas révéler l'existence — OWASP.
+      const piForeign: AuthenticatedUser = {
+        id: 'usr-pi-other', email: 'pi-other@x', fullName: 'PI Other', roles: ['PI'],
+      };
+      prisma.appUser.findUnique.mockImplementation(({ where }: { where: { email: string } }) => {
+        const map: Record<string, string> = {
+          'pi-other@x': 'usr-pi-other-app',
+        };
+        const id = map[where.email];
+        return Promise.resolve(id ? { id } : null);
+      });
+      const prWithForeignProject: unknown = {
+        ...makePrWithLines([], { status: 'pending_pi', requestedBy: userOther }),
+        project: { piUserId: 'usr-some-other-pi' },
+      };
+      prisma.purchaseRequest.findUnique.mockResolvedValue(prWithForeignProject);
+      await expect(svc.findOne(piForeign, pr.id)).rejects.toBeInstanceOf(PrNotOwnedException);
+    });
   });
 
   // ------------------------------------------------------------------
