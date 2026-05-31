@@ -43,8 +43,12 @@ export const CreateGrantSchema = z
     startDate: ISO_DATE,
     endDate: ISO_DATE,
     status: z.enum(GRANT_STATUSES).default('draft'),
-    signedAt: ISO_DATE.optional(),
-    notes: z.string().max(2000).optional(),
+    // Fix create-grant-nullable : un formulaire web envoie volontiers
+    // `null` pour des champs vides (vs `undefined` côté JSON serialization).
+    // `.nullish()` accepte `null` ET `undefined` — symétrique à
+    // update-grant.dto.ts qui utilise déjà `.nullable().optional()`.
+    signedAt: ISO_DATE.nullish(),
+    notes: z.string().max(2000).nullish(),
   })
   .strict()
   .refine((v) => v.endDate > v.startDate, {
