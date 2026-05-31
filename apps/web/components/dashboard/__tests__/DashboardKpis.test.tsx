@@ -10,27 +10,47 @@
 
 import { render, screen } from '@testing-library/react';
 import type { GrantflowRole } from '@/lib/auth';
+import type { PrStatus } from '@/lib/api/procurement';
 
 // ----- Mocks des hooks data -----
-let prsResult: { data?: { total: number }; isLoading: boolean } = {
-  data: { total: 7 },
-  isLoading: false,
+type QueryResult = { data?: { total: number }; isLoading: boolean };
+
+/**
+ * Fix KPI "DA en attente" (Sprint F-DASHBOARD) : le composant appelle
+ * désormais `useListPRs` une fois par statut d'attente d'approbation
+ * (`submitted`, `pending_pi`, `pending_cg`, `pending_daf`, `pending_caissier`).
+ * On indexe le mock par statut pour pouvoir simuler des totaux distincts par
+ * étape du workflow et vérifier l'agrégation.
+ */
+let prsResultsByStatus: Partial<Record<PrStatus, QueryResult>> = {
+  submitted: { data: { total: 7 }, isLoading: false },
+  pending_pi: { data: { total: 0 }, isLoading: false },
+  pending_cg: { data: { total: 0 }, isLoading: false },
+  pending_daf: { data: { total: 0 }, isLoading: false },
+  pending_caissier: { data: { total: 0 }, isLoading: false },
 };
-let invoicesResult: { data?: { total: number }; isLoading: boolean } = {
+const PRS_DEFAULT: QueryResult = { data: { total: 0 }, isLoading: false };
+
+let invoicesResult: QueryResult = {
   data: { total: 3 },
   isLoading: false,
 };
-let grantsResult: { data?: { total: number }; isLoading: boolean } = {
+let grantsResult: QueryResult = {
   data: { total: 12 },
   isLoading: false,
 };
-let paymentsResult: { data?: { total: number }; isLoading: boolean } = {
+let paymentsResult: QueryResult = {
   data: { total: 4 },
   isLoading: false,
 };
 
 jest.mock('@/hooks/use-procurement', () => ({
-  useListPRs: () => prsResult,
+  useListPRs: (query: { status?: PrStatus }) => {
+    if (query.status !== undefined) {
+      return prsResultsByStatus[query.status] ?? PRS_DEFAULT;
+    }
+    return PRS_DEFAULT;
+  },
 }));
 jest.mock('@/hooks/use-invoicing', () => ({
   useListInvoices: () => invoicesResult,
@@ -55,7 +75,15 @@ jest.mock('next-auth/react', () => ({
 import { DashboardKpis } from '../DashboardKpis';
 
 function resetData() {
-  prsResult = { data: { total: 7 }, isLoading: false };
+  // Par défaut : 7 DA "submitted" (cas historique du test "valeurs réelles"),
+  // 0 sur les autres statuts d'attente — la somme attendue reste 7.
+  prsResultsByStatus = {
+    submitted: { data: { total: 7 }, isLoading: false },
+    pending_pi: { data: { total: 0 }, isLoading: false },
+    pending_cg: { data: { total: 0 }, isLoading: false },
+    pending_daf: { data: { total: 0 }, isLoading: false },
+    pending_caissier: { data: { total: 0 }, isLoading: false },
+  };
   invoicesResult = { data: { total: 3 }, isLoading: false };
   grantsResult = { data: { total: 12 }, isLoading: false };
   paymentsResult = { data: { total: 4 }, isLoading: false };
@@ -82,7 +110,14 @@ describe('DashboardKpis', () => {
   });
 
   it('affiche "—" pendant le chargement (data=undefined)', () => {
-    prsResult = { data: undefined, isLoading: true };
+    const loading: QueryResult = { data: undefined, isLoading: true };
+    prsResultsByStatus = {
+      submitted: loading,
+      pending_pi: loading,
+      pending_cg: loading,
+      pending_daf: loading,
+      pending_caissier: loading,
+    };
     invoicesResult = { data: undefined, isLoading: true };
     grantsResult = { data: undefined, isLoading: true };
     paymentsResult = { data: undefined, isLoading: true };
@@ -116,9 +151,34 @@ describe('DashboardKpis', () => {
 
   it('singulier/pluriel cohérent dans les hints (1 vs 2+)', () => {
     grantsResult = { data: { total: 1 }, isLoading: false };
-    prsResult = { data: { total: 1 }, isLoading: false };
+    // 1 seule DA en circuit (sur pending_pi), 0 ailleurs → total = 1
+    prsResultsByStatus = {
+      submitted: { data: { total: 0 }, isLoading: false },
+      pending_pi: { data: { total: 1 }, isLoading: false },
+      pending_cg: { data: { total: 0 }, isLoading: false },
+      pending_daf: { data: { total: 0 }, isLoading: false },
+      pending_caissier: { data: { total: 0 }, isLoading: false },
+    };
     render(<DashboardKpis />);
     expect(screen.getByText('1 convention en cours')).toBeInTheDocument();
-    expect(screen.getByText('1 demande soumise')).toBeInTheDocument();
+    expect(screen.getByText("1 demande en attente d'approbation")).toBeInTheDocument();
+  });
+
+  it("KPI 'DA en attente' agrège tous les statuts d'attente d'approbation", () => {
+    // Workflow réel : DA répartie sur plusieurs étapes du circuit.
+    // submitted=0, pending_pi=3, pending_cg=2, pending_daf=1, pending_caissier=0
+    // → Total attendu = 6
+    prsResultsByStatus = {
+      submitted: { data: { total: 0 }, isLoading: false },
+      pending_pi: { data: { total: 3 }, isLoading: false },
+      pending_cg: { data: { total: 2 }, isLoading: false },
+      pending_daf: { data: { total: 1 }, isLoading: false },
+      pending_caissier: { data: { total: 0 }, isLoading: false },
+    };
+    render(<DashboardKpis />);
+    expect(screen.getByText('DA en attente')).toBeInTheDocument();
+    // La valeur affichée du KPI doit être la somme (6).
+    expect(screen.getByText('6')).toBeInTheDocument();
+    expect(screen.getByText("6 demandes en attente d'approbation")).toBeInTheDocument();
   });
 });
