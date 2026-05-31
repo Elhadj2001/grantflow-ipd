@@ -382,9 +382,20 @@ export function grantToFormValues(g: Grant): Partial<GrantFormValues> {
 
 /**
  * Convertit les valeurs du formulaire en payload accepté par
- * POST /grants. Normalise les chaînes vides en undefined.
+ * POST /grants. Les champs OPTIONNELS vides (signedAt, notes) sont
+ * envoyés comme `undefined` — JSON.stringify les retire alors du body,
+ * ce qui évite que Zod côté backend rejette `null` sur un `.optional()`.
+ *
+ * Fix create-grant-nullable : le backend a été migré à `.nullish()` (donc
+ * accepte null) mais on garde cette normalisation côté front en
+ * ceinture+bretelles. Si une future API change `.optional()` → null
+ * refusé, le front continuera à fonctionner.
  */
 export function formValuesToCreateInput(v: GrantFormValues): CreateGrantInput {
+  const cleanOptional = (s: string | undefined): string | undefined => {
+    const trimmed = s?.trim?.();
+    return trimmed && trimmed.length > 0 ? trimmed : undefined;
+  };
   return {
     reference: v.reference,
     donorId: v.donorId,
@@ -395,7 +406,7 @@ export function formValuesToCreateInput(v: GrantFormValues): CreateGrantInput {
     startDate: v.startDate,
     endDate: v.endDate,
     status: v.status,
-    signedAt: v.signedAt && v.signedAt.length > 0 ? v.signedAt : null,
-    notes: v.notes && v.notes.length > 0 ? v.notes : null,
+    signedAt: cleanOptional(v.signedAt),
+    notes: cleanOptional(v.notes),
   };
 }
