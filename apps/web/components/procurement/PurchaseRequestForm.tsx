@@ -13,9 +13,10 @@ import { AmountDisplay } from '@/components/common/AmountDisplay';
 import { ProjectPicker } from '@/components/procurement/pickers/ProjectPicker';
 import { GrantPicker } from '@/components/procurement/pickers/GrantPicker';
 import { BudgetLinePicker } from '@/components/procurement/pickers/BudgetLinePicker';
-import { useGrantDashboard } from '@/hooks/use-referential';
+import { useGrant, useGrantDashboard } from '@/hooks/use-referential';
 import { cn } from '@/lib/utils';
 import type { CreatePurchaseRequestInput, PrType } from '@/lib/api/procurement';
+import { convertAmount, FX_SUPPORTED_CURRENCIES } from '@/lib/fx-fallback';
 
 const LineSchema = z.object({
   description: z.string().min(2, 'Description trop courte'),
@@ -109,6 +110,17 @@ export function PurchaseRequestForm({
   // pour le contrôle "Solde insuffisant" par ligne. Cache partagé avec
   // les BudgetLinePicker en aval (même clé TanStack Query).
   const { data: grantDashboard } = useGrantDashboard(watchedGrantId || null);
+  // Fix da-multi-currency : on a besoin de la devise convention pour
+  // (a) afficher l'alerte "devise différente" et (b) convertir les
+  // line totals avant la comparaison budgétaire. `useGrantDashboard`
+  // n'expose pas la devise, donc on charge le grant complet via useGrant.
+  const { data: grant } = useGrant(watchedGrantId || null);
+  const grantCurrency = grant?.currency ?? null;
+  const currencyMismatch =
+    grantCurrency != null &&
+    watchedCurrency.length > 0 &&
+    watchedCurrency !== grantCurrency;
+
   const availableByLine = React.useMemo(() => {
     const m = new Map<string, { available: number; budgeted: number }>();
     for (const e of grantDashboard?.byBudgetLine ?? []) {
@@ -122,7 +134,18 @@ export function PurchaseRequestForm({
     const p = Number(l.unitPrice) || 0;
     const lineTotal = q * p;
     const ref = l.budgetLineId ? availableByLine.get(l.budgetLineId) : null;
-    const insufficient = !!ref && lineTotal > ref.available;
+    // Fix da-multi-currency : `available` est exprimé dans la devise de
+    // la convention (grantCurrency). Si la DA est dans une autre devise,
+    // on convertit lineTotal AVANT la comparaison budgétaire. Si la
+    // conversion échoue (devise inconnue) on désactive le contrôle UI —
+    // le serveur reste autoritatif (re-vérifie au submit avec les vrais
+    // taux du jour).
+    let lineTotalInGrantCurrency: number | null = lineTotal;
+    if (grantCurrency && watchedCurrency && watchedCurrency !== grantCurrency) {
+      lineTotalInGrantCurrency = convertAmount(lineTotal, watchedCurrency, grantCurrency);
+    }
+    const insufficient =
+      !!ref && lineTotalInGrantCurrency != null && lineTotalInGrantCurrency > ref.available;
     return { lineTotal, available: ref?.available ?? null, insufficient };
   });
 
@@ -245,14 +268,40 @@ export function PurchaseRequestForm({
         </div>
         <div>
           <Label htmlFor="currency">Devise</Label>
-          <Input
+          {/*
+            Fix da-multi-currency : la devise hérite par défaut de la
+            convention (auto-fill via GrantPicker.onChange L.229) mais
+            peut être OVERRIDE manuellement. Cas réel SYSCEBNL : convention
+            bailleur en USD, dépense locale en XOF chez un fournisseur
+            sénégalais. La conversion se fait à la comptabilisation au
+            taux BCEAO (côté serveur, source de vérité).
+          */}
+          <select
             id="currency"
             {...register('currency')}
-            readOnly
             data-testid="pr-currency"
-            className="bg-slate-50"
-          />
-          <p className="mt-1 text-xs text-slate-muted">Hérité de la convention sélectionnée.</p>
+            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+          >
+            {FX_SUPPORTED_CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          {currencyMismatch ? (
+            <p
+              data-testid="pr-currency-mismatch"
+              className="mt-1 text-xs text-state-warning"
+            >
+              ⚠ Devise différente de la convention ({grantCurrency}). La
+              conversion se fera à la comptabilisation au taux BCEAO.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-slate-muted">
+              Pré-remplie depuis la convention — modifiable si la dépense
+              locale est dans une autre devise.
+            </p>
+          )}
         </div>
       </div>
 
