@@ -74,6 +74,22 @@ export const AcknowledgeIbanAlertsSchema = z
   .strict();
 export class AcknowledgeIbanAlertsDto extends createZodDto(AcknowledgeIbanAlertsSchema) {}
 
+/**
+ * Liste des statuts d'un `payment_run`.
+ *
+ * ⚠️ Contrairement à PR/PO/GR/Invoice qui utilisent `z.nativeEnum(<PrismaEnum>)`,
+ * ici la colonne `ap.payment_run.status` est `TEXT` au DDL — il n'existe PAS
+ * d'enum Postgres `payment_run_status`. Prisma la mappe en `String`, donc on
+ * doit maintenir un tuple littéral.
+ *
+ * En contrepartie, le test sentinelle
+ * `__tests__/payment-run-status-alignment.spec.ts` fige le contrat :
+ * tout statut effectivement écrit par `payment-run.service.ts` doit parser
+ * OK ici. Si quelqu'un ajoute `'approved'` / `'sent'` côté service sans
+ * mettre cette liste à jour, le test casse — c'est exactement la régression
+ * qu'on évite (cf. bug `pending_caissier` sur PR avant le fix
+ * `fix-pr-status-enum-alignment`).
+ */
 export const PAYMENT_RUN_STATUSES = [
   'draft',
   'prepared',
