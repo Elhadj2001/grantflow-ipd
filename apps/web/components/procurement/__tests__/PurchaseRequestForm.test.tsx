@@ -131,12 +131,91 @@ describe('PurchaseRequestForm', () => {
     expect(call.lines[0].unitPrice).toBe(100);
   });
 
-  it('renders the 4 pickers (project, grant, budget-line, currency readonly)', () => {
+  it('renders the 4 pickers (project, grant, budget-line, currency)', () => {
     renderForm({ onSubmit: jest.fn(), defaultValues: baseDefaults() });
     expect(screen.getByTestId('project-picker')).toBeInTheDocument();
     expect(screen.getByTestId('grant-picker')).toBeInTheDocument();
     expect(screen.getByTestId('budget-line-picker-0')).toBeInTheDocument();
-    // Devise est en lecture seule (héritée de la convention)
-    expect(screen.getByTestId('pr-currency')).toHaveAttribute('readonly');
+    // Fix da-multi-currency : devise est désormais un <select> ÉDITABLE
+    // (l'héritage convention reste l'auto-fill par défaut via GrantPicker,
+    // mais l'utilisateur peut overrider pour le cas SYSCEBNL convention
+    // USD + dépense locale XOF).
+    const currency = screen.getByTestId('pr-currency');
+    expect(currency.tagName).toBe('SELECT');
+    expect(currency).not.toHaveAttribute('readonly');
+    expect(currency).not.toHaveAttribute('disabled');
+  });
+
+  // ----- Sprint fix-da-multi-currency -----
+
+  it('override manuel de la devise : la valeur est conservée', () => {
+    renderForm({
+      onSubmit: jest.fn(),
+      defaultValues: { ...baseDefaults(), currency: 'XOF' },
+    });
+    const select = screen.getByTestId('pr-currency') as HTMLSelectElement;
+    expect(select.value).toBe('XOF');
+    fireEvent.change(select, { target: { value: 'USD' } });
+    expect(select.value).toBe('USD');
+  });
+
+  it('submit envoie la NOUVELLE devise après override', async () => {
+    const onSubmit = jest.fn();
+    renderForm({
+      onSubmit,
+      defaultValues: { ...baseDefaults(), currency: 'XOF' },
+    });
+    const select = screen.getByTestId('pr-currency') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'EUR' } });
+    fireEvent.submit(screen.getByTestId('pr-form'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].currency).toBe('EUR');
+  });
+
+  it('affiche l\'alerte "Devise différente de la convention" quand DA.currency ≠ grant.currency', async () => {
+    // Fetch mock spécifique : la route `/grants/<UUID>` (sans /dashboard
+    // ni /budget-lines) renvoie un Grant USD. Le composant useGrant
+    // chargera donc currency=USD ; la DA défaut XOF → mismatch attendu.
+    const grantUsd = {
+      id: UUID,
+      reference: 'USAID-IPD-2026-01',
+      donorId: UUID,
+      projectId: UUID,
+      amount: '300000',
+      currency: 'USD',
+      overheadRate: '0.15',
+      startDate: '2026-01-01',
+      endDate: '2026-12-31',
+      status: 'active',
+      signedAt: null,
+      notes: null,
+      createdAt: '2026-01-01T00:00:00Z',
+    };
+    fetchMock.mockImplementation(async (input: RequestInfo) => {
+      const url = typeof input === 'string' ? input : (input as Request).url;
+      // Match /grants/<UUID> mais PAS /grants/<UUID>/dashboard ni /budget-lines
+      const isGrantOnly = /\/grants\/[0-9a-f-]+(\?|$)/.test(url) && !url.includes('/dashboard');
+      const body = isGrantOnly
+        ? grantUsd
+        : { data: [], total: 0, page: 1, pageSize: 20, hasMore: false };
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (k: string) => (k === 'content-type' ? 'application/json' : null) },
+        json: async () => body,
+        text: async () => '',
+      } as unknown as Response;
+    });
+    renderForm({
+      onSubmit: jest.fn(),
+      // DA en XOF par défaut, convention USD → mismatch attendu.
+      defaultValues: { ...baseDefaults(), currency: 'XOF' },
+    });
+    // L'alerte apparaît dès que useGrant a chargé.
+    await waitFor(() => {
+      expect(screen.getByTestId('pr-currency-mismatch')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('pr-currency-mismatch')).toHaveTextContent(/USD/);
+    expect(screen.getByTestId('pr-currency-mismatch')).toHaveTextContent(/BCEAO/i);
   });
 });
