@@ -14,7 +14,7 @@ import { AnalyticalDonut } from '@/components/pilotage/AnalyticalDonut';
 import { DedicatedFundsCard } from '@/components/pilotage/DedicatedFundsCard';
 import { OverheadCard } from '@/components/pilotage/OverheadCard';
 import type { GrantBadgeStatus } from '@/components/pilotage/GrantStatusBadge';
-import { useBudgetLinesList, useGrantDashboard } from '@/hooks/use-referential';
+import { useBudgetLinesList, useGrant, useGrantDashboard } from '@/hooks/use-referential';
 import {
   useGrantBreakdown,
   useGrantDedicatedFunds,
@@ -69,6 +69,11 @@ export default function GrantDetailPage() {
   const periodRange = periodToDates(period);
 
   const { data: dashboard, isLoading: loadingDash } = useGrantDashboard(grantId);
+  // Fix convention-currency-display : la devise vient du grant lui-même
+  // (le dashboard ne l'expose pas). Fallback XOF pour le rendu pendant le
+  // chargement initial — le hook se met à jour dès que la réponse arrive.
+  const { data: grant } = useGrant(grantId);
+  const currency = grant?.currency ?? 'XOF';
   const { data: txData, isLoading: loadingTx } = useGrantTransactions(grantId, {
     type: 'all',
     ...periodRange,
@@ -152,7 +157,7 @@ export default function GrantDetailPage() {
           donorLabel="Bailleur"
           projectTitle={`Convention ${dashboard.grantRef}`}
           amount={dashboard.totalBudgeted}
-          currency="XOF"
+          currency={currency}
           startDate="—"
           endDate="—"
           status={badgeStatus}
@@ -184,7 +189,7 @@ export default function GrantDetailPage() {
               available: bl.available,
               utilization: bl.utilization,
             }))}
-            currency="XOF"
+            currency={currency}
           />
 
           {/* Sprint F5b-c Lot C : section ÉDITABLE pour CG/DAF/SA. */}
@@ -240,7 +245,7 @@ export default function GrantDetailPage() {
                     <XAxis dataKey="key" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip
-                      formatter={(value: number) => formatAmount(value, 'XOF')}
+                      formatter={(value: number) => formatAmount(value, currency)}
                       cursor={{ fill: 'rgba(43, 160, 184, 0.08)' }}
                     />
                     <Bar dataKey="amount" fill="#2BA0B8" />

@@ -11,6 +11,7 @@ import {
   deleteDonor,
   deleteProject,
   deleteSupplier,
+  getGrant,
   getGrantDashboard,
   listBudgetLines,
   listDonors,
@@ -60,6 +61,7 @@ const referentialKeys = {
   projectsList: () => [...referentialKeys.all, 'projects'] as const,
   projects: (q: ListProjectsQuery) => [...referentialKeys.projectsList(), q] as const,
   grants: (q: ListGrantsQuery) => [...referentialKeys.all, 'grants', 'list', q] as const,
+  grant: (grantId: string) => [...referentialKeys.all, 'grants', grantId] as const,
   grantsByProject: (projectId: string) =>
     [...referentialKeys.all, 'grants', 'byProject', projectId] as const,
   grantDashboard: (grantId: string) =>
@@ -153,6 +155,33 @@ export function useGrantsByProject(projectId: string | null | undefined) {
 // =====================================================================
 //  Budget lines (via grant dashboard — donne aussi l'availability)
 // =====================================================================
+
+/**
+ * Charge le grant complet (incluant `currency`, `startDate`, `endDate`,
+ * `status`, …). Distinct de `useGrantDashboard` qui ne livre que les
+ * agrégats budgétaires. Utilisé par la page détail convention pour
+ * afficher la devise réelle au lieu d'un fallback codé en dur.
+ *
+ * Fix convention-currency-display (mars 2026) : la page détail
+ * affichait XOF partout parce que GrantDashboard n'expose pas currency.
+ */
+export function useGrant(grantId: string | null | undefined) {
+  const { accessToken, sessionReady } = useToken();
+  const enabled = sessionReady && !!grantId;
+  return useQuery<Grant>({
+    queryKey: referentialKeys.grant(grantId ?? ''),
+    enabled,
+    staleTime: FIVE_MIN,
+    queryFn: async () => {
+      try {
+        return await getGrant(grantId!, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
 
 export function useGrantDashboard(grantId: string | null | undefined) {
   const { accessToken, sessionReady } = useToken();
