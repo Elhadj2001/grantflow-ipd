@@ -1,19 +1,20 @@
 import { z } from 'zod';
 import { createZodDto } from 'nestjs-zod';
+import { PrStatus } from '@prisma/client';
 
-/** Reflète l'enum `procurement.pr_status` côté BD. */
-export const PR_STATUSES = [
-  'draft',
-  'submitted',
-  'pending_pi',
-  'pending_cg',
-  'pending_daf',
-  'approved',
-  'rejected',
-  'cancelled',
-  'closed',
-] as const;
-export type PrStatusLiteral = (typeof PR_STATUSES)[number];
+/**
+ * Reflète l'enum `procurement.pr_status` côté BD. Dérivé directement de
+ * l'enum Prisma `PrStatus` pour garantir qu'aucun statut ne peut être
+ * oublié ici quand le DDL évolue.
+ *
+ * ⚠️ Fix `fix-pr-status-enum-alignment` : le tableau littéral précédent
+ * oubliait `pending_caissier` et `settled`, ce qui faisait planter en
+ * 400 BadRequest tout GET `/purchase-requests?status=<missing>` — vu en
+ * pratique sur le KPI "DA en attente" du dashboard. On évite désormais
+ * la double maintenance manuelle en passant par `Object.values(PrStatus)`.
+ */
+export const PR_STATUSES = Object.values(PrStatus) as readonly PrStatus[];
+export type PrStatusLiteral = PrStatus;
 
 export const PR_SORT_FIELDS = ['prNumber', 'requestedAt', 'totalAmount', 'status'] as const;
 
@@ -31,7 +32,7 @@ const ISO_DATE = z
 export const PurchaseRequestQuerySchema = z
   .object({
     q: z.string().min(1).max(128).optional(),
-    status: z.enum(PR_STATUSES).optional(),
+    status: z.nativeEnum(PrStatus).optional(),
     projectId: z.string().uuid().optional(),
     grantId: z.string().uuid().optional(),
     /** Si fourni : limite à cet UUID requesteur — passé typiquement par un admin. */
