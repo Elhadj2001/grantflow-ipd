@@ -23,6 +23,7 @@ import { CreatePurchaseRequestDto } from './dto/create-pr.dto';
 import type { UpdatePurchaseRequestDto } from './dto/update-pr.dto';
 import type { PurchaseRequestQueryDto } from './dto/pr-query.dto';
 import type { CheckBudgetLineDto, CheckBudgetResponseDto } from './dto/check-budget.dto';
+import { canActorViewPr } from './helpers/pr-visibility.helper';
 
 const ENTITY_NAME = 'PurchaseRequest';
 
@@ -114,13 +115,31 @@ export class PurchaseRequestService {
   }
 
   async findOne(actor: AuthenticatedUser, prId: string): Promise<PrWithLines> {
+    // On inclut `project.piUserId` pour permettre au helper de visibilité
+    // d'autoriser le PI rattaché au projet, sans nécessiter un second
+    // round-trip. La PR est ensuite renvoyée avec le shape historique
+    // (`{...pr, lines}`) — `project` reste un détail interne au scope check.
     const pr = await this.prisma.purchaseRequest.findUnique({
       where: { id: prId },
-      include: { lines: { orderBy: { lineNumber: 'asc' } } },
+      include: {
+        lines: { orderBy: { lineNumber: 'asc' } },
+        project: { select: { piUserId: true } },
+      },
     });
     if (!pr) throw new EntityNotFoundException(ENTITY_NAME, { id: prId });
-    await this.assertCanRead(actor, pr);
-    return pr;
+
+    const appUserId = await this.resolveAppUserId(actor);
+    if (!canActorViewPr(actor, appUserId, pr)) {
+      // 404 plutôt que 403 — on ne révèle pas l'existence (OWASP). On garde
+      // le code historique `PR_NOT_OWNED` pour ne pas casser les consommateurs
+      // qui distinguent "PR inconnue" et "PR non visible".
+      throw new PrNotOwnedException('hidden');
+    }
+
+    // On ne fuit pas `project` au-delà du scope-check : le contrat retour
+    // est `PrWithLines` (sans project) — on déstructure pour rester compatible.
+    const { project: _project, ...prWithLines } = pr;
+    return prWithLines;
   }
 
   // ------------------------------------------------------------------
@@ -403,10 +422,18 @@ export class PurchaseRequestService {
   async checkBudget(actor: AuthenticatedUser, prId: string): Promise<CheckBudgetResponseDto> {
     const pr = await this.prisma.purchaseRequest.findUnique({
       where: { id: prId },
-      include: { lines: true },
+      include: {
+        lines: true,
+        project: { select: { piUserId: true } },
+      },
     });
     if (!pr) throw new EntityNotFoundException(ENTITY_NAME, { id: prId });
-    await this.assertCanRead(actor, pr);
+
+    const appUserId = await this.resolveAppUserId(actor);
+    if (!canActorViewPr(actor, appUserId, pr)) {
+      // 404 plutôt que 403 — cohérent avec findOne (cf. helper).
+      throw new PrNotOwnedException('hidden');
+    }
 
     const usageByLine = await this.computeBudgetUsageByLine(prId, pr.lines);
 
