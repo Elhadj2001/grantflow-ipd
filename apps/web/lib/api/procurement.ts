@@ -243,12 +243,31 @@ export function getPrApprovalHistory(
   });
 }
 
+/**
+ * Fix `fix-pr-list-approver-scope` : la liste « À approuver » côté
+ * front (PI/CG/DAF/CAISSIER) doit pouvoir paginer comme la liste
+ * standard. Le backend `PendingApprovalQueryDto` accepte déjà
+ * `page`, `pageSize`, `projectId`, `fromDate`, `toDate`, `urgent`
+ * mais ne supporte ni recherche texte ni filtre statut (par essence,
+ * ces DA sont déjà filtrées à pending_pi/cg/daf/caissier selon le rôle).
+ */
+export interface ListPendingApprovalsQuery {
+  page?: number;
+  pageSize?: number;
+  projectId?: string;
+  fromDate?: string;
+  toDate?: string;
+  urgent?: boolean;
+}
+
 export function listPendingApprovals(
+  query: ListPendingApprovalsQuery = {},
   opts: CallOpts = {},
 ): Promise<ListResponse<PurchaseRequest>> {
-  return apiFetch<ListResponse<PurchaseRequest>>(`/purchase-requests/pending-my-approval`, {
-    accessToken: opts.accessToken,
-  });
+  return apiFetch<ListResponse<PurchaseRequest>>(
+    `/purchase-requests/pending-my-approval${qs(query)}`,
+    { accessToken: opts.accessToken },
+  );
 }
 
 export function createPurchaseRequest(

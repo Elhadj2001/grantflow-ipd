@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FilePlus, ShoppingCart } from 'lucide-react';
+import { FilePlus, Inbox, ShoppingCart, User } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { DataTable, type DataTableColumn } from '@/components/common/DataTable';
 import { StatusBadge } from '@/components/common/StatusBadge';
@@ -11,7 +11,8 @@ import { DateDisplay } from '@/components/common/DateDisplay';
 import { EmptyState } from '@/components/common/EmptyState';
 import { FilterBar } from '@/components/common/FilterBar';
 import { Button } from '@/components/ui/button';
-import { useListPRs } from '@/hooks/use-procurement';
+import { cn } from '@/lib/utils';
+import { useListPRs, useListPendingApprovals } from '@/hooks/use-procurement';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { PrStatus, PurchaseRequest } from '@/lib/api/procurement';
 
@@ -27,19 +28,69 @@ const STATUS_FILTER_VALUES: Array<{ value: PrStatus; label: string }> = [
 
 const PAGE_SIZE = 20;
 
+/**
+ * Fix `fix-pr-list-approver-scope` : sur cette page, les validateurs
+ * (PI / CG / DAF / CAISSIER, ainsi que SUPER_ADMIN qui cumule ces droits)
+ * doivent voir par défaut les DA qu'ILS doivent valider, pas celles
+ * qu'ils ont eux-mêmes saisies. La liste standard `GET /purchase-requests`
+ * scope par ownership et masque donc tout le travail à faire.
+ *
+ * Solution : un toggle « Mes DAs » / « À approuver » qui bascule entre
+ * `useListPRs` (ownership) et `useListPendingApprovals` (workflow).
+ * Le défaut est calculé d'après le rôle :
+ *   - validateur → « À approuver » (le motif n°1 de venir sur la page)
+ *   - autre      → « Mes DAs » (comportement historique)
+ *
+ * Le filtre statut reste actif uniquement en scope « Mes DAs » — l'autre
+ * scope est par essence déjà filtré par le serveur sur le statut attendu
+ * pour le rôle (pending_pi / pending_cg / pending_daf / pending_caissier).
+ */
+type Scope = 'mine' | 'to-approve';
+
 export default function PurchaseRequestsListPage() {
   const router = useRouter();
   const permissions = usePermissions();
+
+  const isValidator = useMemo(
+    () =>
+      permissions.canApprovePRAsPi() ||
+      permissions.canApprovePRAsCg() ||
+      permissions.canApprovePRAsDaf() ||
+      permissions.canApprovePRAsCash(),
+    [permissions],
+  );
+
+  const [scope, setScope] = useState<Scope>(isValidator ? 'to-approve' : 'mine');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<PrStatus | undefined>(undefined);
 
-  const { data, isLoading } = useListPRs({
-    page,
-    pageSize: PAGE_SIZE,
-    status: statusFilter,
-    search: search || undefined,
-  });
+  const isMineScope = scope === 'mine';
+
+  const mineQuery = useListPRs(
+    {
+      page,
+      pageSize: PAGE_SIZE,
+      status: statusFilter,
+      search: search || undefined,
+    },
+    { enabled: isMineScope },
+  );
+
+  const pendingQuery = useListPendingApprovals(
+    { page, pageSize: PAGE_SIZE },
+    { enabled: !isMineScope },
+  );
+
+  const activeQuery = isMineScope ? mineQuery : pendingQuery;
+  const data = activeQuery.data;
+  const isLoading = activeQuery.isLoading;
+
+  const handleScopeChange = (next: Scope) => {
+    if (next === scope) return;
+    setScope(next);
+    setPage(1);
+  };
 
   const columns: DataTableColumn<PurchaseRequest>[] = [
     {
@@ -91,18 +142,64 @@ export default function PurchaseRequestsListPage() {
       />
 
       <div className="space-y-4 p-8">
+        {isValidator && (
+          <div
+            role="tablist"
+            aria-label="Périmètre de la liste"
+            className="inline-flex rounded-md border border-slate-200 bg-white p-1 text-sm"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={scope === 'to-approve'}
+              onClick={() => handleScopeChange('to-approve')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded px-3 py-1.5 transition',
+                scope === 'to-approve'
+                  ? 'bg-ipd-50 text-ipd-darker font-medium'
+                  : 'text-slate-600 hover:bg-slate-50',
+              )}
+            >
+              <Inbox className="h-3.5 w-3.5" />
+              À approuver
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={scope === 'mine'}
+              onClick={() => handleScopeChange('mine')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded px-3 py-1.5 transition',
+                scope === 'mine'
+                  ? 'bg-ipd-50 text-ipd-darker font-medium'
+                  : 'text-slate-600 hover:bg-slate-50',
+              )}
+            >
+              <User className="h-3.5 w-3.5" />
+              Mes DAs
+            </button>
+          </div>
+        )}
+
         <FilterBar
-          search={search}
-          onSearchChange={(s) => {
-            setSearch(s);
-            setPage(1);
-          }}
+          search={isMineScope ? search : ''}
+          onSearchChange={
+            isMineScope
+              ? (s) => {
+                  setSearch(s);
+                  setPage(1);
+                }
+              : undefined
+          }
           searchPlaceholder="Rechercher par n° ou description…"
-          filters={{ status: statusFilter }}
-          options={[
-            { key: 'status', label: 'Statut', values: STATUS_FILTER_VALUES },
-          ]}
+          filters={isMineScope ? { status: statusFilter } : {}}
+          options={
+            isMineScope
+              ? [{ key: 'status', label: 'Statut', values: STATUS_FILTER_VALUES }]
+              : []
+          }
           onFilterChange={(key, value) => {
+            if (!isMineScope) return;
             if (key === 'status') setStatusFilter(value as PrStatus | undefined);
             setPage(1);
           }}
@@ -117,15 +214,25 @@ export default function PurchaseRequestsListPage() {
           emptyState={
             <EmptyState
               icon={ShoppingCart}
-              title="Aucune demande d'achat"
-              description={
-                search || statusFilter
-                  ? 'Aucun résultat pour ces filtres.'
-                  : 'Créez votre première DA pour démarrer un cycle Procure-to-Pay.'
+              title={
+                isMineScope
+                  ? "Aucune demande d'achat"
+                  : 'Aucune DA à approuver'
               }
-              actionLabel={permissions.canCreatePR() ? 'Créer la première DA' : undefined}
+              description={
+                isMineScope
+                  ? search || statusFilter
+                    ? 'Aucun résultat pour ces filtres.'
+                    : "Créez votre première DA pour démarrer un cycle Procure-to-Pay."
+                  : 'Plus rien à valider à votre niveau. Revenez plus tard ou consultez vos propres DAs.'
+              }
+              actionLabel={
+                isMineScope && permissions.canCreatePR()
+                  ? 'Créer la première DA'
+                  : undefined
+              }
               onAction={
-                permissions.canCreatePR()
+                isMineScope && permissions.canCreatePR()
                   ? () => router.push('/procurement/purchase-requests/new')
                   : undefined
               }

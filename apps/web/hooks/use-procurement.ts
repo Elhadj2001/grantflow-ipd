@@ -18,6 +18,7 @@ import {
   getPurchaseOrder,
   getPurchaseRequest,
   listGoodsReceipts,
+  listPendingApprovals,
   listPurchaseOrders,
   listPurchaseRequests,
   rejectGoodsReceipt,
@@ -35,6 +36,7 @@ import {
   type CreatePurchaseRequestInput,
   type GoodsReceiptDetail,
   type ListGrQuery,
+  type ListPendingApprovalsQuery,
   type ListPoQuery,
   type ListPrQuery,
   type PatchGrLineInput,
@@ -52,6 +54,8 @@ const procurementKeys = {
   prs: () => [...procurementKeys.all, 'prs'] as const,
   pr: (id: string) => [...procurementKeys.prs(), id] as const,
   prList: (query: ListPrQuery) => [...procurementKeys.prs(), 'list', query] as const,
+  prPendingApprovals: (query: ListPendingApprovalsQuery) =>
+    [...procurementKeys.prs(), 'pending-my-approval', query] as const,
   prBudget: (id: string) => [...procurementKeys.pr(id), 'budget'] as const,
   prApproval: (id: string) => [...procurementKeys.pr(id), 'approval-history'] as const,
   pos: () => [...procurementKeys.all, 'pos'] as const,
@@ -92,6 +96,41 @@ export function useListPRs(
     queryFn: async () => {
       try {
         return await listPurchaseRequests(query, { accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
+}
+
+/**
+ * Fix `fix-pr-list-approver-scope` : page Achats invisible aux validateurs.
+ *
+ * `useListPRs` (GET /purchase-requests) scope par ownership — un PI ou un
+ * CG ne voit donc PAS les DA qu'il doit valider. Le bon endpoint pour ça
+ * est `GET /purchase-requests/pending-my-approval`, filtré côté serveur
+ * sur le rôle de l'acteur (pending_pi pour les PI, pending_cg pour le CG,
+ * pending_daf pour le DAF, pending_caissier pour le caissier).
+ *
+ * Côté UI : la page bascule sur ce hook quand l'utilisateur a un rôle
+ * validateur et que le toggle est sur « À approuver » (cf. page.tsx).
+ *
+ * Le flag `enabled` permet de désactiver le fetch (utile quand l'autre
+ * scope est actif, pour éviter un appel inutile + un 403 sur les rôles
+ * non-validateurs).
+ */
+export function useListPendingApprovals(
+  query: ListPendingApprovalsQuery = {},
+  options: { enabled?: boolean } = {},
+) {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery({
+    queryKey: procurementKeys.prPendingApprovals(query),
+    enabled: sessionReady && (options.enabled ?? true),
+    queryFn: async () => {
+      try {
+        return await listPendingApprovals(query, { accessToken });
       } catch (err) {
         mapApiErrorToToast(err);
         throw err;
