@@ -13,12 +13,16 @@ import { MailService } from '../common/services/mail.service';
 import { StorageService } from '../common/services/storage.service';
 import { AccountingModule } from '../accounting/accounting.module';
 import { InvoicingModule } from '../invoicing/invoicing.module';
+import { ExchangeRateModule } from '../referential/exchange-rate/exchange-rate.module';
 
 @Module({
   // Sprint F-INVOICE-SIM : import d'InvoicingModule pour réutiliser
   // InvoiceService (création d'Invoice `captured` en mode inject). Pas de
   // cycle : InvoicingModule n'importe pas ProcurementModule.
-  imports: [AccountingModule, InvoicingModule],
+  // Fix fix-approval-workflow-currency-conversion : ExchangeRateModule
+  // injecté pour convertir totalAmount en XOF avant comparaison aux
+  // seuils APPROVAL_THRESHOLD_CG / DAF (qui sont en XOF).
+  imports: [AccountingModule, InvoicingModule, ExchangeRateModule],
   controllers: [PurchaseRequestController, PurchaseOrderController, GoodsReceiptController],
   providers: [
     PurchaseRequestService,
