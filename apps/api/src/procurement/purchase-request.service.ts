@@ -23,7 +23,7 @@ import { CreatePurchaseRequestDto } from './dto/create-pr.dto';
 import type { UpdatePurchaseRequestDto } from './dto/update-pr.dto';
 import type { PurchaseRequestQueryDto } from './dto/pr-query.dto';
 import type { CheckBudgetLineDto, CheckBudgetResponseDto } from './dto/check-budget.dto';
-import { canActorViewPr } from './helpers/pr-visibility.helper';
+import { canActorViewPr, ACHETEUR_VISIBLE_STATUSES } from './helpers/pr-visibility.helper';
 
 const ENTITY_NAME = 'PurchaseRequest';
 
@@ -698,9 +698,25 @@ export class PurchaseRequestService {
     if (query.projectId) where.projectId = query.projectId;
     if (query.grantId) where.grantId = query.grantId;
 
-    // Ownership : si l'acteur n'a pas full view, on force requestedBy = self (app_user.id résolu).
+    // Visibility scope (fix `fix-acheteur-visibility-scope`) :
+    // - Full-view (CG/DAF/COMPTABLE/TRESORIER/SA) : scopedUserId === null,
+    //   pas de filtre ownership.
+    // - ACHETEUR : voit ses propres DA + TOUTES les DA en `approved`/`closed`
+    //   (parcours P2P : transformer la DA approuvée en BC). Implémenté via
+    //   un OR Prisma — combiné avec une éventuelle recherche `q` par AND.
+    // - Autres rôles non full-view (DEMANDEUR, PI sans full-view) : restreints
+    //   à `requestedBy = self`. Le scope PI (`project.piUserId`) côté liste
+    //   est out-of-scope ici (cf. caveat fix-pr-detail-validator-scope) ;
+    //   ces rôles utilisent l'endpoint `pending-my-approval` pour leur queue.
     if (scopedUserId) {
-      where.requestedBy = scopedUserId;
+      if (actor.roles.includes('ACHETEUR')) {
+        where.OR = [
+          { requestedBy: scopedUserId },
+          { status: { in: [...ACHETEUR_VISIBLE_STATUSES] } },
+        ];
+      } else {
+        where.requestedBy = scopedUserId;
+      }
     } else if (query.requestedBy) {
       where.requestedBy = query.requestedBy;
     }
@@ -712,10 +728,18 @@ export class PurchaseRequestService {
     }
 
     if (query.q) {
-      where.OR = [
+      const searchClause: Prisma.PurchaseRequestWhereInput[] = [
         { description: { contains: query.q.trim(), mode: 'insensitive' } },
         { prNumber: { contains: query.q.trim(), mode: 'insensitive' } },
       ];
+      if (where.OR) {
+        // Cas ACHETEUR + recherche : on combine via AND pour ne pas
+        // clobber le OR de visibilité (ownership OR statut).
+        where.AND = [{ OR: where.OR }, { OR: searchClause }];
+        delete where.OR;
+      } else {
+        where.OR = searchClause;
+      }
     }
 
     return where;
