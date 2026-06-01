@@ -35,6 +35,9 @@ describe('canActorViewPr', () => {
   const caissier: AuthenticatedUser = {
     id: 'caissier-1', email: 'caissier@x', fullName: 'Caissier', roles: ['CAISSIER'],
   };
+  const acheteur: AuthenticatedUser = {
+    id: 'acheteur-1', email: 'acheteur@x', fullName: 'Acheteur', roles: ['ACHETEUR'],
+  };
 
   function makePr(overrides: Partial<PrVisibilityView> = {}): PrVisibilityView {
     return {
@@ -129,6 +132,61 @@ describe('canActorViewPr', () => {
     it('foreign DEMANDEUR (not owner) → false', () => {
       const pr = makePr({ requestedBy: ownerId });
       expect(canActorViewPr(demandeurOther, otherUserId, pr)).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // ACHETEUR (fix-acheteur-visibility-scope)
+  // ------------------------------------------------------------------
+  describe('ACHETEUR — status-conditional visibility', () => {
+    /**
+     * L'ACHETEUR a un scope restreint par statut : il ne voit que les DA
+     * `approved` (à transformer en BC) ou `closed` (traçabilité). Pas
+     * d'accès aux brouillons / pending_* — séparation des tâches.
+     *
+     * Avant ce fix : ACHETEUR était dans ALL_ACCESS_ROLES → voyait TOUT
+     * (trop permissif). Après ce fix : conditionné au statut.
+     */
+
+    it('approved DA → true (transformation en BC à venir)', () => {
+      const pr = makePr({ status: PrStatus.approved, requestedBy: 'someone-else' });
+      expect(canActorViewPr(acheteur, 'acheteur-app-id', pr)).toBe(true);
+    });
+
+    it('closed DA → true (traçabilité post-cycle)', () => {
+      const pr = makePr({ status: PrStatus.closed, requestedBy: 'someone-else' });
+      expect(canActorViewPr(acheteur, 'acheteur-app-id', pr)).toBe(true);
+    });
+
+    it('draft DA → false (pas en charge du brouillon)', () => {
+      const pr = makePr({ status: PrStatus.draft, requestedBy: 'someone-else' });
+      expect(canActorViewPr(acheteur, 'acheteur-app-id', pr)).toBe(false);
+    });
+
+    it('pending_pi DA → false (validation, hors scope ACHETEUR)', () => {
+      const pr = makePr({ status: PrStatus.pending_pi, requestedBy: 'someone-else' });
+      expect(canActorViewPr(acheteur, 'acheteur-app-id', pr)).toBe(false);
+    });
+
+    it('pending_cg DA → false', () => {
+      const pr = makePr({ status: PrStatus.pending_cg, requestedBy: 'someone-else' });
+      expect(canActorViewPr(acheteur, 'acheteur-app-id', pr)).toBe(false);
+    });
+
+    it('pending_daf DA → false', () => {
+      const pr = makePr({ status: PrStatus.pending_daf, requestedBy: 'someone-else' });
+      expect(canActorViewPr(acheteur, 'acheteur-app-id', pr)).toBe(false);
+    });
+
+    it('rejected DA → false (workflow terminé négativement, hors scope BC)', () => {
+      const pr = makePr({ status: PrStatus.rejected, requestedBy: 'someone-else' });
+      expect(canActorViewPr(acheteur, 'acheteur-app-id', pr)).toBe(false);
+    });
+
+    it('ACHETEUR qui est aussi owner d\'un draft → true via ownership', () => {
+      // Régression : la règle owner DOIT s\'appliquer en plus du scope statut.
+      const pr = makePr({ status: PrStatus.draft, requestedBy: 'acheteur-app-id' });
+      expect(canActorViewPr(acheteur, 'acheteur-app-id', pr)).toBe(true);
     });
   });
 });

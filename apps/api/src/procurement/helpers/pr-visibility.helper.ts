@@ -34,14 +34,19 @@ export interface PrVisibilityView {
 }
 
 /**
- * Rôles qui voient TOUTES les DA (équivalent du `FULL_VIEW_ROLES` historique
- * de `purchase-request.service.ts`). On y ajoute les rôles qui interviennent
- * dans le workflow d'approbation et qui doivent pouvoir relire une DA à
- * n'importe quel stade de son cycle de vie.
+ * Rôles qui voient TOUTES les DA quel que soit le statut (équivalent du
+ * `FULL_VIEW_ROLES` historique de `purchase-request.service.ts`).
  *
- * - SUPER_ADMIN, DAF, CONTROLEUR, COMPTABLE, TRESORIER : déjà autorisés
- *   historiquement.
- * - ACHETEUR : @Roles list sur le contrôleur — on garde l'accès lecture.
+ * SUPER_ADMIN, DAF, CONTROLEUR, COMPTABLE, TRESORIER : déjà autorisés
+ * historiquement.
+ *
+ * NOTE — fix `fix-acheteur-visibility-scope` : ACHETEUR avait été ajouté
+ * ici dans `fix-pr-detail-validator-scope` (scope full view trop large).
+ * Le rôle est désormais sorti de cette liste et gating par STATUT via
+ * `ACHETEUR_VISIBLE_STATUSES` ci-dessous. Motif métier : séparation des
+ * tâches — un ACHETEUR n'a pas à voir les brouillons / DA en attente de
+ * validation. Seules les DA prêtes à transformer en BC (`approved`) ou
+ * déjà processées (`closed`, pour traçabilité) lui sont visibles.
  */
 const ALL_ACCESS_ROLES: ReadonlyArray<Role> = [
   'SUPER_ADMIN',
@@ -49,21 +54,42 @@ const ALL_ACCESS_ROLES: ReadonlyArray<Role> = [
   'CONTROLEUR',
   'COMPTABLE',
   'TRESORIER',
-  'ACHETEUR',
 ];
+
+/**
+ * Fix `fix-acheteur-visibility-scope` — statuts pour lesquels l'ACHETEUR
+ * voit toutes les DA (cross-projet, cross-demandeur), quel que soit
+ * l'ownership. Couvre le parcours Procure-to-Account :
+ *   - `approved` : DA validée, en attente de transformation en BC.
+ *   - `closed`   : cycle terminé, accessible en lecture pour traçabilité.
+ *
+ * Les statuts intermédiaires (`draft`, `submitted`, `pending_*`,
+ * `rejected`, `cancelled`, `settled`) restent invisibles à l'ACHETEUR :
+ * pendant ces étapes, c'est au demandeur et aux valideurs de gérer la DA.
+ *
+ * Note : `po_issued` mentionné dans le brief initial n'existe PAS dans
+ * `PrStatus` (Prisma) — la DA reste à `approved` même après création du
+ * BC associé (le BC porte son propre statut dans la table `purchase_order`).
+ * Si la sémantique évolue (transition automatique approved→closed à la
+ * création du BC), réajuster ici + dans `buildWhere` côté service.
+ */
+export const ACHETEUR_VISIBLE_STATUSES: ReadonlyArray<PrStatus> = ['approved', 'closed'];
 
 /**
  * Renvoie `true` si `actor` doit pouvoir lire la DA `pr`.
  *
  * Règles (alignées sur `getMyPendingApprovals` + accès lecture historique) :
- *   1. SUPER_ADMIN / DAF / CONTROLEUR / COMPTABLE / TRESORIER / ACHETEUR → true (full view).
- *   2. Owner (`pr.requestedBy === appUserId`) → true.
+ *   1. SUPER_ADMIN / DAF / CONTROLEUR / COMPTABLE / TRESORIER → true (full view).
+ *   2. Owner (`pr.requestedBy === appUserId`) → true (quel que soit le rôle).
  *   3. PI avec rôle 'PI' ET projet rattaché (`pr.project.piUserId === appUserId`) → true,
  *      quel que soit le statut (le PI doit pouvoir relire l'historique
  *      même après son approbation).
  *   4. CAISSIER sur une DA `petty_cash` ou `cash_advance` → true (un caissier peut
  *      avoir besoin de relire l'historique d'une DA cash à n'importe quel stade).
- *   5. Sinon → false.
+ *   5. ACHETEUR sur une DA `approved` ou `closed` → true (parcours P2P :
+ *      transformation en BC + traçabilité). Pas d'accès aux brouillons /
+ *      pending_* — séparation des tâches.
+ *   6. Sinon → false.
  */
 export function canActorViewPr(
   actor: AuthenticatedUser,
@@ -93,6 +119,14 @@ export function canActorViewPr(
   if (
     actor.roles.includes('CAISSIER') &&
     (pr.requestType === 'petty_cash' || pr.requestType === 'cash_advance')
+  ) {
+    return true;
+  }
+
+  // 5. ACHETEUR sur une DA en `approved` ou `closed`.
+  if (
+    actor.roles.includes('ACHETEUR') &&
+    ACHETEUR_VISIBLE_STATUSES.includes(pr.status)
   ) {
     return true;
   }

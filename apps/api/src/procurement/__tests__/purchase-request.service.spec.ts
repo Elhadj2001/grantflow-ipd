@@ -62,6 +62,11 @@ describe('PurchaseRequestService', () => {
   const sa: AuthenticatedUser = {
     id: 'usr-sa', email: 'sa@x', fullName: 'SA', roles: ['SUPER_ADMIN'],
   };
+  // Fix fix-acheteur-visibility-scope : ACHETEUR a un scope par STATUT
+  // (approved/closed) côté findMany, en plus de son ownership.
+  const acheteur: AuthenticatedUser = {
+    id: 'usr-acheteur', email: 'acheteur@x', fullName: 'Acheteur', roles: ['ACHETEUR'],
+  };
 
   const pr: PurchaseRequest = {
     id: 'pr000000-0000-0000-0000-000000000000',
@@ -137,6 +142,7 @@ describe('PurchaseRequestService', () => {
             'b@x': userOther,
             'daf@x': 'usr-daf',
             'sa@x': 'usr-sa',
+            'acheteur@x': 'usr-acheteur',
           };
           const id = map[where.email];
           return Promise.resolve(id ? { id } : null);
@@ -279,6 +285,59 @@ describe('PurchaseRequestService', () => {
         gte: new Date('2026-01-01'),
         lte: new Date('2026-12-31'),
       });
+    });
+
+    // ------------------------------------------------------------------
+    // Fix fix-acheteur-visibility-scope
+    // ------------------------------------------------------------------
+    it('ACHETEUR : where.OR couvre ownership ∨ status ∈ [approved, closed]', async () => {
+      // Symptôme corrigé : avant le fix, l\'acheteur recevait
+      // where.requestedBy = self → liste vide (jamais owner d\'une DA).
+      prisma.purchaseRequest.findMany.mockResolvedValue([]);
+      prisma.purchaseRequest.count.mockResolvedValue(0);
+      await svc.findMany(acheteur, baseQuery());
+      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
+
+      // Plus de filtre flat requestedBy.
+      expect(args.where.requestedBy).toBeUndefined();
+      // OR composite :
+      expect(args.where.OR).toEqual([
+        { requestedBy: 'usr-acheteur' },
+        { status: { in: ['approved', 'closed'] } },
+      ]);
+    });
+
+    it('ACHETEUR + recherche q : combine via AND (préserve le OR de visibilité)', async () => {
+      // Régression : sans la composition AND, le OR de recherche
+      // clobberait celui de la visibilité, exposant TOUTES les DA
+      // matchant le texte (y compris les drafts cross-projets).
+      prisma.purchaseRequest.findMany.mockResolvedValue([]);
+      prisma.purchaseRequest.count.mockResolvedValue(0);
+      await svc.findMany(acheteur, baseQuery({ q: 'reactif' }));
+      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
+
+      expect(args.where.OR).toBeUndefined();
+      expect(args.where.AND).toHaveLength(2);
+      // Premier AND : visibility OR.
+      expect(args.where.AND[0]).toEqual({
+        OR: [
+          { requestedBy: 'usr-acheteur' },
+          { status: { in: ['approved', 'closed'] } },
+        ],
+      });
+      // Second AND : recherche q.
+      expect(args.where.AND[1].OR).toHaveLength(2);
+    });
+
+    it('DEMANDEUR non-régression : pas de OR de visibilité, scope ownership flat', async () => {
+      prisma.purchaseRequest.findMany.mockResolvedValue([]);
+      prisma.purchaseRequest.count.mockResolvedValue(0);
+      await svc.findMany(demandeur, baseQuery());
+      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
+      // Forme flat conservée pour DEMANDEUR (pas de OR visibilité).
+      expect(args.where.requestedBy).toBe(userOwn);
+      expect(args.where.OR).toBeUndefined();
+      expect(args.where.AND).toBeUndefined();
     });
   });
 
