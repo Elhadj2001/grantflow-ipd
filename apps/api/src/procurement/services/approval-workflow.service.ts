@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrStatus } from '@prisma/client';
 import type { ApprovalStep, CashSettlement, PurchaseRequest } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import type { Role } from '../../auth/types/roles';
 import {
@@ -80,7 +81,10 @@ export interface PendingApprovalRow extends PurchaseRequest {
 export class ApprovalWorkflowService {
   private readonly logger = new Logger(ApprovalWorkflowService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fx: ExchangeRateService,
+  ) {}
 
   // ------------------------------------------------------------------
   // Approve / Reject / Return
@@ -100,9 +104,36 @@ export class ApprovalWorkflowService {
     }
 
     const appUserId = await this.resolveAppUserId(actor);
+
+    // Fix `fix-approval-workflow-currency-conversion` : les seuils
+    // APPROVAL_THRESHOLD_CG / DAF sont exprimés en XOF. Sans conversion,
+    // une DA de 100 000 EUR (= ~65 595 700 XOF) passe en `approved` après
+    // l'étape PI car 100 000 < 500 000 (comparaison naïve cross-currency).
+    // On convertit donc le montant en XOF avant le routage par seuil
+    // (uniquement pour `standard` — les workflows cash n'utilisent pas les
+    // seuils). Le résultat est loggué pour audit traçable.
+    const rawAmount = Number(pr.totalAmount);
+    let amountForRouting = rawAmount;
+    if (pr.requestType === 'standard' && pr.currency !== 'XOF') {
+      const conv = await this.fx.convertToXof(rawAmount, pr.currency);
+      amountForRouting = conv.xofAmount;
+      this.logger.log(
+        {
+          prId: pr.id,
+          currency: pr.currency,
+          rawAmount,
+          xofAmount: conv.xofAmount,
+          fxRate: conv.rate,
+          isIndicativeFallback: conv.isIndicativeFallback,
+          currentRole: pendingStep.approverRole,
+        },
+        'fx conversion applied for approval threshold routing',
+      );
+    }
+
     const nextRole = this.computeNextStepRole(
       pendingStep.approverRole,
-      Number(pr.totalAmount),
+      amountForRouting,
       pr.requestType,
     );
 

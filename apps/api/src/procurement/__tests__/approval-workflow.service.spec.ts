@@ -6,6 +6,7 @@ import {
   APPROVAL_THRESHOLD_DAF,
 } from '../services/approval-workflow.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import {
   PiNotOwnerOfProjectException,
@@ -36,6 +37,7 @@ describe('ApprovalWorkflowService', () => {
     cashSettlement: { findUnique: jest.Mock; create: jest.Mock };
     $transaction: jest.Mock;
   };
+  let fx: { convertToXof: jest.Mock };
   let svc: ApprovalWorkflowService;
 
   const piId = 'pi000000-0000-0000-0000-000000000001';
@@ -132,7 +134,24 @@ describe('ApprovalWorkflowService', () => {
         return Promise.all(cb as unknown[]);
       }),
     };
-    svc = new ApprovalWorkflowService(prisma as unknown as PrismaService);
+    // Mock ExchangeRateService — par défaut, no-op (XOF in → XOF out).
+    // Les tests qui veulent simuler une devise non-XOF mockent ce hook au
+    // cas par cas (cf. describe `currency conversion`).
+    fx = {
+      convertToXof: jest.fn(async (amount: number, currency: string) => {
+        if (currency === 'XOF') {
+          return { xofAmount: amount, rate: 1, isFallback: false, isIndicativeFallback: false };
+        }
+        // Default for non-XOF in tests qui ne se soucient pas du taux :
+        // on retourne tel quel (rate=1) pour préserver le comportement
+        // historique des tests existants.
+        return { xofAmount: amount, rate: 1, isFallback: false, isIndicativeFallback: false };
+      }),
+    };
+    svc = new ApprovalWorkflowService(
+      prisma as unknown as PrismaService,
+      fx as unknown as ExchangeRateService,
+    );
   });
 
   // ------------------------------------------------------------------
@@ -189,6 +208,141 @@ describe('ApprovalWorkflowService', () => {
     it('threshold constants are sane (CG=500k, DAF=5M)', () => {
       expect(APPROVAL_THRESHOLD_CG).toBe(500_000);
       expect(APPROVAL_THRESHOLD_DAF).toBe(5_000_000);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // Fix fix-approval-workflow-currency-conversion
+  // ------------------------------------------------------------------
+  describe('approveCurrentStep — currency conversion before threshold routing', () => {
+    /**
+     * Bug avant le fix : 100 000 EUR (= 65 595 700 XOF) comparé naïvement
+     * à 500 000 XOF (APPROVAL_THRESHOLD_CG) renvoyait `100000 < 500000`
+     * → next = null → PR clôturée à `approved` après PI. Le fix convertit
+     * en XOF via ExchangeRateService.convertToXof avant la comparaison.
+     */
+
+    it('DA 100k EUR (= 65.6M XOF, > 5M) : PI approves → CONTROLEUR (pas approved)', async () => {
+      // Au taux BCEAO 655,957 : 100 000 EUR = 65 595 700 XOF.
+      fx.convertToXof.mockResolvedValueOnce({
+        xofAmount: 65_595_700,
+        rate: 655.957,
+        isFallback: false,
+        isIndicativeFallback: false,
+      });
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({ totalAmount: new Prisma.Decimal('100000'), currency: 'EUR' }),
+      );
+      prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'PI' }));
+      prisma.project.findUnique.mockResolvedValue({ piUserId: piId });
+      prisma.purchaseRequest.update.mockResolvedValue(
+        makePr({ status: PrStatus.pending_cg, currency: 'EUR' }),
+      );
+
+      const res = await svc.approveCurrentStep(pi, prId);
+
+      // Régression directe du bug : avant le fix, res.pr.status === 'approved'.
+      expect(res.nextStepRole).toBe('CONTROLEUR');
+      expect(res.pr.status).toBe(PrStatus.pending_cg);
+      expect(fx.convertToXof).toHaveBeenCalledWith(100000, 'EUR');
+      expect(prisma.approvalStep.create).toHaveBeenCalled();
+    });
+
+    it('DA 1k EUR (= ~655 957 XOF, entre 500k et 5M) : PI → CONTROLEUR, pas DAF', async () => {
+      // 1 000 EUR = 655 957 XOF — au-dessus de CG (500k), en-dessous de DAF (5M).
+      fx.convertToXof.mockResolvedValueOnce({
+        xofAmount: 655_957,
+        rate: 655.957,
+        isFallback: false,
+        isIndicativeFallback: false,
+      });
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({ totalAmount: new Prisma.Decimal('1000'), currency: 'EUR' }),
+      );
+      prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'PI' }));
+      prisma.project.findUnique.mockResolvedValue({ piUserId: piId });
+      prisma.purchaseRequest.update.mockResolvedValue(
+        makePr({ status: PrStatus.pending_cg, currency: 'EUR' }),
+      );
+
+      const res = await svc.approveCurrentStep(pi, prId);
+
+      expect(res.nextStepRole).toBe('CONTROLEUR');
+      // Ne doit PAS passer en pending_daf — 655k < 5M.
+      expect(res.pr.status).toBe(PrStatus.pending_cg);
+    });
+
+    it('DA 100 XOF (baseline) : PI seul, pas de conversion appelée', async () => {
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({ totalAmount: new Prisma.Decimal('100'), currency: 'XOF' }),
+      );
+      prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'PI' }));
+      prisma.project.findUnique.mockResolvedValue({ piUserId: piId });
+      prisma.purchaseRequest.update.mockResolvedValue(makePr({ status: PrStatus.approved }));
+
+      const res = await svc.approveCurrentStep(pi, prId);
+
+      expect(res.nextStepRole).toBeNull();
+      expect(res.pr.status).toBe(PrStatus.approved);
+      // Pas d'appel à convertToXof quand la devise est déjà XOF — la
+      // garde côté service évite un round-trip BD inutile.
+      expect(fx.convertToXof).not.toHaveBeenCalled();
+    });
+
+    it('DA 10k USD (= 6M XOF au taux indicatif fallback) : PI → CG → DAF', async () => {
+      // 10 000 USD * 600 (FALLBACK_INDICATIVE_TO_XOF) = 6 000 000 XOF, > 5M.
+      // Côté CG : on doit router sur DAF.
+      fx.convertToXof.mockResolvedValueOnce({
+        xofAmount: 6_000_000,
+        rate: 600,
+        isFallback: true,
+        isIndicativeFallback: true,
+      });
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({
+          totalAmount: new Prisma.Decimal('10000'),
+          currency: 'USD',
+          status: PrStatus.pending_cg,
+        }),
+      );
+      prisma.approvalStep.findFirst.mockResolvedValue(
+        makeStep({ approverRole: 'CONTROLEUR', stepOrder: 2 }),
+      );
+      prisma.purchaseRequest.update.mockResolvedValue(
+        makePr({ status: PrStatus.pending_daf, currency: 'USD' }),
+      );
+
+      const res = await svc.approveCurrentStep(cg, prId);
+
+      expect(res.nextStepRole).toBe('DAF');
+      expect(res.pr.status).toBe(PrStatus.pending_daf);
+      expect(fx.convertToXof).toHaveBeenCalledWith(10000, 'USD');
+    });
+
+    it('petty_cash en EUR : bypass conversion (workflow cash sans seuils)', async () => {
+      // Un petty_cash n'utilise pas les seuils — pas de conversion nécessaire,
+      // computeNextStepRole renvoie null direct. Le fix garde donc la
+      // conversion uniquement pour requestType === 'standard'.
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({
+          totalAmount: new Prisma.Decimal('5000'),
+          currency: 'EUR',
+          requestType: 'petty_cash',
+          cashBoxId: 'cb-1',
+        }),
+      );
+      prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CAISSIER' }));
+      prisma.purchaseRequest.update.mockResolvedValue(
+        makePr({ status: PrStatus.approved, requestType: 'petty_cash' }),
+      );
+
+      const res = await svc.approveCurrentStep(
+        { id: 'cas-sub', email: 'cas@x', fullName: 'Cas', roles: ['CAISSIER'] },
+        prId,
+      );
+
+      expect(res.nextStepRole).toBeNull();
+      expect(fx.convertToXof).not.toHaveBeenCalled();
     });
   });
 

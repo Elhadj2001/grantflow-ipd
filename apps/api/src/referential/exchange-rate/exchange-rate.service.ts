@@ -22,6 +22,35 @@ import type {
 const ENTITY_NAME = 'ExchangeRate';
 const SUPER_ADMIN: Role = 'SUPER_ADMIN';
 
+/**
+ * Fix `fix-approval-workflow-currency-conversion` — taux indicatifs de
+ * SECOURS uniquement pour la démo et le routage par seuil. La vérité
+ * comptable reste la table `ref.exchange_rate` (parité fixe EUR/XOF +
+ * taux variables BCEAO publiés). Ces valeurs ne sont utilisées QUE si
+ * la BD n'a pas (encore) de taux pour la paire — typiquement après un
+ * reset, ou pour les devises USD/GBP/CHF que personne n'a saisies.
+ *
+ * À ajuster avec le contrôle de gestion avant prod. Le seul taux
+ * autoritaire reste EUR↔XOF (parité fixe BCEAO 655,957) qui est seedée
+ * en BD avec `is_fixed=true` et ne tombe JAMAIS dans ce fallback.
+ */
+const FALLBACK_INDICATIVE_TO_XOF: Readonly<Record<string, number>> = {
+  USD: 600,
+  GBP: 800,
+  CHF: 700,
+};
+
+export interface XofConversionResult {
+  /** Montant équivalent en XOF (= amount * rate). */
+  xofAmount: number;
+  /** Taux appliqué (1 si la devise source EST XOF). */
+  rate: number;
+  /** True si on n'a pas trouvé de taux à la date demandée et qu'on est remonté dans le temps. */
+  isFallback: boolean;
+  /** True si on a basculé sur le fallback hardcodé (BD vide pour cette devise). */
+  isIndicativeFallback: boolean;
+}
+
 export interface PaginatedExchangeRates {
   data: ExchangeRate[];
   total: number;
@@ -108,6 +137,59 @@ export class ExchangeRateService {
 
     const isFallback = variable.rateDate.toISOString().slice(0, 10) !== (dto.date ?? '');
     return { ...variable, isFallback };
+  }
+
+  /**
+   * Fix `fix-approval-workflow-currency-conversion` — convertit un montant
+   * en XOF pour les comparaisons aux seuils métier (routage validation,
+   * contrôle budgétaire). Distincte de `lookup` car elle :
+   *   - applique le no-op si la devise source EST déjà XOF (pas de
+   *     `SameCurrencyException`),
+   *   - retombe sur un taux indicatif documenté (cf. constante
+   *     `FALLBACK_INDICATIVE_TO_XOF`) si la BD ne connaît pas la devise,
+   *     pour éviter qu'une DA bloque sur un référentiel incomplet —
+   *     marqué `isIndicativeFallback=true` dans le retour pour audit.
+   *
+   * ⚠️ Cette méthode NE DOIT PAS être utilisée pour les écritures
+   * comptables (utiliser `lookup` qui lève si pas de taux). Elle est
+   * dédiée aux décisions opérationnelles (routage, plafond) où une
+   * approximation indicative vaut mieux qu'un blocage.
+   */
+  async convertToXof(
+    amount: number,
+    currency: string,
+    date?: string,
+  ): Promise<XofConversionResult> {
+    if (currency === 'XOF') {
+      return { xofAmount: amount, rate: 1, isFallback: false, isIndicativeFallback: false };
+    }
+    try {
+      const lookup = await this.lookup({ from: currency, to: 'XOF', date });
+      const rate = Number(lookup.rate);
+      return {
+        xofAmount: amount * rate,
+        rate,
+        isFallback: lookup.isFallback,
+        isIndicativeFallback: false,
+      };
+    } catch (err) {
+      const fallback = FALLBACK_INDICATIVE_TO_XOF[currency];
+      if (fallback !== undefined) {
+        this.logger.warn(
+          { currency, amount, rate: fallback },
+          'no DB rate for currency, using FALLBACK_INDICATIVE_TO_XOF for routing decision',
+        );
+        return {
+          xofAmount: amount * fallback,
+          rate: fallback,
+          isFallback: true,
+          isIndicativeFallback: true,
+        };
+      }
+      // Devise vraiment inconnue (ni en BD ni en fallback) — on remonte
+      // l'exception pour que le caller décide (rejet ou bloque routage).
+      throw err;
+    }
   }
 
   // ------------------------------------------------------------------
