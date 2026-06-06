@@ -2,6 +2,7 @@ import { Prisma, PoStatus, PrStatus, PrType } from '@prisma/client';
 import type { PurchaseOrder, PurchaseRequest, PurchaseRequestLine } from '@prisma/client';
 import { PurchaseOrderService } from '../purchase-order.service';
 import { createPrismaMock, type PrismaMock } from '../../../test-utils/prisma-mock';
+import { useFakeDate, restoreRealDate } from '../../../test-utils/fake-time';
 import type { AuthenticatedUser } from '../../../auth/types/authenticated-user.type';
 import {
   EntityNotFoundException,
@@ -19,6 +20,11 @@ import {
 } from '../../../common/exceptions/business.exception';
 
 describe('PurchaseOrderService', () => {
+  // US-062 (fix F22) : horloge figée → numéros BC-YYYY-NNNN et horodatages
+  // par défaut déterministes, indépendants de la date d'exécution.
+  beforeAll(() => useFakeDate('2026-06-15'));
+  afterAll(() => restoreRealDate());
+
   let prisma: PrismaMock;
   let pdf: { generate: jest.Mock };
   let mail: { send: jest.Mock };

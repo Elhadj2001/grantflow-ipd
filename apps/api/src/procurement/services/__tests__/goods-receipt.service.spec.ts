@@ -2,6 +2,7 @@ import { Prisma, PoStatus, GrStatus } from '@prisma/client';
 import type { GoodsReceipt, GoodsReceiptLine, PurchaseOrder, PurchaseOrderLine } from '@prisma/client';
 import { GoodsReceiptService } from '../goods-receipt.service';
 import { createPrismaMock, type PrismaMock } from '../../../test-utils/prisma-mock';
+import { useFakeDate, restoreRealDate } from '../../../test-utils/fake-time';
 import type { AuthenticatedUser } from '../../../auth/types/authenticated-user.type';
 import {
   BatchInfoRequiredException,
@@ -27,6 +28,11 @@ import {
  * RBAC scope).
  */
 describe('GoodsReceiptService', () => {
+  // US-062 (fix F22) : horloge figée → numéros GR-YYYY-NNNN et horodatages
+  // par défaut déterministes, indépendants de la date d'exécution.
+  beforeAll(() => useFakeDate('2026-06-15'));
+  afterAll(() => restoreRealDate());
+
   // Projections typées des arguments capturés par les mocks Prisma (les unions
   // d'arguments de DeepMockProxy ne sont pas indexables directement → TS7053).
   type GrCreateData = {

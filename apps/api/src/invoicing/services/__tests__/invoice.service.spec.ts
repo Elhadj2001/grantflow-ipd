@@ -13,12 +13,18 @@ import {
   MatchingForceReasonRequiredException,
   PrNotOwnedException,
 } from '../../../common/exceptions/business.exception';
+import { useFakeDate, restoreRealDate } from '../../../test-utils/fake-time';
 
 /**
  * Tests unitaires InvoiceService — Prisma + storage + OCR + matching mockés.
  * On vérifie principalement les chemins métier (validations, RBAC, statuts).
  */
 describe('InvoiceService', () => {
+  // US-062 (fix F22) : horloge figée → horodatages par défaut déterministes,
+  // indépendants de la date d'exécution.
+  beforeAll(() => useFakeDate('2026-06-15'));
+  afterAll(() => restoreRealDate());
+
   type PrismaMock = {
     invoice: {
       findUnique: jest.Mock;
