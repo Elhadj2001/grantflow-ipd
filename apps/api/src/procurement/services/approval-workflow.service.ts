@@ -142,19 +142,38 @@ export class ApprovalWorkflowService {
     const closing = nextRole === null;
     const decrementCashBox = closing && pr.cashBoxId !== null && pr.requestType !== 'standard';
 
+    // US-012 (F1, ADR-005) : le décrément du solde caisse opère EN XOF
+    // (devise fonctionnelle). On convertit pr.totalAmount UNE fois ; le
+    // pré-check ET le décrément atomique partagent cette valeur (cohérence).
+    // Baseline IPD (caisse XOF + DA XOF) : convertToXof est l'identité → solde
+    // décrémenté du montant brut, comportement inchangé.
+    let cashDecrementXof = 0;
     // Pré-check du solde caisse — on lève AVANT d'engager la transaction
     // pour produire le bon code d'erreur. Le décrément atomique se fait
     // dans la transaction.
     if (decrementCashBox && pr.cashBoxId) {
+      cashDecrementXof = (
+        await this.fx.convertToXof(pr.totalAmount, pr.currency, pr.requestedAt)
+      ).xofAmount;
       const cb = await this.prisma.cashBox.findUnique({
         where: { id: pr.cashBoxId },
-        select: { id: true, currentBalance: true },
+        select: { id: true, currentBalance: true, currency: true },
       });
-      if (cb && Number(cb.currentBalance) < Number(pr.totalAmount)) {
+      if (cb && cb.currency !== 'XOF') {
+        // TODO Sprint S3+ : caisse non-XOF → conversion bilatérale
+        // (A → XOF → B : taux pivot vs cross rate direct, décision méthodo).
+        // Cas IPD courant = caisse XOF ; on décrémente l'équivalent XOF en
+        // assumant que currentBalance est tenu en XOF.
+        this.logger.warn(
+          { event: 'cashbox_non_xof_decrement', cashBoxId: cb.id, cashBoxCurrency: cb.currency, prCurrency: pr.currency },
+          'cashBox currency != XOF — decrement assumes XOF balance; bilateral conversion not yet implemented (TODO S3+)',
+        );
+      }
+      if (cb && Number(cb.currentBalance) < cashDecrementXof) {
         throw new CashBoxInsufficientFundsException(
           cb.id,
           Number(cb.currentBalance),
-          Number(pr.totalAmount),
+          cashDecrementXof,
         );
       }
     }
@@ -188,11 +207,13 @@ export class ApprovalWorkflowService {
 
       // Dernière étape : décrément immédiat du solde caisse pour les
       // DA cash. La sortie physique des espèces matérialise l'engagement.
-      // Pour cash_advance, le settle régularise plus tard.
+      // Pour cash_advance, le settle régularise plus tard. Montant en XOF
+      // (US-012) — même valeur que le pré-check ci-dessus. Si le décrément
+      // rendait currentBalance < 0, la contrainte CHECK PG rollback la tx.
       if (decrementCashBox && pr.cashBoxId) {
         await tx.cashBox.update({
           where: { id: pr.cashBoxId },
-          data: { currentBalance: { decrement: Number(pr.totalAmount) } },
+          data: { currentBalance: { decrement: cashDecrementXof } },
         });
       }
 

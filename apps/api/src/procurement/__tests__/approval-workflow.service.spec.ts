@@ -139,11 +139,11 @@ describe('ApprovalWorkflowService', () => {
     // cas par cas (cf. describe `currency conversion`).
     fx = {
       // US-004 : XofConversionResult = { xofAmount, fxRate, fxRateDate, isIndicativeFallback }.
-      convertToXof: jest.fn(async (amount: number) => {
-        // Défaut : on retourne tel quel (fxRate=1) — les tests de routage ne
-        // s'appuient que sur xofAmount ; les cas devise ≠ XOF surchargent
-        // via mockResolvedValueOnce.
-        return { xofAmount: amount, fxRate: 1, fxRateDate: new Date('2026-05-10'), isIndicativeFallback: false };
+      convertToXof: jest.fn(async (amount: number | { toString(): string }) => {
+        // Défaut : identité XOF (Number coerce un Prisma.Decimal éventuel) —
+        // les tests de routage ne s'appuient que sur xofAmount ; les cas
+        // devise ≠ XOF surchargent via mockResolvedValueOnce.
+        return { xofAmount: Number(amount), fxRate: 1, fxRateDate: new Date('2026-05-10'), isIndicativeFallback: false };
       }),
     };
     svc = new ApprovalWorkflowService(
@@ -317,10 +317,11 @@ describe('ApprovalWorkflowService', () => {
       expect(fx.convertToXof).toHaveBeenCalledWith(10000, 'USD');
     });
 
-    it('petty_cash en EUR : bypass conversion (workflow cash sans seuils)', async () => {
-      // Un petty_cash n'utilise pas les seuils — pas de conversion nécessaire,
-      // computeNextStepRole renvoie null direct. Le fix garde donc la
-      // conversion uniquement pour requestType === 'standard'.
+    it('petty_cash en EUR : bypass conversion de ROUTAGE (mais convertit pour le décrément, US-012)', async () => {
+      // Un petty_cash n'utilise pas les seuils → computeNextStepRole renvoie
+      // null sans conversion de routage (la conversion de routage reste
+      // réservée à requestType === 'standard'). EN REVANCHE, US-012 convertit
+      // pr.totalAmount en XOF pour le DÉCRÉMENT du solde caisse à la clôture.
       prisma.purchaseRequest.findUnique.mockResolvedValue(
         makePr({
           totalAmount: new Prisma.Decimal('5000'),
@@ -340,7 +341,14 @@ describe('ApprovalWorkflowService', () => {
       );
 
       expect(res.nextStepRole).toBeNull();
-      expect(fx.convertToXof).not.toHaveBeenCalled();
+      // US-012 : convertToXof appelé UNE fois, pour le décrément caisse (pas
+      // pour le routage). Argument = montant + devise de la DA.
+      expect(fx.convertToXof).toHaveBeenCalledTimes(1);
+      expect(fx.convertToXof).toHaveBeenCalledWith(
+        expect.anything(),
+        'EUR',
+        expect.anything(),
+      );
     });
   });
 
