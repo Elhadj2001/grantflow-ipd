@@ -1,12 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { JournalType, EntryStatus, InvoiceStatus } from '@prisma/client';
+import { JournalType, EntryStatus, InvoiceStatus, Prisma } from '@prisma/client';
 import type {
   BankAccount,
   Invoice,
   JournalEntry,
   JournalLine,
   Payment,
-  Prisma,
   PurchaseOrder,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -130,7 +129,10 @@ export class PostingService {
   ): Promise<JournalEntry & { lines: JournalLine[] }> {
     const period = await this.findOpenPeriodForDate(po.orderDate);
     const imputation = await this.resolveImputation(po);
-    const total = Number(po.totalHt);
+    // Montant d'engagement : simple recopie de totalHt (aucune arithmétique
+    // ici → pas d'enjeu F10). Converti en number au point d'écriture pour
+    // respecter le contrat historique des colonnes debit/credit.
+    const total = new Prisma.Decimal(po.totalHt).toNumber();
     const supplier = await this.prisma.supplier.findUnique({
       where: { id: po.supplierId },
       select: { name: true },
@@ -259,8 +261,8 @@ export class PostingService {
           lineNumber: l.lineNumber,
           accountCode: l.accountCode,
           label: `Extourne ${l.label ?? ''}`.trim(),
-          debit: Number(l.credit),
-          credit: Number(l.debit),
+          debit: l.credit,
+          credit: l.debit,
           currency: l.currency,
           projectId: l.projectId,
           grantId: l.grantId,
@@ -398,10 +400,13 @@ export class PostingService {
       exchangeRate = await this.lookupExchangeRate(invoice.currency, 'XOF', invoice.invoiceDate);
     }
 
-    // 7) Montants effectifs (en XOF pour les colonnes debit/credit)
-    const linesHtCurrency = invoice.lines.map((l) => Number(l.lineTotal));
-    const totalVatCurrency = Number(invoice.totalVat);
-    const totalTtcCurrency = Number(invoice.totalTtc);
+    // 7) Montants effectifs (en XOF pour les colonnes debit/credit).
+    //    Conservés en Decimal exact : la conversion FX (× exchangeRate) est
+    //    faite en Decimal avant l'arrondi monétaire (cf. F10).
+    const linesHtCurrency = invoice.lines.map((l) => new Prisma.Decimal(l.lineTotal));
+    const totalVatCurrency = new Prisma.Decimal(invoice.totalVat);
+    const totalTtcCurrency = new Prisma.Decimal(invoice.totalTtc);
+    const fxRate = new Prisma.Decimal(exchangeRate);
 
     return this.prisma.$transaction(async (tx) => {
       // 8) Numéros de pièces
@@ -428,7 +433,7 @@ export class PostingService {
         const il = invoice.lines[i];
         const account = resolved.byLineId.get(il.id)!;
         const amountCurrency = linesHtCurrency[i];
-        const amountXof = this.roundXof(amountCurrency * exchangeRate);
+        const amountXof = this.roundXof(amountCurrency.times(fxRate));
         linesData.push({
           entryId: acEntry.id,
           lineNumber,
@@ -445,8 +450,8 @@ export class PostingService {
       }
 
       // TVA déductible (pas d'imputation analytique par convention SYSCEBNL)
-      if (totalVatCurrency > 0) {
-        const vatXof = this.roundXof(totalVatCurrency * exchangeRate);
+      if (totalVatCurrency.greaterThan(0)) {
+        const vatXof = this.roundXof(totalVatCurrency.times(fxRate));
         linesData.push({
           entryId: acEntry.id,
           lineNumber,
@@ -462,7 +467,7 @@ export class PostingService {
       }
 
       // Contrepartie : 401 Fournisseurs au TTC
-      const ttcXof = this.roundXof(totalTtcCurrency * exchangeRate);
+      const ttcXof = this.roundXof(totalTtcCurrency.times(fxRate));
       linesData.push({
         entryId: acEntry.id,
         lineNumber,
@@ -529,7 +534,7 @@ export class PostingService {
           {
             entryId: reversal.id,
             entryNumber: reversal.entryNumber,
-            amountReversed: this.roundXof(Number(invoice.totalHt) * exchangeRate),
+            amountReversed: this.roundXof(new Prisma.Decimal(invoice.totalHt).times(fxRate)),
           },
         ],
       };
@@ -637,8 +642,8 @@ export class PostingService {
           accountCode: l.accountCode,
           auxiliaryCode: l.auxiliaryCode,
           label: `Extourne ${l.label ?? ''}`.trim().slice(0, 256),
-          debit: Number(l.credit),
-          credit: Number(l.debit),
+          debit: l.credit,
+          credit: l.debit,
           currency: l.currency,
           debitCurrency: l.creditCurrency ?? null,
           creditCurrency: l.debitCurrency ?? null,
@@ -689,8 +694,8 @@ export class PostingService {
             lineNumber: l.lineNumber,
             accountCode: l.accountCode,
             label: `Re-engagement ${l.label ?? ''}`.trim().slice(0, 256),
-            debit: Number(l.credit),
-            credit: Number(l.debit),
+            debit: l.credit,
+            credit: l.debit,
             currency: l.currency,
             projectId: l.projectId,
             grantId: l.grantId,
@@ -804,7 +809,9 @@ export class PostingService {
     // 3) Période fiscale ouverte à paymentDate (PERIOD_CLOSED si fermée)
     const period = await this.findOpenPeriodForDate(payment.paymentDate);
 
-    const amount = Number(payment.amount);
+    // Montant conservé en Decimal exact (écrit tel quel dans les colonnes
+    // Decimal debit/credit — pas de conversion float64, cf. F10).
+    const amount = new Prisma.Decimal(payment.amount);
     const supplier = payment.invoice.supplier;
     const label =
       `Paiement ${supplier.code} - ${payment.invoice.invoiceNumber}`.slice(0, 256);
@@ -859,7 +866,7 @@ export class PostingService {
         'payment posted (BQ entry)',
       );
 
-      return { entryId: entry.id, entryNumber, amountXof: amount };
+      return { entryId: entry.id, entryNumber, amountXof: amount.toNumber() };
     });
   }
 
@@ -927,15 +934,19 @@ export class PostingService {
       },
       include: { lines: true },
     });
+    // Somme exacte (Decimal) des extournements déjà passés (cf. F10).
     const totalReversedSoFar = reversalsSoFar.reduce((s, e) => {
       // Sur l'extournement, le crédit de 801 (= debit 801 d'origine extourné)
       const line801 = e.lines.find((l) => l.accountCode === ACCOUNT_ENGAGEMENT_DONNE);
-      return s + (line801 ? Number(line801.credit) : 0);
-    }, 0);
+      return line801 ? s.plus(line801.credit) : s;
+    }, new Prisma.Decimal(0));
 
-    const totalHt = Number(po.totalHt);
-    const amountToReverse = Number(invoice.totalHt);
-    const cumulativeFraction = totalHt > 0 ? (totalReversedSoFar + amountToReverse) / totalHt : 1;
+    const totalHt = new Prisma.Decimal(po.totalHt);
+    const amountToReverse = new Prisma.Decimal(invoice.totalHt);
+    const cumulativeReversed = totalReversedSoFar.plus(amountToReverse);
+    const cumulativeFraction = totalHt.greaterThan(0)
+      ? cumulativeReversed.div(totalHt)
+      : new Prisma.Decimal(1);
 
     // 3) Création de l'extournement
     const entryNumber = await this.generateEntryNumber(tx, JournalType.OD);
@@ -981,13 +992,13 @@ export class PostingService {
     });
 
     // 4) Si fraction ≥ 99,9% : on marque l'engagement d'origine comme reversed
-    if (cumulativeFraction >= 0.999) {
+    if (cumulativeFraction.gte(0.999)) {
       await tx.journalEntry.update({
         where: { id: original.id },
         data: { status: EntryStatus.reversed, reversedById: reversal.id },
       });
       this.logger.log(
-        { poId: po.id, cumulativeFraction, total: totalHt, reversed: totalReversedSoFar + amountToReverse },
+        { poId: po.id, cumulativeFraction, total: totalHt, reversed: cumulativeReversed },
         'class 8 commitment fully reversed by invoice posting',
       );
     }
@@ -1087,9 +1098,13 @@ export class PostingService {
 
   /** Arrondi monétaire XOF (2 décimales — la BCEAO arrondit au franc entier
    * en réalité, mais on garde 2 décimales pour les calculs intermédiaires
-   * en cohérence avec les colonnes Decimal(18,2) de la BD). */
-  private roundXof(value: number): number {
-    return Math.round(value * 100) / 100;
+   * en cohérence avec les colonnes Decimal(18,2) de la BD).
+   *
+   * Accepte un Decimal exact ou un number : la multiplication FX en amont
+   * est faite en Decimal (cf. F10), l'arrondi final reste en number. */
+  private roundXof(value: Prisma.Decimal | number): number {
+    const n = value instanceof Prisma.Decimal ? value.toNumber() : value;
+    return Math.round(n * 100) / 100;
   }
 
   /**

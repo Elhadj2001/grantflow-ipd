@@ -196,9 +196,17 @@ export class PilotageService {
       ...params,
     );
 
+    // Agrégats en Prisma.Decimal pour préserver la précision comptable (F10).
+    // r.debit / r.credit sont des Prisma.Decimal — on calcule net et totaux en
+    // Decimal, puis .toNumber() uniquement au remplissage des champs DTO.
+    let totalDebitDec = new Prisma.Decimal(0);
+    let totalCreditDec = new Prisma.Decimal(0);
+
     const data: TransactionDto[] = rows.map((r) => {
-      const debit = Number(r.debit);
-      const credit = Number(r.credit);
+      const debit = r.debit;
+      const credit = r.credit;
+      totalDebitDec = totalDebitDec.plus(debit);
+      totalCreditDec = totalCreditDec.plus(credit);
       return {
         entryId: r.entry_id,
         entryNumber: r.entry_number,
@@ -208,16 +216,16 @@ export class PilotageService {
         sourceType: r.source_type,
         sourceId: r.source_id,
         accountCode: r.account_code,
-        debit,
-        credit,
-        net: this.round2(debit - credit),
+        debit: debit.toNumber(),
+        credit: credit.toNumber(),
+        net: this.round2(debit.minus(credit).toNumber()),
         currency: r.currency,
         status: r.status,
       };
     });
 
-    const totalDebit = this.round2(data.reduce((s, t) => s + t.debit, 0));
-    const totalCredit = this.round2(data.reduce((s, t) => s + t.credit, 0));
+    const totalDebit = this.round2(totalDebitDec.toNumber());
+    const totalCredit = this.round2(totalCreditDec.toNumber());
 
     return { data, total: data.length, totalDebit, totalCredit };
   }
@@ -385,9 +393,13 @@ export class PilotageService {
       include: { period: { select: { code: true } } },
     });
 
-    const totalBillable = this.round2(
-      calcs.reduce((s, c) => s + Number(c.overheadAmount), 0),
+    // Somme en Prisma.Decimal pour préserver la précision (F10) ; .toNumber()
+    // uniquement à la sortie (champ DTO totalBillable: number).
+    const totalBillableDec = calcs.reduce(
+      (s, c) => s.plus(c.overheadAmount ?? 0),
+      new Prisma.Decimal(0),
     );
+    const totalBillable = this.round2(totalBillableDec.toNumber());
 
     // Reversé : crédits compte 754x liés au grant
     const reversedRows = await this.prisma.$queryRaw<Array<{ reversed: number }>>`

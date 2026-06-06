@@ -227,14 +227,20 @@ export class BudgetLineService {
     }
 
     // Vérifie la somme totale (lignes existantes actives + nouvelles).
+    // Somme + comparaison de plafond en Prisma.Decimal (F10) ; tolérance
+    // 0.0001 historique conservée (comportement identique) en Decimal exact.
     const existingTotal = await this.sumActiveBudgetedAmount(grantId);
-    const newTotal = validRows.reduce((s, r) => s + this.toNumber(r.budgetedAmount), 0);
-    const grantAmount = Number(grant.amount);
-    if (existingTotal + newTotal > grantAmount + 0.0001) {
+    const newTotal = validRows.reduce(
+      (s, r) => s.plus(this.toNumber(r.budgetedAmount)),
+      new Prisma.Decimal(0),
+    );
+    const grantAmount = new Prisma.Decimal(grant.amount);
+    const grandTotal = existingTotal.plus(newTotal);
+    if (grandTotal.greaterThan(grantAmount.plus('0.0001'))) {
       throw new BudgetLinesExceedGrantException(
         grantId,
-        grantAmount,
-        Number((existingTotal + newTotal).toFixed(2)),
+        grantAmount.toNumber(),
+        Number(grandTotal.toFixed(2)),
       );
     }
 
@@ -308,19 +314,31 @@ export class BudgetLineService {
     nextAmount: number,
     ignoreLineId?: string,
   ): Promise<void> {
+    // Somme + comparaison de plafond en Prisma.Decimal (F10). On conserve la
+    // tolérance 0.0001 historique (comportement identique) appliquée en
+    // Decimal exact, puis on ne convertit en number qu'à la frontière de
+    // l'exception (qui attend des number d'affichage).
     const existing = await this.sumActiveBudgetedAmount(grantId, ignoreLineId);
-    const total = existing + nextAmount;
-    const gAmount = Number(grantAmount);
-    if (total > gAmount + 0.0001) {
+    const total = existing.plus(nextAmount);
+    const gAmount = new Prisma.Decimal(grantAmount);
+    if (total.greaterThan(gAmount.plus('0.0001'))) {
       throw new BudgetLinesExceedGrantException(
         grantId,
-        gAmount,
+        gAmount.toNumber(),
         Number(total.toFixed(2)),
       );
     }
   }
 
-  private async sumActiveBudgetedAmount(grantId: string, ignoreLineId?: string): Promise<number> {
+  /**
+   * Somme exacte des budgetedAmount des lignes actives, retournée en
+   * Prisma.Decimal (F10) pour permettre des comparaisons de plafond sans
+   * perte de précision float64.
+   */
+  private async sumActiveBudgetedAmount(
+    grantId: string,
+    ignoreLineId?: string,
+  ): Promise<Prisma.Decimal> {
     const agg = await this.prisma.budgetLine.aggregate({
       where: {
         grantId,
@@ -329,7 +347,7 @@ export class BudgetLineService {
       },
       _sum: { budgetedAmount: true },
     });
-    return Number(agg._sum.budgetedAmount ?? 0);
+    return new Prisma.Decimal(agg._sum.budgetedAmount ?? 0);
   }
 
   private toNumber(v: string | number): number {

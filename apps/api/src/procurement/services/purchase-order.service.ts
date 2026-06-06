@@ -175,7 +175,12 @@ export class PurchaseOrderService {
 
     const buyerAppUserId = await this.resolveAppUserId(actor);
     const poNumber = await this.generatePoNumber();
-    const totalHt = pr.lines.reduce((s, l) => s + Number(l.lineTotal), 0);
+    // Agrégat exact en Decimal (F10) — lineTotal est une colonne Decimal.
+    // totalHt/totalTtc sont des colonnes Decimal côté PO : on y passe le Decimal direct.
+    const totalHt = pr.lines.reduce(
+      (s, l) => s.plus(l.lineTotal ?? 0),
+      new Prisma.Decimal(0),
+    );
 
     const created = await this.prisma.$transaction(async (tx) => {
       const po = await tx.purchaseOrder.create({
@@ -280,9 +285,8 @@ export class PurchaseOrderService {
         const key = `${line.budgetLineId}|${line.description.trim().toLowerCase()}|${line.unitPrice.toString()}`;
         const existing = merged.get(key);
         if (existing) {
-          existing.totalQty = new Prisma.Decimal(
-            Number(existing.totalQty) + Number(line.quantity),
-          );
+          // Cumul exact des quantités en Decimal (F10).
+          existing.totalQty = existing.totalQty.plus(line.quantity);
           existing.prLineIds.push(line.id);
         } else {
           merged.set(key, {
@@ -291,7 +295,7 @@ export class PurchaseOrderService {
             unitPrice: line.unitPrice,
             budgetLineId: line.budgetLineId,
             prLineIds: [line.id],
-            totalQty: new Prisma.Decimal(Number(line.quantity)),
+            totalQty: new Prisma.Decimal(line.quantity),
           });
         }
       }
@@ -309,9 +313,11 @@ export class PurchaseOrderService {
       prLineId: m.prLineIds[0] ?? null,
     }));
 
+    // Agrégat exact en Decimal (F10) — quantity et unitPrice sont des Decimal.
+    // totalHt/totalTtc sont des colonnes Decimal côté PO : on y passe le Decimal direct.
     const totalHt = consolidatedLines.reduce(
-      (s, l) => s + Number(l.quantity) * Number(l.unitPrice),
-      0,
+      (s, l) => s.plus(l.quantity.times(l.unitPrice)),
+      new Prisma.Decimal(0),
     );
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -697,7 +703,11 @@ export class PurchaseOrderService {
       unitPrice: Number(l.unitPrice),
       lineTotal: Number(l.lineTotal),
     }));
-    const totalHt = lines.reduce((s, l) => s + l.lineTotal, 0);
+    // Agrégat HT exact en Decimal (F10) depuis lineTotal (colonne Decimal),
+    // puis .toNumber() à la frontière (DTO PDF + createFromSimulatedPdf attendent number).
+    const totalHt = po.lines
+      .reduce((s, l) => s.plus(l.lineTotal ?? 0), new Prisma.Decimal(0))
+      .toNumber();
     const totalVat = Math.round(totalHt * SIM_VAT_RATE * 100) / 100;
     const totalTtc = Math.round((totalHt + totalVat) * 100) / 100;
 

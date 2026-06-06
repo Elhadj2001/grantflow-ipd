@@ -225,7 +225,7 @@ export class DonorReportService {
           spentAmount: Number(l.spentAmount),
           variance: Number(l.variance),
           variancePct: Number(l.variancePct),
-          alert: Math.abs(Number(l.variancePct)) > 10,
+          alert: l.variancePct.abs().greaterThan(10),
         })),
         totalBudget: Number(report.totalBudget),
         totalSpent: Number(report.totalSpent),
@@ -411,14 +411,14 @@ export class DonorReportService {
     });
     const labelByCode = new Map(accounts.map((a) => [a.code, a.label]));
     return rows.map((r) => {
-      const totalDebit = Number(r._sum.debit ?? 0);
-      const totalCredit = Number(r._sum.credit ?? 0);
+      const totalDebit = r._sum.debit ?? new Prisma.Decimal(0);
+      const totalCredit = r._sum.credit ?? new Prisma.Decimal(0);
       return {
         accountCode: r.accountCode,
         accountLabel: labelByCode.get(r.accountCode) ?? '(unknown)',
-        totalDebit,
-        totalCredit,
-        netAmount: totalDebit - totalCredit,
+        totalDebit: totalDebit.toNumber(),
+        totalCredit: totalCredit.toNumber(),
+        netAmount: totalDebit.minus(totalCredit).toNumber(),
       };
     });
   }

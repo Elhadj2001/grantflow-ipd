@@ -116,12 +116,16 @@ export class MatchingService {
       },
       _sum: { quantity: true },
     });
-    const receivedByPoLine = new Map<string, number>(
-      grAgg.map((r) => [r.poLineId, Number(r._sum.quantity ?? 0)]),
+    // Cumuls reçus en Decimal (F10) — _sum.quantity est un Decimal.
+    const receivedByPoLine = new Map<string, Prisma.Decimal>(
+      grAgg.map((r) => [r.poLineId, new Prisma.Decimal(r._sum.quantity ?? 0)]),
     );
 
-    const totalReceived = Array.from(receivedByPoLine.values()).reduce((s, v) => s + v, 0);
-    if (totalReceived === 0) {
+    const totalReceived = Array.from(receivedByPoLine.values()).reduce(
+      (s, v) => s.plus(v),
+      new Prisma.Decimal(0),
+    );
+    if (totalReceived.isZero()) {
       throw new MatchingNoReceiptException(invoice.id, invoice.poId);
     }
 
@@ -165,33 +169,46 @@ export class MatchingService {
         continue;
       }
 
-      const qtyInvoiced = Number(il.quantity ?? 0);
-      const qtyOrdered = Number(poLine.quantity);
-      const qtyReceived = receivedByPoLine.get(poLine.id) ?? 0;
-      const priceInvoiced = Number(il.unitPrice ?? 0);
-      const priceOrdered = Number(poLine.unitPrice);
+      // Valeurs brutes en Decimal (F10) — écarts/comparaisons exacts pour le
+      // matching 3-voies. Les champs `number` du détail/persistance sont
+      // dérivés via .toNumber() / Decimal à la frontière uniquement.
+      const qtyInvoicedD = new Prisma.Decimal(il.quantity ?? 0);
+      const qtyOrderedD = new Prisma.Decimal(poLine.quantity);
+      const qtyReceivedD = receivedByPoLine.get(poLine.id) ?? new Prisma.Decimal(0);
+      const priceInvoicedD = new Prisma.Decimal(il.unitPrice ?? 0);
+      const priceOrderedD = new Prisma.Decimal(poLine.unitPrice);
 
-      const priceVariancePct =
-        priceOrdered > 0
-          ? Math.abs(priceInvoiced - priceOrdered) / priceOrdered * 100
-          : priceInvoiced > 0 ? 100 : 0;
-      const qtyVariancePct =
-        qtyReceived > 0
-          ? Math.abs(qtyInvoiced - qtyReceived) / qtyReceived * 100
-          : qtyInvoiced > 0 ? 100 : 0;
+      const qtyInvoiced = qtyInvoicedD.toNumber();
+      const qtyOrdered = qtyOrderedD.toNumber();
+      const qtyReceived = qtyReceivedD.toNumber();
+      const priceInvoiced = priceInvoicedD.toNumber();
+      const priceOrdered = priceOrderedD.toNumber();
+
+      // Écart prix en % : |priceInvoiced - priceOrdered| / priceOrdered * 100
+      const priceVariancePctD = priceOrderedD.greaterThan(0)
+        ? priceInvoicedD.minus(priceOrderedD).abs().div(priceOrderedD).times(100)
+        : priceInvoicedD.greaterThan(0)
+          ? new Prisma.Decimal(100)
+          : new Prisma.Decimal(0);
+      // Écart qty en % : |qtyInvoiced - qtyReceived| / qtyReceived * 100
+      const qtyVariancePctD = qtyReceivedD.greaterThan(0)
+        ? qtyInvoicedD.minus(qtyReceivedD).abs().div(qtyReceivedD).times(100)
+        : qtyInvoicedD.greaterThan(0)
+          ? new Prisma.Decimal(100)
+          : new Prisma.Decimal(0);
 
       let result: MatchResult = 'OK';
       let message: string | undefined;
-      // Priorité prix > qty (cf. spec sprint 4.2a)
-      if (priceVariancePct > this.priceTolerance) {
+      // Priorité prix > qty (cf. spec sprint 4.2a). Comparaisons en Decimal.
+      if (priceVariancePctD.greaterThan(this.priceTolerance)) {
         result = 'EXCEPTION_PRICE';
-        message = `Price variance ${priceVariancePct.toFixed(2)}% > tolerance ${this.priceTolerance}%`;
-      } else if (qtyInvoiced > qtyReceived + 1e-9) {
+        message = `Price variance ${priceVariancePctD.toFixed(2)}% > tolerance ${this.priceTolerance}%`;
+      } else if (qtyInvoicedD.greaterThan(qtyReceivedD)) {
         result = 'EXCEPTION_QTY';
         message = `Under-reception: invoiced ${qtyInvoiced} > received ${qtyReceived}`;
-      } else if (qtyVariancePct > this.qtyTolerance) {
+      } else if (qtyVariancePctD.greaterThan(this.qtyTolerance)) {
         result = 'EXCEPTION_QTY';
-        message = `Qty variance ${qtyVariancePct.toFixed(2)}% > tolerance ${this.qtyTolerance}%`;
+        message = `Qty variance ${qtyVariancePctD.toFixed(2)}% > tolerance ${this.qtyTolerance}%`;
       }
 
       details.push({
@@ -203,20 +220,20 @@ export class MatchingService {
         qtyOrdered,
         priceInvoiced,
         priceOrdered,
-        priceVariancePct: Math.round(priceVariancePct * 100) / 100,
-        qtyVariancePct: Math.round(qtyVariancePct * 100) / 100,
+        priceVariancePct: priceVariancePctD.toDecimalPlaces(2).toNumber(),
+        qtyVariancePct: qtyVariancePctD.toDecimalPlaces(2).toNumber(),
         result,
         ...(message !== undefined ? { message } : {}),
       });
 
-      // Persiste la ligne de matching
+      // Persiste la ligne de matching — écarts exacts en Decimal.
       await this.prisma.invoiceMatch.create({
         data: {
           invoiceLineId: il.id,
           poLineId: poLine.id,
-          qtyMatched: new Prisma.Decimal(qtyInvoiced),
-          priceVariance: new Prisma.Decimal(Math.round((priceInvoiced - priceOrdered) * 100) / 100),
-          qtyVariance: new Prisma.Decimal(qtyInvoiced - qtyReceived),
+          qtyMatched: qtyInvoicedD,
+          priceVariance: priceInvoicedD.minus(priceOrderedD).toDecimalPlaces(2),
+          qtyVariance: qtyInvoicedD.minus(qtyReceivedD),
           matchResult: result,
         },
       });

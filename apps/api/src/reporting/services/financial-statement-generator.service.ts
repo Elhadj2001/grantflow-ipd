@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FinancialStatementNotBalancedException } from '../../common/exceptions/business.exception';
 
@@ -431,12 +432,14 @@ export class FinancialStatementGeneratorService {
     });
     const movementsByGrant = new Map<
       string,
-      { dotation: number; reprise: number }
+      { dotation: Prisma.Decimal; reprise: Prisma.Decimal }
     >();
     for (const m of fundMovements) {
-      const entry = movementsByGrant.get(m.grantId) ?? { dotation: 0, reprise: 0 };
-      if (m.movementType === 'allocation') entry.dotation += Number(m.amount);
-      else if (m.movementType === 'reprise') entry.reprise += Number(m.amount);
+      const entry =
+        movementsByGrant.get(m.grantId) ??
+        { dotation: new Prisma.Decimal(0), reprise: new Prisma.Decimal(0) };
+      if (m.movementType === 'allocation') entry.dotation = entry.dotation.plus(m.amount);
+      else if (m.movementType === 'reprise') entry.reprise = entry.reprise.plus(m.amount);
       movementsByGrant.set(m.grantId, entry);
     }
 
@@ -473,33 +476,35 @@ export class FinancialStatementGeneratorService {
     // 4) Section RAPPROCHEMENT_689_19 : on liste les grants ayant un
     //    mouvement sur la période, avec dotation/reprise et delta vs
     //    restant attendu.
-    let totalDotation = 0;
-    let totalReprise = 0;
+    let totalDotation = new Prisma.Decimal(0);
+    let totalReprise = new Prisma.Decimal(0);
     for (const g of grantRows) {
-      const mv = movementsByGrant.get(g.grant_id) ?? { dotation: 0, reprise: 0 };
-      if (mv.dotation === 0 && mv.reprise === 0) continue;
+      const mv =
+        movementsByGrant.get(g.grant_id) ??
+        { dotation: new Prisma.Decimal(0), reprise: new Prisma.Decimal(0) };
+      if (mv.dotation.isZero() && mv.reprise.isZero()) continue;
       const remaining = this.round2(Number(g.received) - Number(g.employed));
-      const netMovement = this.round2(mv.dotation - mv.reprise);
+      const netMovement = this.round2(mv.dotation.minus(mv.reprise).toNumber());
       const diff = this.round2(remaining - netMovement);
       lines.push({
         section: FONDS_DEDIES_SECTION_RAPPROCHEMENT,
         label:
           `${g.grant_reference}` +
-          ` — dotation ${this.round2(mv.dotation)}` +
-          ` reprise ${this.round2(mv.reprise)}` +
+          ` — dotation ${this.round2(mv.dotation.toNumber())}` +
+          ` reprise ${this.round2(mv.reprise.toNumber())}` +
           ` (delta vs restant : ${diff})`,
         accountCode: null,
-        debit: this.round2(mv.reprise),
-        credit: this.round2(mv.dotation),
+        debit: this.round2(mv.reprise.toNumber()),
+        credit: this.round2(mv.dotation.toNumber()),
         balance: netMovement,
         sortOrder: sort++,
       });
-      totalDotation += mv.dotation;
-      totalReprise += mv.reprise;
+      totalDotation = totalDotation.plus(mv.dotation);
+      totalReprise = totalReprise.plus(mv.reprise);
     }
-    totalDotation = this.round2(totalDotation);
-    totalReprise = this.round2(totalReprise);
-    const netMovements = this.round2(totalDotation - totalReprise);
+    const totalDotationNum = this.round2(totalDotation.toNumber());
+    const totalRepriseNum = this.round2(totalReprise.toNumber());
+    const netMovements = this.round2(totalDotation.minus(totalReprise).toNumber());
 
     // 5) Équilibre logique : restant à employer ≈ dotation - reprise.
     //    On utilise la même tolérance que les autres états (±1 XOF).
@@ -530,8 +535,8 @@ export class FinancialStatementGeneratorService {
         totalReceived,
         totalEmployed,
         totalRemaining,
-        totalDotation,
-        totalReprise,
+        totalDotation: totalDotationNum,
+        totalReprise: totalRepriseNum,
         netMovements,
         diff: this.round2(totalRemaining - netMovements),
       },
