@@ -92,6 +92,12 @@ describe('GoodsReceiptService', () => {
       emailSentAt: null,
       emailSentTo: null,
       createdAt: new Date(),
+      // US-003-bis : colonnes multidevise ADR-005 (nullable, non testées ici).
+      total_ht_xof: null,
+      total_vat_xof: null,
+      total_ttc_xof: null,
+      fx_rate: null,
+      fx_rate_date: null,
       ...overrides,
     };
     const defaultLines: PurchaseOrderLine[] = [
@@ -102,6 +108,7 @@ describe('GoodsReceiptService', () => {
         unit: 'box', unitPrice: new Prisma.Decimal('5000'),
         taxCodeId: null, lineTotal: new Prisma.Decimal('50000'),
         budgetLineId: 'bl-1',
+        unit_price_xof: null, fx_rate: null, fx_rate_date: null,
       },
       {
         id: poLine2, poId: base.id, prLineId: null, lineNumber: 2,
@@ -110,6 +117,7 @@ describe('GoodsReceiptService', () => {
         unit: 'unit', unitPrice: new Prisma.Decimal('10000'),
         taxCodeId: null, lineTotal: new Prisma.Decimal('50000'),
         budgetLineId: 'bl-1',
+        unit_price_xof: null, fx_rate: null, fx_rate_date: null,
       },
     ];
     const merged = lines.length > 0
@@ -153,6 +161,7 @@ describe('GoodsReceiptService', () => {
           quantityReceived: new Prisma.Decimal('0'), quantityInvoiced: new Prisma.Decimal('0'),
           unit: 'box', unitPrice: new Prisma.Decimal('5000'),
           taxCodeId: null, lineTotal: new Prisma.Decimal('50000'), budgetLineId: 'bl-1',
+          unit_price_xof: null, fx_rate: null, fx_rate_date: null,
         },
       },
       {
@@ -166,6 +175,7 @@ describe('GoodsReceiptService', () => {
           quantityReceived: new Prisma.Decimal('0'), quantityInvoiced: new Prisma.Decimal('0'),
           unit: 'unit', unitPrice: new Prisma.Decimal('10000'),
           taxCodeId: null, lineTotal: new Prisma.Decimal('50000'), budgetLineId: 'bl-1',
+          unit_price_xof: null, fx_rate: null, fx_rate_date: null,
         },
       },
     ];

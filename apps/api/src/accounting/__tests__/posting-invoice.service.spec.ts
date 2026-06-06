@@ -104,6 +104,12 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
       matchedBy: null,
       matchedAt: null,
       matchSummary: null,
+      // US-003-bis : colonnes multidevise ADR-005 (nullable, non testées ici).
+      total_ht_xof: null,
+      total_vat_xof: null,
+      total_ttc_xof: null,
+      fx_rate: null,
+      fx_rate_date: null,
       lines: overrides.lines ?? [{
         id: ilId, lineNumber: 1, description: 'Gants nitrile',
         lineTotal: 100000, poLineId, glAccount: null,
