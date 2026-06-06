@@ -164,7 +164,9 @@ export class ExchangeRateService {
    * (lève si pas de taux, aucun fallback). `convertToXof` est opérationnelle
    * (fallback toléré, tracé) — voir JSDoc de `lookup`.
    *
-   * Audit trail : un log structuré Pino sera ajouté en US-006.
+   * Audit trail (US-006, ISA 230) : chaque appel émet un log structuré
+   * `event: 'fx_conversion'` ; un warn `fx_indicative_fallback_used` est émis
+   * en plus quand le fallback indicatif est utilisé.
    *
    * @param amount   Montant source (number ou Prisma.Decimal).
    * @param currency Devise ISO-4217 du montant.
@@ -177,54 +179,80 @@ export class ExchangeRateService {
   ): Promise<XofConversionResult> {
     const value = Number(amount);
     const effectiveDate = date ?? new Date();
+    let result: XofConversionResult;
 
-    // 1. XOF : no-op (franc entier).
     if (currency === 'XOF') {
-      return {
+      // 1. XOF : no-op (franc entier).
+      result = {
         xofAmount: Math.round(value),
         fxRate: 1,
         fxRateDate: effectiveDate,
         isIndicativeFallback: false,
       };
-    }
-
-    // 2. EUR : parité fixe BCEAO immuable (jamais de fallback / lookup).
-    if (currency === 'EUR') {
-      return {
+    } else if (currency === 'EUR') {
+      // 2. EUR : parité fixe BCEAO immuable (jamais de fallback / lookup).
+      result = {
         xofAmount: Math.round(value * FX_BCEAO_EUR_XOF),
         fxRate: FX_BCEAO_EUR_XOF,
         fxRateDate: effectiveDate,
         isIndicativeFallback: false,
       };
+    } else {
+      // 3. Autres devises : taux BD (ref.exchange_rate), le plus récent ≤ date.
+      try {
+        const lookup = await this.lookup({
+          from: currency,
+          to: 'XOF',
+          date: ExchangeRateService.toIsoDate(effectiveDate),
+        });
+        const fxRate = Number(lookup.rate);
+        result = {
+          xofAmount: Math.round(value * fxRate),
+          fxRate,
+          fxRateDate: lookup.rateDate,
+          isIndicativeFallback: false,
+        };
+      } catch {
+        // 4. Pas de taux BD : fallback indicatif si la devise est connue, sinon rejet.
+        const fallback = FALLBACK_INDICATIVE_TO_XOF[currency];
+        if (fallback === undefined) {
+          throw new UnknownCurrencyException(currency);
+        }
+        result = {
+          xofAmount: Math.round(value * fallback),
+          fxRate: fallback,
+          fxRateDate: effectiveDate,
+          isIndicativeFallback: true,
+        };
+      }
     }
 
-    // 3. Autres devises : taux BD (ref.exchange_rate), le plus récent ≤ date.
-    try {
-      const lookup = await this.lookup({
-        from: currency,
-        to: 'XOF',
-        date: ExchangeRateService.toIsoDate(effectiveDate),
-      });
-      const fxRate = Number(lookup.rate);
-      return {
-        xofAmount: Math.round(value * fxRate),
-        fxRate,
-        fxRateDate: lookup.rateDate,
-        isIndicativeFallback: false,
-      };
-    } catch {
-      // 4. Pas de taux BD : fallback indicatif si la devise est connue, sinon rejet.
-      const fallback = FALLBACK_INDICATIVE_TO_XOF[currency];
-      if (fallback === undefined) {
-        throw new UnknownCurrencyException(currency);
-      }
-      return {
-        xofAmount: Math.round(value * fallback),
-        fxRate: fallback,
-        fxRateDate: effectiveDate,
-        isIndicativeFallback: true,
-      };
+    // US-006 (ADR-005 / ISA 230) — audit trail : log Pino structuré SYSTÉMATIQUE
+    // (audit > bruit). Pas de PII : uniquement des montants techniques.
+    const rawAmount = typeof amount === 'object' ? amount.toString() : amount;
+    this.logger.log(
+      {
+        event: 'fx_conversion',
+        currency,
+        rawAmount,
+        xofAmount: result.xofAmount,
+        fxRate: result.fxRate,
+        fxRateDate: result.fxRateDate.toISOString().slice(0, 10),
+        isIndicativeFallback: result.isIndicativeFallback,
+      },
+      `FX convert ${rawAmount} ${currency} → ${result.xofAmount} XOF (rate ${result.fxRate})`,
+    );
+
+    // Warning supplémentaire si on a dû recourir au fallback indicatif : le CG
+    // doit alimenter ref.exchange_rate avant la production.
+    if (result.isIndicativeFallback) {
+      this.logger.warn(
+        { event: 'fx_indicative_fallback_used', currency, xofAmount: result.xofAmount },
+        `Indicative fallback used for ${currency} — CG must seed ref.exchange_rate before production`,
+      );
     }
+
+    return result;
   }
 
   /** Formate une Date en `YYYY-MM-DD` pour `lookup` (qui attend une string ISO). */
