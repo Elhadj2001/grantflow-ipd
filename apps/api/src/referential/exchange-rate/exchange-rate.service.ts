@@ -9,9 +9,11 @@ import {
   ForbiddenRoleException,
   ImmutableFixedRateException,
   SameCurrencyException,
+  UnknownCurrencyException,
 } from '../../common/exceptions/business.exception';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import type { Role } from '../../auth/types/roles';
+import { FIXED_EUR_XOF } from './uemoa.constants';
 import type { CreateExchangeRateDto } from './dto/create-exchange-rate.dto';
 import type { UpdateExchangeRateDto } from './dto/update-exchange-rate.dto';
 import type {
@@ -23,16 +25,16 @@ const ENTITY_NAME = 'ExchangeRate';
 const SUPER_ADMIN: Role = 'SUPER_ADMIN';
 
 /**
- * Fix `fix-approval-workflow-currency-conversion` — taux indicatifs de
- * SECOURS uniquement pour la démo et le routage par seuil. La vérité
- * comptable reste la table `ref.exchange_rate` (parité fixe EUR/XOF +
- * taux variables BCEAO publiés). Ces valeurs ne sont utilisées QUE si
- * la BD n'a pas (encore) de taux pour la paire — typiquement après un
- * reset, ou pour les devises USD/GBP/CHF que personne n'a saisies.
+ * Taux indicatifs de SECOURS (ADR-005 / sprint S1 US-004) — utilisés UNIQUEMENT
+ * par `convertToXof` quand la table `ref.exchange_rate` ne connaît pas (encore)
+ * la devise (typiquement USD/GBP/CHF non saisis, ou base fraîchement reset).
  *
- * À ajuster avec le contrôle de gestion avant prod. Le seul taux
- * autoritaire reste EUR↔XOF (parité fixe BCEAO 655,957) qui est seedée
- * en BD avec `is_fixed=true` et ne tombe JAMAIS dans ce fallback.
+ * ⚠️ Valeurs approximatives « ordre de grandeur 2026 » À VALIDER PAR LE
+ * CONTRÔLE DE GESTION avant production. Le retour porte alors
+ * `isIndicativeFallback = true` pour tracer la décision.
+ *
+ * Le taux autoritaire EUR↔XOF (parité fixe BCEAO 655,957, immuable) ne tombe
+ * JAMAIS ici : il est traité en dur dans `convertToXof` (cas EUR).
  */
 const FALLBACK_INDICATIVE_TO_XOF: Readonly<Record<string, number>> = {
   USD: 600,
@@ -40,14 +42,22 @@ const FALLBACK_INDICATIVE_TO_XOF: Readonly<Record<string, number>> = {
   CHF: 700,
 };
 
+/**
+ * Résultat d'une conversion vers XOF (devise fonctionnelle SYSCEBNL).
+ * Sprint S1 / US-004 (ADR-005) — forme stable consommée par les seuils
+ * d'approbation, le contrôle budgétaire, le posting comptable.
+ */
 export interface XofConversionResult {
-  /** Montant équivalent en XOF (= amount * rate). */
+  /** Montant équivalent en XOF — ENTIER (le XOF n'a pas de sous-unité). */
   xofAmount: number;
-  /** Taux appliqué (1 si la devise source EST XOF). */
-  rate: number;
-  /** True si on n'a pas trouvé de taux à la date demandée et qu'on est remonté dans le temps. */
-  isFallback: boolean;
-  /** True si on a basculé sur le fallback hardcodé (BD vide pour cette devise). */
+  /** Taux de change appliqué pour la conversion (1 si la devise EST XOF). */
+  fxRate: number;
+  /** Date du taux appliqué (rate_date BD pour un taux variable, jour courant sinon). */
+  fxRateDate: Date;
+  /**
+   * True si le taux utilisé est un fallback indicatif (USD/GBP/CHF sans
+   * entrée `ref.exchange_rate`), À VALIDER par le contrôle de gestion avant prod.
+   */
   isIndicativeFallback: boolean;
 }
 
@@ -104,8 +114,8 @@ export class ExchangeRateService {
   }
 
   /**
-   * Lookup principal pour les calculs métiers (overhead XOF, conversions
-   * de factures, etc.).
+   * Primitive comptable STRICTE de résolution de taux (overhead XOF,
+   * conversions de factures dans les vues SYSCEBNL strictes, etc.).
    *
    * Règles :
    *   1. Si une parité fixe `is_fixed=true` existe pour (from,to), on la
@@ -113,6 +123,12 @@ export class ExchangeRateService {
    *      car la parité ne dépend pas du temps (EUR↔XOF BCEAO).
    *   2. Sinon on cherche le taux le plus récent ≤ `date` (par défaut today).
    *   3. Si rien : `ExchangeRateNotFoundException` (404).
+   *
+   * ⚠️ DIFFÉRENCE avec `convertToXof` : `lookup` LÈVE si aucun taux n'existe
+   * (aucun fallback) — c'est volontaire pour les écritures comptables qui ne
+   * doivent jamais s'appuyer sur une approximation. Pour les décisions
+   * OPÉRATIONNELLES (routage d'approbation, contrôle de plafond) où un
+   * blocage serait pire qu'une approximation, utiliser `convertToXof`.
    */
   async lookup(dto: ExchangeRateLookupDto): Promise<ExchangeRateLookupResult> {
     if (dto.from === dto.to) throw new SameCurrencyException(dto.from);
@@ -140,56 +156,98 @@ export class ExchangeRateService {
   }
 
   /**
-   * Fix `fix-approval-workflow-currency-conversion` — convertit un montant
-   * en XOF pour les comparaisons aux seuils métier (routage validation,
-   * contrôle budgétaire). Distincte de `lookup` car elle :
-   *   - applique le no-op si la devise source EST déjà XOF (pas de
-   *     `SameCurrencyException`),
-   *   - retombe sur un taux indicatif documenté (cf. constante
-   *     `FALLBACK_INDICATIVE_TO_XOF`) si la BD ne connaît pas la devise,
-   *     pour éviter qu'une DA bloque sur un référentiel incomplet —
-   *     marqué `isIndicativeFallback=true` dans le retour pour audit.
+   * SOURCE UNIQUE de toute conversion OPÉRATIONNELLE vers XOF (devise
+   * fonctionnelle SYSCEBNL) — sprint S1 / US-004, conformément à ADR-005.
    *
-   * ⚠️ Cette méthode NE DOIT PAS être utilisée pour les écritures
-   * comptables (utiliser `lookup` qui lève si pas de taux). Elle est
-   * dédiée aux décisions opérationnelles (routage, plafond) où une
-   * approximation indicative vaut mieux qu'un blocage.
+   * Utilisée par : routage par seuil d'approbation, contrôle budgétaire,
+   * limites de caisse, alimentation des colonnes `*_xof` / `fx_rate` /
+   * `fx_rate_date` (US-001). Tout code applicatif qui a besoin d'un
+   * équivalent XOF DOIT passer par ici (pas de conversion ad hoc).
+   *
+   * Comportement par devise :
+   *   - **XOF** : no-op (xofAmount = round(amount), fxRate = 1, date = jour).
+   *     Le XOF n'a pas de sous-unité (parité BCEAO + SYSCEBNL en franc
+   *     entier) → on arrondit pour neutraliser d'éventuelles décimales Decimal.
+   *   - **EUR** : parité fixe BCEAO immuable `1 EUR = 655,957 XOF`
+   *     (cf. `uemoa.constants`). Indépendante de la date → fxRateDate = jour
+   *     (ou la date fournie). Jamais de fallback indicatif.
+   *   - **USD / GBP / CHF / autres** : lookup du taux le plus récent ≤ date
+   *     dans `ref.exchange_rate`. Si trouvé → fxRate + fxRateDate = rate_date BD.
+   *     Si absent MAIS devise présente dans `FALLBACK_INDICATIVE_TO_XOF` →
+   *     taux indicatif (`isIndicativeFallback = true`, À VALIDER PAR LE CG).
+   *   - **devise inconnue** (ni gérée nativement, ni en BD, ni en fallback)
+   *     → `UnknownCurrencyException` (400).
+   *
+   * Différence avec `lookup` : `lookup` est la primitive comptable STRICTE
+   * (lève si pas de taux, aucun fallback). `convertToXof` est opérationnelle
+   * (fallback toléré, tracé) — voir JSDoc de `lookup`.
+   *
+   * Audit trail : un log structuré Pino sera ajouté en US-006.
+   *
+   * @param amount   Montant source (number ou Prisma.Decimal).
+   * @param currency Devise ISO-4217 du montant.
+   * @param date     Date de valorisation (défaut : jour courant).
    */
   async convertToXof(
-    amount: number,
+    amount: number | Prisma.Decimal,
     currency: string,
-    date?: string,
+    date?: Date,
   ): Promise<XofConversionResult> {
+    const value = Number(amount);
+    const effectiveDate = date ?? new Date();
+
+    // 1. XOF : no-op (franc entier).
     if (currency === 'XOF') {
-      return { xofAmount: amount, rate: 1, isFallback: false, isIndicativeFallback: false };
-    }
-    try {
-      const lookup = await this.lookup({ from: currency, to: 'XOF', date });
-      const rate = Number(lookup.rate);
       return {
-        xofAmount: amount * rate,
-        rate,
-        isFallback: lookup.isFallback,
+        xofAmount: Math.round(value),
+        fxRate: 1,
+        fxRateDate: effectiveDate,
         isIndicativeFallback: false,
       };
-    } catch (err) {
-      const fallback = FALLBACK_INDICATIVE_TO_XOF[currency];
-      if (fallback !== undefined) {
-        this.logger.warn(
-          { currency, amount, rate: fallback },
-          'no DB rate for currency, using FALLBACK_INDICATIVE_TO_XOF for routing decision',
-        );
-        return {
-          xofAmount: amount * fallback,
-          rate: fallback,
-          isFallback: true,
-          isIndicativeFallback: true,
-        };
-      }
-      // Devise vraiment inconnue (ni en BD ni en fallback) — on remonte
-      // l'exception pour que le caller décide (rejet ou bloque routage).
-      throw err;
     }
+
+    // 2. EUR : parité fixe BCEAO immuable (jamais de fallback / lookup).
+    if (currency === 'EUR') {
+      return {
+        xofAmount: Math.round(value * FIXED_EUR_XOF),
+        fxRate: FIXED_EUR_XOF,
+        fxRateDate: effectiveDate,
+        isIndicativeFallback: false,
+      };
+    }
+
+    // 3. Autres devises : taux BD (ref.exchange_rate), le plus récent ≤ date.
+    try {
+      const lookup = await this.lookup({
+        from: currency,
+        to: 'XOF',
+        date: ExchangeRateService.toIsoDate(effectiveDate),
+      });
+      const fxRate = Number(lookup.rate);
+      return {
+        xofAmount: Math.round(value * fxRate),
+        fxRate,
+        fxRateDate: lookup.rateDate,
+        isIndicativeFallback: false,
+      };
+    } catch {
+      // 4. Pas de taux BD : fallback indicatif si la devise est connue, sinon rejet.
+      const fallback = FALLBACK_INDICATIVE_TO_XOF[currency];
+      if (fallback === undefined) {
+        throw new UnknownCurrencyException(currency);
+      }
+      return {
+        xofAmount: Math.round(value * fallback),
+        fxRate: fallback,
+        fxRateDate: effectiveDate,
+        isIndicativeFallback: true,
+      };
+    }
+  }
+
+  /** Formate une Date en `YYYY-MM-DD` pour `lookup` (qui attend une string ISO). */
+  private static toIsoDate(d: Date): string {
+    return d.toISOString().slice(0, 10);
   }
 
   // ------------------------------------------------------------------

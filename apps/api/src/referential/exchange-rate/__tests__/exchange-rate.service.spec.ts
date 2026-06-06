@@ -8,6 +8,7 @@ import {
   ForbiddenRoleException,
   ImmutableFixedRateException,
   SameCurrencyException,
+  UnknownCurrencyException,
 } from '../../../common/exceptions/business.exception';
 import type { AuthenticatedUser } from '../../../auth/types/authenticated-user.type';
 import type { CreateExchangeRateDto } from '../dto/create-exchange-rate.dto';
@@ -228,64 +229,65 @@ describe('ExchangeRateService', () => {
   // ------------------------------------------------------------------
   // Fix fix-approval-workflow-currency-conversion
   // ------------------------------------------------------------------
-  describe('convertToXof — fix for approval threshold routing', () => {
-    it('XOF → no-op (rate=1, no DB call)', async () => {
+  describe('convertToXof — US-004 (source unique conversion XOF, ADR-005)', () => {
+    it('XOF → no-op (fxRate=1, montant arrondi au franc entier, pas d\'appel BD)', async () => {
       const res = await svc.convertToXof(123_456.78, 'XOF');
-      expect(res).toEqual({
-        xofAmount: 123_456.78,
-        rate: 1,
-        isFallback: false,
-        isIndicativeFallback: false,
-      });
+      // Le XOF n'a pas de sous-unité → Math.round (123 456.78 → 123 457).
+      expect(res.xofAmount).toBe(123_457);
+      expect(res.fxRate).toBe(1);
+      expect(res.fxRateDate).toBeInstanceOf(Date);
+      expect(res.isIndicativeFallback).toBe(false);
       expect(prisma.exchangeRate.findFirst).not.toHaveBeenCalled();
     });
 
-    it('EUR → applies BCEAO fixed parity exactly (655.957)', async () => {
-      // Mocke le lookup pour retourner la parité fixe (cf. fixedRow).
-      prisma.exchangeRate.findFirst.mockResolvedValueOnce(fixedRow);
+    it('EUR → parité fixe BCEAO 655.957 (en dur, sans appel BD)', async () => {
       const res = await svc.convertToXof(100_000, 'EUR');
-      expect(res.rate).toBe(655.957);
-      // 100 000 EUR = 65 595 700 XOF (régression directe du bug
-      // approval-workflow où 100k EUR sautait CG et DAF).
-      expect(res.xofAmount).toBeCloseTo(65_595_700, 1);
+      expect(res.fxRate).toBe(655.957);
+      // 100 000 EUR = 65 595 700 XOF (régression du bug approval-workflow
+      // où 100k EUR sautait CG et DAF).
+      expect(res.xofAmount).toBe(65_595_700);
+      expect(res.fxRateDate).toBeInstanceOf(Date);
       expect(res.isIndicativeFallback).toBe(false);
+      // EUR est traité en dur → aucun lookup BD.
+      expect(prisma.exchangeRate.findFirst).not.toHaveBeenCalled();
     });
 
-    it('USD with DB rate → uses DB rate, marks isIndicativeFallback=false', async () => {
+    it('USD avec taux BD → utilise le taux + sa rate_date, isIndicativeFallback=false', async () => {
       // Pas de parité fixe USD/XOF → cherche un taux variable récent.
       prisma.exchangeRate.findFirst
         .mockResolvedValueOnce(null) // no fixed
-        .mockResolvedValueOnce(variableRow); // variable 598.1
+        .mockResolvedValueOnce(variableRow); // variable 598.1, rateDate 2026-05-14
       const res = await svc.convertToXof(1000, 'USD');
-      expect(res.rate).toBe(598.1);
-      expect(res.xofAmount).toBeCloseTo(598_100, 1);
+      expect(res.fxRate).toBe(598.1);
+      expect(res.xofAmount).toBe(598_100); // Math.round(1000 * 598.1)
+      expect(res.fxRateDate).toEqual(variableRow.rateDate);
       expect(res.isIndicativeFallback).toBe(false);
     });
 
-    it('USD without DB rate → falls back to FALLBACK_INDICATIVE_TO_XOF (600), flagged', async () => {
-      // Pas de fixed, pas de variable → ExchangeRateNotFoundException
-      // levée par lookup. convertToXof catch et applique le fallback.
+    it('USD sans taux BD → fallback indicatif FALLBACK_INDICATIVE_TO_XOF (600), flaggé', async () => {
+      // Pas de fixed, pas de variable → lookup lève ; convertToXof retombe
+      // sur le fallback indicatif.
       prisma.exchangeRate.findFirst.mockResolvedValue(null);
       const res = await svc.convertToXof(10_000, 'USD');
-      expect(res.rate).toBe(600);
+      expect(res.fxRate).toBe(600);
       expect(res.xofAmount).toBe(6_000_000);
+      expect(res.fxRateDate).toBeInstanceOf(Date);
       expect(res.isIndicativeFallback).toBe(true);
-      expect(res.isFallback).toBe(true);
     });
 
-    it('GBP without DB rate → falls back to 800', async () => {
+    it('GBP sans taux BD → fallback indicatif 800', async () => {
       prisma.exchangeRate.findFirst.mockResolvedValue(null);
       const res = await svc.convertToXof(100, 'GBP');
-      expect(res.rate).toBe(800);
+      expect(res.fxRate).toBe(800);
       expect(res.xofAmount).toBe(80_000);
       expect(res.isIndicativeFallback).toBe(true);
     });
 
-    it('unknown currency without DB rate AND no fallback → propagates exception', async () => {
+    it('devise inconnue (ni BD ni fallback) → UnknownCurrencyException', async () => {
       // JPY n'est pas dans FALLBACK_INDICATIVE_TO_XOF.
       prisma.exchangeRate.findFirst.mockResolvedValue(null);
       await expect(svc.convertToXof(100, 'JPY')).rejects.toBeInstanceOf(
-        ExchangeRateNotFoundException,
+        UnknownCurrencyException,
       );
     });
   });
