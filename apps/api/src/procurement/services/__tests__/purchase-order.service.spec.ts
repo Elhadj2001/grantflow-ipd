@@ -1,7 +1,7 @@
 import { Prisma, PoStatus, PrStatus, PrType } from '@prisma/client';
 import type { PurchaseOrder, PurchaseRequest, PurchaseRequestLine } from '@prisma/client';
 import { PurchaseOrderService } from '../purchase-order.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { createPrismaMock, type PrismaMock } from '../../../test-utils/prisma-mock';
 import type { AuthenticatedUser } from '../../../auth/types/authenticated-user.type';
 import {
   EntityNotFoundException,
@@ -19,16 +19,7 @@ import {
 } from '../../../common/exceptions/business.exception';
 
 describe('PurchaseOrderService', () => {
-  let prisma: {
-    purchaseRequest: { findUnique: jest.Mock; findMany: jest.Mock };
-    purchaseOrder: { create: jest.Mock; findUnique: jest.Mock; findMany: jest.Mock; count: jest.Mock; update: jest.Mock };
-    purchaseOrderPr: { findFirst: jest.Mock };
-    supplier: { findUnique: jest.Mock };
-    appUser: { findUnique: jest.Mock; create: jest.Mock };
-    invoice: { count: jest.Mock };
-    $transaction: jest.Mock;
-    $executeRawUnsafe: jest.Mock;
-  };
+  let prisma: PrismaMock;
   let pdf: { generate: jest.Mock };
   let mail: { send: jest.Mock };
   let storage: { putObject: jest.Mock; getObject: jest.Mock };
@@ -135,40 +126,48 @@ describe('PurchaseOrderService', () => {
     };
   }
 
+  // Projection typée du `data` passé à purchaseOrder.create (l'union Prisma
+  // CreateArgs n'est pas indexable telle quelle — TS7053). On ne déclare que
+  // les champs réellement lus par les assertions.
+  type CreateLineArg = { description: string; quantity: Prisma.Decimal };
+  type CreateDataArg = {
+    totalHt: Prisma.Decimal;
+    lines: { create: CreateLineArg[] };
+    prLinks: { create: { prId: string }[] };
+  };
+  const createDataOf = (calls: unknown[][]): CreateDataArg =>
+    (calls[0][0] as { data: CreateDataArg }).data;
+
+  // Projection typée du `where` passé à purchaseOrder.findMany (les args
+  // Prisma sont `... | undefined`, non lisibles directement par les assertions).
+  type WhereArg = {
+    prLinks?: unknown;
+    supplierId?: string;
+    status?: PoStatus;
+    OR?: unknown;
+  };
+  const whereOf = (calls: unknown[][]): WhereArg =>
+    (calls[0][0] as { where: WhereArg }).where;
+
   beforeEach(() => {
-    prisma = {
-      purchaseRequest: { findUnique: jest.fn(), findMany: jest.fn() },
-      purchaseOrder: {
-        create: jest.fn(),
-        findUnique: jest.fn(),
-        findMany: jest.fn(),
-        count: jest.fn().mockResolvedValue(0),
-        update: jest.fn(),
-      },
-      purchaseOrderPr: { findFirst: jest.fn().mockResolvedValue(null) },
-      supplier: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: supplierId, code: 'ACME-001', name: 'ACME',
-          address: 'paris', country: 'FR',
-          contactEmail: 'sales@acme.example',
-          paymentTermsDays: 30, isActive: true,
-        }),
-      },
-      appUser: {
-        findUnique: jest.fn(({ where }: { where: { email: string } }) => {
-          const map: Record<string, string> = { 'a@x': 'app-a', 'd@x': userOwn, 'sa@x': 'app-sa' };
-          return Promise.resolve(map[where.email] ? { id: map[where.email] } : null);
-        }),
-        create: jest.fn(),
-      },
-      // Sprint F-INVOICE-SIM : compteur d'invoices SIM (séquence n° facture).
-      invoice: { count: jest.fn().mockResolvedValue(0) },
-      $transaction: jest.fn(async (cb: unknown) => {
-        if (typeof cb === 'function') return (cb as (tx: unknown) => unknown)(prisma);
-        return Promise.all(cb as unknown[]);
-      }),
-      $executeRawUnsafe: jest.fn().mockResolvedValue(1),
-    };
+    // F2 : mock Prisma profond partagé — auto-stube toute méthode (dont
+    // `tx.purchaseOrder.findFirst` du générateur de n° BC) et pré-stube
+    // `$transaction` (forme callback → re-passe le mock comme `tx`).
+    prisma = createPrismaMock();
+    prisma.purchaseOrder.count.mockResolvedValue(0 as never);
+    prisma.purchaseOrderPr.findFirst.mockResolvedValue(null as never);
+    prisma.supplier.findUnique.mockResolvedValue({
+      id: supplierId, code: 'ACME-001', name: 'ACME',
+      address: 'paris', country: 'FR',
+      contactEmail: 'sales@acme.example',
+      paymentTermsDays: 30, isActive: true,
+    } as never);
+    prisma.appUser.findUnique.mockImplementation((({ where }: { where: { email: string } }) => {
+      const map: Record<string, string> = { 'a@x': 'app-a', 'd@x': userOwn, 'sa@x': 'app-sa' };
+      return Promise.resolve(map[where.email] ? { id: map[where.email] } : null);
+    }) as never);
+    // Sprint F-INVOICE-SIM : compteur d'invoices SIM (séquence n° facture).
+    prisma.invoice.count.mockResolvedValue(0 as never);
     pdf = { generate: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4 mock')) };
     mail = { send: jest.fn().mockResolvedValue({ delivered: true, to: 'sales@acme.example', messageId: 'msg-1', error: null }) };
     storage = {
@@ -188,7 +187,7 @@ describe('PurchaseOrderService', () => {
       createFromSimulatedPdf: jest.fn().mockResolvedValue({ id: 'inv-sim-1', invoiceNumber: 'FAC-SIM-X' }),
     };
     svc = new PurchaseOrderService(
-      prisma as unknown as PrismaService,
+      prisma,
       pdf as never,
       mail as never,
       storage as never,
@@ -201,50 +200,50 @@ describe('PurchaseOrderService', () => {
   // ------------------------------------------------------------------
   describe('createFromPr', () => {
     it('happy path : creates PO, recopies lines, links pr in purchase_order_pr', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr());
-      prisma.purchaseOrder.create.mockResolvedValue(makePo({ poNumber: 'BC-2026-0001' }));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr() as never);
+      prisma.purchaseOrder.create.mockResolvedValue(makePo({ poNumber: 'BC-2026-0001' }) as never);
       const res = await svc.createFromPr(acheteur, prId, { supplierId });
       expect(res.poNumber).toBe('BC-2026-0001');
-      const data = prisma.purchaseOrder.create.mock.calls[0][0].data;
+      const data = createDataOf(prisma.purchaseOrder.create.mock.calls);
       expect(data.prLinks.create).toEqual([{ prId }]);
       expect(data.lines.create).toHaveLength(1);
     });
 
     it('rejects when PR not approved', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ status: PrStatus.pending_pi }));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ status: PrStatus.pending_pi }) as never);
       await expect(svc.createFromPr(acheteur, prId, { supplierId })).rejects.toBeInstanceOf(
         PrNotApprovedException,
       );
     });
 
     it('rejects when PR is petty_cash', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ requestType: PrType.petty_cash }));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr({ requestType: PrType.petty_cash }) as never);
       await expect(svc.createFromPr(acheteur, prId, { supplierId })).rejects.toBeInstanceOf(
         PrTypePettyCashNoPoException,
       );
     });
 
     it('rejects when PR already has an active PO', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr());
-      prisma.purchaseOrderPr.findFirst.mockResolvedValue({ poId: 'existing-po' });
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr() as never);
+      prisma.purchaseOrderPr.findFirst.mockResolvedValue({ poId: 'existing-po' } as never);
       await expect(svc.createFromPr(acheteur, prId, { supplierId })).rejects.toBeInstanceOf(
         PrAlreadyHasPoException,
       );
     });
 
     it('rejects when supplier is inactive', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr());
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePr() as never);
       prisma.supplier.findUnique.mockResolvedValue({
         id: supplierId, isActive: false, name: 'Frenchies', code: 'FR', paymentTermsDays: 30,
         address: null, country: null, contactEmail: null,
-      });
+      } as never);
       await expect(svc.createFromPr(acheteur, prId, { supplierId })).rejects.toBeInstanceOf(
         SupplierInactiveException,
       );
     });
 
     it('rejects when PR not found', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(null);
+      prisma.purchaseRequest.findUnique.mockResolvedValue(null as never);
       await expect(svc.createFromPr(acheteur, prId, { supplierId })).rejects.toBeInstanceOf(
         EntityNotFoundException,
       );
@@ -255,12 +254,12 @@ describe('PurchaseOrderService', () => {
         makePr({}, [
           { lineTotal: new Prisma.Decimal('30000') },
           { lineTotal: new Prisma.Decimal('70000') },
-        ]),
+        ]) as never,
       );
-      prisma.purchaseOrder.create.mockResolvedValue(makePo());
+      prisma.purchaseOrder.create.mockResolvedValue(makePo() as never);
       await svc.createFromPr(acheteur, prId, { supplierId });
-      const data = prisma.purchaseOrder.create.mock.calls[0][0].data;
-      expect(data.totalHt).toBe(100000);
+      const data = createDataOf(prisma.purchaseOrder.create.mock.calls);
+      expect(Number(data.totalHt)).toBe(100000);
     });
   });
 
@@ -274,15 +273,15 @@ describe('PurchaseOrderService', () => {
         { description: 'gants l', quantity: new Prisma.Decimal('50'), unitPrice: new Prisma.Decimal('500'), lineTotal: new Prisma.Decimal('25000') },
         { description: 'Masques', quantity: new Prisma.Decimal('20'), unitPrice: new Prisma.Decimal('1000'), lineTotal: new Prisma.Decimal('20000') },
       ]);
-      prisma.purchaseRequest.findMany.mockResolvedValue([pr1, pr2]);
-      prisma.purchaseOrder.create.mockResolvedValue(makePo({ poNumber: 'BC-2026-0001' }));
+      prisma.purchaseRequest.findMany.mockResolvedValue([pr1, pr2] as never);
+      prisma.purchaseOrder.create.mockResolvedValue(makePo({ poNumber: 'BC-2026-0001' }) as never);
 
       await svc.createFromMultiplePrs(acheteur, { prIds: ['pr-A', 'pr-B'], supplierId });
 
-      const data = prisma.purchaseOrder.create.mock.calls[0][0].data;
+      const data = createDataOf(prisma.purchaseOrder.create.mock.calls);
       expect(data.lines.create).toHaveLength(2); // gants fusionnés + masques séparés
-      const gants = data.lines.create.find((l: { description: string }) => l.description.toLowerCase() === 'gants l');
-      expect(Number(gants.quantity)).toBe(150);
+      const gants = data.lines.create.find((l) => l.description.toLowerCase() === 'gants l');
+      expect(Number(gants?.quantity)).toBe(150);
       expect(data.prLinks.create).toHaveLength(2);
     });
 
@@ -296,7 +295,7 @@ describe('PurchaseOrderService', () => {
       prisma.purchaseRequest.findMany.mockResolvedValue([
         makePr({ id: 'pr-A', status: PrStatus.approved }),
         makePr({ id: 'pr-B', status: PrStatus.pending_pi }),
-      ]);
+      ] as never);
       await expect(
         svc.createFromMultiplePrs(acheteur, { prIds: ['pr-A', 'pr-B'], supplierId }),
       ).rejects.toBeInstanceOf(PrNotApprovedException);
@@ -306,7 +305,7 @@ describe('PurchaseOrderService', () => {
       prisma.purchaseRequest.findMany.mockResolvedValue([
         makePr({ id: 'pr-A', currency: 'XOF' }),
         makePr({ id: 'pr-B', currency: 'EUR' }),
-      ]);
+      ] as never);
       await expect(
         svc.createFromMultiplePrs(acheteur, { prIds: ['pr-A', 'pr-B'], supplierId }),
       ).rejects.toBeInstanceOf(PoCurrencyMismatchException);
@@ -316,14 +315,14 @@ describe('PurchaseOrderService', () => {
       prisma.purchaseRequest.findMany.mockResolvedValue([
         makePr({ id: 'pr-A', requestType: PrType.standard }),
         makePr({ id: 'pr-B', requestType: PrType.petty_cash }),
-      ]);
+      ] as never);
       await expect(
         svc.createFromMultiplePrs(acheteur, { prIds: ['pr-A', 'pr-B'], supplierId }),
       ).rejects.toBeInstanceOf(PrTypePettyCashNoPoException);
     });
 
     it('rejects when one PR is missing', async () => {
-      prisma.purchaseRequest.findMany.mockResolvedValue([makePr({ id: 'pr-A' })]);
+      prisma.purchaseRequest.findMany.mockResolvedValue([makePr({ id: 'pr-A' })] as never);
       await expect(
         svc.createFromMultiplePrs(acheteur, { prIds: ['pr-A', 'pr-missing'], supplierId }),
       ).rejects.toBeInstanceOf(EntityNotFoundException);
@@ -333,8 +332,8 @@ describe('PurchaseOrderService', () => {
   // ------------------------------------------------------------------
   describe('update', () => {
     it('updates incoterm/expectedDate/deliveryAddress in draft', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue({ ...makePo(), lines: [], prLinks: [{ prId }] });
-      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), incoterm: 'CIF', lines: [], prLinks: [{ prId }] });
+      prisma.purchaseOrder.findUnique.mockResolvedValue({ ...makePo(), lines: [], prLinks: [{ prId }] } as never);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), incoterm: 'CIF', lines: [], prLinks: [{ prId }] } as never);
       await svc.update(acheteur, poId, { incoterm: 'CIF' });
       expect(prisma.purchaseOrder.update).toHaveBeenCalled();
     });
@@ -342,7 +341,7 @@ describe('PurchaseOrderService', () => {
     it('rejects when status ≠ draft', async () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo({ status: PoStatus.sent }), lines: [], prLinks: [{ prId }],
-      });
+      } as never);
       await expect(svc.update(acheteur, poId, { incoterm: 'CIF' })).rejects.toBeInstanceOf(
         PoNotEditableException,
       );
@@ -356,9 +355,9 @@ describe('PurchaseOrderService', () => {
         ...makePo(),
         lines: [{ id: 'l-1', lineNumber: 1, description: 'X', quantity: new Prisma.Decimal('1'), unit: 'unit', unitPrice: new Prisma.Decimal('100000'), lineTotal: new Prisma.Decimal('100000'), budgetLineId: blId }],
         prLinks: [{ prId }],
-      });
-      prisma.purchaseRequest.findMany.mockResolvedValue([{ prNumber: 'DA-2026-0001' }]);
-      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent, pdfObjectKey: 'pos/2026/05/po-id.pdf' });
+      } as never);
+      prisma.purchaseRequest.findMany.mockResolvedValue([{ prNumber: 'DA-2026-0001' }] as never);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent, pdfObjectKey: 'pos/2026/05/po-id.pdf' } as never);
 
       const res = await svc.send(acheteur, poId);
 
@@ -374,7 +373,7 @@ describe('PurchaseOrderService', () => {
     it('rejects when status ≠ draft', async () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo({ status: PoStatus.sent }), lines: [], prLinks: [{ prId }],
-      });
+      } as never);
       await expect(svc.send(acheteur, poId)).rejects.toBeInstanceOf(PoNotSendableException);
     });
 
@@ -382,9 +381,9 @@ describe('PurchaseOrderService', () => {
       mail.send.mockResolvedValue({ delivered: false, to: 'sales@acme.example', messageId: null, error: 'SMTP down' });
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo(), lines: [], prLinks: [{ prId }],
-      });
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
+      } as never);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent } as never);
       const res = await svc.send(acheteur, poId);
       expect(res.emailDelivered).toBe(false);
       expect(res.emailError).toBe('SMTP down');
@@ -395,12 +394,12 @@ describe('PurchaseOrderService', () => {
       prisma.supplier.findUnique.mockResolvedValue({
         id: supplierId, isActive: true, name: 'NoMail Inc', code: 'NM',
         paymentTermsDays: 30, address: null, country: null, contactEmail: null,
-      });
+      } as never);
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo(), lines: [], prLinks: [{ prId }],
-      });
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
+      } as never);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent } as never);
       const res = await svc.send(acheteur, poId);
       expect(res.emailDelivered).toBe(false);
       expect(res.emailDispatched).toBe(false);
@@ -413,9 +412,9 @@ describe('PurchaseOrderService', () => {
     it('happy path expose emailDispatched=true + emailSkippedReason=null', async () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo(), lines: [], prLinks: [{ prId }],
-      });
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
+      } as never);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent } as never);
       const res = await svc.send(acheteur, poId);
       expect(res.emailDispatched).toBe(true);
       expect(res.emailSkippedReason).toBeNull();
@@ -430,9 +429,9 @@ describe('PurchaseOrderService', () => {
       });
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo(), lines: [], prLinks: [{ prId }],
-      });
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
+      } as never);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent } as never);
       const res = await svc.send(acheteur, poId);
       expect(res.emailDispatched).toBe(false);
       expect(res.emailSkippedReason).toBe('smtp-error');
@@ -457,12 +456,12 @@ describe('PurchaseOrderService', () => {
         paymentTermsDays: 30, address: null, country: null,
         contactEmail: SECRET_EMAIL,
       };
-      prisma.supplier.findUnique.mockResolvedValue(supplierFixture);
+      prisma.supplier.findUnique.mockResolvedValue(supplierFixture as never);
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo(), lines: [], prLinks: [{ prId }],
-      });
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent });
+      } as never);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseOrder.update.mockResolvedValue({ ...makePo(), status: PoStatus.sent } as never);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const logSpy = jest.spyOn((svc as any).logger, 'log');
@@ -500,8 +499,8 @@ describe('PurchaseOrderService', () => {
     });
 
     it('mode download → renvoie un PDF non vide + filename, ne crée pas d\'Invoice', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines());
-      prisma.invoice.count.mockResolvedValue(0);
+      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines() as never);
+      prisma.invoice.count.mockResolvedValue(0 as never);
       const res = await svc.simulateInvoice(sa, poId, 'download');
       expect(res.mode).toBe('download');
       if (res.mode === 'download') {
@@ -513,8 +512,8 @@ describe('PurchaseOrderService', () => {
     });
 
     it('mode inject → stocke le PDF + crée l\'Invoice via InvoiceService', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines());
-      prisma.invoice.count.mockResolvedValue(0);
+      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines() as never);
+      prisma.invoice.count.mockResolvedValue(0 as never);
       const res = await svc.simulateInvoice(sa, poId, 'inject');
       expect(res.mode).toBe('inject');
       if (res.mode === 'inject') {
@@ -540,15 +539,15 @@ describe('PurchaseOrderService', () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo({ status: PoStatus.draft }),
         lines: [],
-      });
+      } as never);
       await expect(svc.simulateInvoice(sa, poId, 'download')).rejects.toMatchObject({
         code: 'BUSINESS.PO_NOT_SENT_FOR_SIMULATION',
       });
     });
 
     it('numéro de facture incrémente selon le nombre d\'invoices SIM existantes', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines());
-      prisma.invoice.count.mockResolvedValue(2);
+      prisma.purchaseOrder.findUnique.mockResolvedValue(poWithLines() as never);
+      prisma.invoice.count.mockResolvedValue(2 as never);
       const res = await svc.simulateInvoice(sa, poId, 'download');
       if (res.mode === 'download') {
         expect(res.filename).toBe('FAC-SIM-BC-2026-0001-3.pdf');
@@ -559,16 +558,16 @@ describe('PurchaseOrderService', () => {
   // ------------------------------------------------------------------
   describe('acknowledge', () => {
     it('happy path : sent → acknowledged with ackRef', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.sent }));
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.sent }) as never);
       prisma.purchaseOrder.update.mockResolvedValue(
-        makePo({ status: PoStatus.acknowledged, acknowledgedBy: 'ACK-12345' }),
+        makePo({ status: PoStatus.acknowledged, acknowledgedBy: 'ACK-12345' }) as never,
       );
       const res = await svc.acknowledge(acheteur, poId, { ackRef: 'ACK-12345' });
       expect(res.status).toBe(PoStatus.acknowledged);
     });
 
     it('rejects when status ≠ sent', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.draft }));
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.draft }) as never);
       await expect(svc.acknowledge(acheteur, poId, { ackRef: 'X' })).rejects.toBeInstanceOf(
         PoNotAcknowledgeableException,
       );
@@ -578,8 +577,8 @@ describe('PurchaseOrderService', () => {
   // ------------------------------------------------------------------
   describe('cancel', () => {
     it('draft → cancelled (no reverse needed)', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.draft }));
-      prisma.purchaseOrder.update.mockResolvedValue(makePo({ status: PoStatus.cancelled }));
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.draft }) as never);
+      prisma.purchaseOrder.update.mockResolvedValue(makePo({ status: PoStatus.cancelled }) as never);
       const res = await svc.cancel(acheteur, poId, { reason: 'Fournisseur faillite' });
       expect(res.po.status).toBe(PoStatus.cancelled);
       expect(res.reverseEntryId).toBeNull();
@@ -587,23 +586,23 @@ describe('PurchaseOrderService', () => {
     });
 
     it('sent → cancelled with reverse entry created', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.sent }));
-      prisma.purchaseOrder.update.mockResolvedValue(makePo({ status: PoStatus.cancelled }));
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.sent }) as never);
+      prisma.purchaseOrder.update.mockResolvedValue(makePo({ status: PoStatus.cancelled }) as never);
       const res = await svc.cancel(acheteur, poId, { reason: 'Hors budget' });
       expect(res.reverseEntryNumber).toBe('OD-2026-0002');
       expect(posting.reverseCommitmentEntry).toHaveBeenCalled();
     });
 
     it('acknowledged → cancelled also creates reverse', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.acknowledged }));
-      prisma.purchaseOrder.update.mockResolvedValue(makePo({ status: PoStatus.cancelled }));
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.acknowledged }) as never);
+      prisma.purchaseOrder.update.mockResolvedValue(makePo({ status: PoStatus.cancelled }) as never);
       const res = await svc.cancel(acheteur, poId, { reason: 'Annulation' });
       expect(posting.reverseCommitmentEntry).toHaveBeenCalled();
       expect(res.reverseEntryId).toBe('je-2');
     });
 
     it('rejects cancel on partially_received/received/invoiced/closed', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.received }));
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.received }) as never);
       await expect(svc.cancel(acheteur, poId, { reason: 'X1234' })).rejects.toBeInstanceOf(
         PoNotCancellableException,
       );
@@ -614,7 +613,7 @@ describe('PurchaseOrderService', () => {
   describe('downloadPdf', () => {
     it('returns Buffer with proper filename', async () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue(
-        makePo({ pdfObjectKey: 'pos/2026/05/po.pdf', poNumber: 'BC-2026-0042' }),
+        makePo({ pdfObjectKey: 'pos/2026/05/po.pdf', poNumber: 'BC-2026-0042' }) as never,
       );
       const res = await svc.downloadPdf(acheteur, poId);
       expect(res.filename).toBe('BC-2026-0042.pdf');
@@ -623,7 +622,7 @@ describe('PurchaseOrderService', () => {
     });
 
     it('throws PO_NO_PDF when not yet sent', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ pdfObjectKey: null }));
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ pdfObjectKey: null }) as never);
       await expect(svc.downloadPdf(acheteur, poId)).rejects.toBeInstanceOf(PoNoPdfException);
     });
   });
@@ -631,51 +630,51 @@ describe('PurchaseOrderService', () => {
   // ------------------------------------------------------------------
   describe('findMany / RBAC scope', () => {
     it('DEMANDEUR sees only POs linked to own PRs', async () => {
-      prisma.purchaseOrder.findMany.mockResolvedValue([]);
-      prisma.purchaseOrder.count.mockResolvedValue(0);
+      prisma.purchaseOrder.findMany.mockResolvedValue([] as never);
+      prisma.purchaseOrder.count.mockResolvedValue(0 as never);
       await svc.findMany(demandeur, {
         page: 1, pageSize: 20, sort: 'createdAt', order: 'desc',
       } as never);
-      const args = prisma.purchaseOrder.findMany.mock.calls[0][0];
-      expect(args.where.prLinks).toEqual({ some: { pr: { requestedBy: userOwn } } });
+      const where = whereOf(prisma.purchaseOrder.findMany.mock.calls);
+      expect(where.prLinks).toEqual({ some: { pr: { requestedBy: userOwn } } });
     });
 
     it('SUPER_ADMIN sees all POs (no ownership filter)', async () => {
-      prisma.purchaseOrder.findMany.mockResolvedValue([]);
-      prisma.purchaseOrder.count.mockResolvedValue(0);
+      prisma.purchaseOrder.findMany.mockResolvedValue([] as never);
+      prisma.purchaseOrder.count.mockResolvedValue(0 as never);
       await svc.findMany(sa, {
         page: 1, pageSize: 20, sort: 'createdAt', order: 'desc',
       } as never);
-      const args = prisma.purchaseOrder.findMany.mock.calls[0][0];
-      expect(args.where.prLinks).toBeUndefined();
+      const where = whereOf(prisma.purchaseOrder.findMany.mock.calls);
+      expect(where.prLinks).toBeUndefined();
     });
 
     it('filters by supplierId + status + q', async () => {
-      prisma.purchaseOrder.findMany.mockResolvedValue([]);
-      prisma.purchaseOrder.count.mockResolvedValue(0);
+      prisma.purchaseOrder.findMany.mockResolvedValue([] as never);
+      prisma.purchaseOrder.count.mockResolvedValue(0 as never);
       await svc.findMany(acheteur, {
         page: 1, pageSize: 20, sort: 'createdAt', order: 'desc',
         supplierId, status: PoStatus.sent, q: 'BC-2026',
       } as never);
-      const args = prisma.purchaseOrder.findMany.mock.calls[0][0];
-      expect(args.where.supplierId).toBe(supplierId);
-      expect(args.where.status).toBe(PoStatus.sent);
-      expect(args.where.OR).toBeDefined();
+      const where = whereOf(prisma.purchaseOrder.findMany.mock.calls);
+      expect(where.supplierId).toBe(supplierId);
+      expect(where.status).toBe(PoStatus.sent);
+      expect(where.OR).toBeDefined();
     });
   });
 
   // ------------------------------------------------------------------
   describe('findOne ownership', () => {
     it('DEMANDEUR sees PO linked to their PR', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue({ ...makePo(), lines: [], prLinks: [{ prId }] });
-      prisma.purchaseOrderPr.findFirst.mockResolvedValue({ poId });
+      prisma.purchaseOrder.findUnique.mockResolvedValue({ ...makePo(), lines: [], prLinks: [{ prId }] } as never);
+      prisma.purchaseOrderPr.findFirst.mockResolvedValue({ poId } as never);
       const res = await svc.findOne(demandeur, poId);
       expect(res.id).toBe(poId);
     });
 
     it('foreign DEMANDEUR gets 404 (obscurity)', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue({ ...makePo(), lines: [], prLinks: [{ prId }] });
-      prisma.purchaseOrderPr.findFirst.mockResolvedValue(null);
+      prisma.purchaseOrder.findUnique.mockResolvedValue({ ...makePo(), lines: [], prLinks: [{ prId }] } as never);
+      prisma.purchaseOrderPr.findFirst.mockResolvedValue(null as never);
       await expect(svc.findOne(demandeur, poId)).rejects.toBeInstanceOf(PrNotOwnedException);
     });
   });
@@ -684,9 +683,9 @@ describe('PurchaseOrderService', () => {
   describe('resend', () => {
     it('re-fetches PDF from MinIO and resends without recreating entry', async () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue(
-        makePo({ status: PoStatus.sent, pdfObjectKey: 'pos/2026/05/po.pdf' }),
+        makePo({ status: PoStatus.sent, pdfObjectKey: 'pos/2026/05/po.pdf' }) as never,
       );
-      prisma.purchaseOrder.update.mockResolvedValue(makePo({ status: PoStatus.sent }));
+      prisma.purchaseOrder.update.mockResolvedValue(makePo({ status: PoStatus.sent }) as never);
       const res = await svc.resend(acheteur, poId);
       expect(storage.getObject).toHaveBeenCalled();
       expect(mail.send).toHaveBeenCalled();
@@ -695,7 +694,7 @@ describe('PurchaseOrderService', () => {
     });
 
     it('throws PO_NO_PDF if pdf not stored', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ pdfObjectKey: null }));
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ pdfObjectKey: null }) as never);
       await expect(svc.resend(acheteur, poId)).rejects.toBeInstanceOf(PoNoPdfException);
     });
   });

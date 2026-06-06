@@ -1,7 +1,7 @@
 import { Prisma, PoStatus, GrStatus } from '@prisma/client';
 import type { GoodsReceipt, GoodsReceiptLine, PurchaseOrder, PurchaseOrderLine } from '@prisma/client';
 import { GoodsReceiptService } from '../goods-receipt.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { createPrismaMock, type PrismaMock } from '../../../test-utils/prisma-mock';
 import type { AuthenticatedUser } from '../../../auth/types/authenticated-user.type';
 import {
   BatchInfoRequiredException,
@@ -27,25 +27,25 @@ import {
  * RBAC scope).
  */
 describe('GoodsReceiptService', () => {
-  type Prismarized = {
-    purchaseOrder: { findUnique: jest.Mock; update: jest.Mock };
-    purchaseOrderLine: { findMany: jest.Mock; update: jest.Mock };
-    purchaseOrderPr: { findFirst: jest.Mock };
-    goodsReceipt: {
-      create: jest.Mock;
-      findUnique: jest.Mock;
-      findUniqueOrThrow: jest.Mock;
-      findMany: jest.Mock;
-      count: jest.Mock;
-      update: jest.Mock;
-    };
-    goodsReceiptLine: { update: jest.Mock; groupBy: jest.Mock };
-    appUser: { findUnique: jest.Mock; create: jest.Mock };
-    $transaction: jest.Mock;
-    $executeRawUnsafe: jest.Mock;
+  // Projections typées des arguments capturés par les mocks Prisma (les unions
+  // d'arguments de DeepMockProxy ne sont pas indexables directement → TS7053).
+  type GrCreateData = {
+    grNumber: string;
+    coldChainRequired: boolean;
+    lines: { create: Array<{ poLineId: string; quantity: Prisma.Decimal }> };
   };
+  const grCreateDataOf = (calls: unknown[][]): GrCreateData =>
+    (calls[0][0] as { data: GrCreateData }).data;
 
-  let prisma: Prismarized;
+  type GrLineUpdateArg = { data: { batchNumber?: string; quantity?: Prisma.Decimal } };
+  const grLineUpdateArgOf = (calls: unknown[][]): GrLineUpdateArg =>
+    calls[0][0] as GrLineUpdateArg;
+
+  type GrFindManyWhere = { po?: unknown };
+  const grFindManyWhereOf = (calls: unknown[][]): GrFindManyWhere =>
+    (calls[0][0] as { where: GrFindManyWhere }).where;
+
+  let prisma: PrismaMock;
   let svc: GoodsReceiptService;
 
   const userOwn = 'usr00000-0000-0000-0000-000000000001';
@@ -186,44 +186,37 @@ describe('GoodsReceiptService', () => {
   }
 
   beforeEach(() => {
-    prisma = {
-      purchaseOrder: {
-        findUnique: jest.fn(),
-        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...makePo(), ...data })),
-      },
-      purchaseOrderLine: {
-        findMany: jest.fn(),
-        update: jest.fn().mockResolvedValue({}),
-      },
-      purchaseOrderPr: { findFirst: jest.fn().mockResolvedValue({ poId }) },
-      goodsReceipt: {
-        create: jest.fn(),
-        findUnique: jest.fn(),
-        findUniqueOrThrow: jest.fn(),
-        findMany: jest.fn(),
-        count: jest.fn().mockResolvedValue(0),
-        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...makeGr(), ...data })),
-      },
-      goodsReceiptLine: {
-        update: jest.fn().mockResolvedValue({}),
-        groupBy: jest.fn().mockResolvedValue([]),
-      },
-      appUser: {
-        findUnique: jest.fn(({ where }: { where: { email: string } }) => {
-          const map: Record<string, string> = {
-            'mag@x': 'app-mag', 'd@x': userOwn, 'd2@x': otherUser,
-          };
-          return Promise.resolve(map[where.email] ? { id: map[where.email] } : null);
-        }),
-        create: jest.fn(),
-      },
-      $transaction: jest.fn(async (cb: unknown) => {
-        if (typeof cb === 'function') return (cb as (tx: unknown) => unknown)(prisma);
-        return Promise.all(cb as unknown[]);
-      }),
-      $executeRawUnsafe: jest.fn().mockResolvedValue(1),
-    };
-    svc = new GoodsReceiptService(prisma as unknown as PrismaService);
+    prisma = createPrismaMock();
+
+    // Stubs explicites dont les tests dépendent (les autres méthodes sont
+    // auto-stubbées par mockDeep et renvoient `undefined`).
+    prisma.purchaseOrder.update.mockImplementation(
+      (({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ ...makePo(), ...data })) as never,
+    );
+    prisma.purchaseOrderLine.update.mockResolvedValue({} as never);
+    prisma.purchaseOrderPr.findFirst.mockResolvedValue({ poId } as never);
+    prisma.goodsReceipt.count.mockResolvedValue(0 as never);
+    // generateGrNumber utilise désormais findFirst (MAX) au lieu de count :
+    // null par défaut → première séquence (0001).
+    prisma.goodsReceipt.findFirst.mockResolvedValue(null as never);
+    prisma.goodsReceipt.update.mockImplementation(
+      (({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ ...makeGr(), ...data })) as never,
+    );
+    prisma.goodsReceiptLine.update.mockResolvedValue({} as never);
+    (prisma.goodsReceiptLine.groupBy as jest.Mock).mockResolvedValue([]);
+    prisma.appUser.findUnique.mockImplementation(
+      (({ where }: { where: { email: string } }) => {
+        const map: Record<string, string> = {
+          'mag@x': 'app-mag', 'd@x': userOwn, 'd2@x': otherUser,
+        };
+        return Promise.resolve(map[where.email] ? { id: map[where.email] } : null);
+      }) as never,
+    );
+    prisma.$executeRawUnsafe.mockResolvedValue(1 as never);
+
+    svc = new GoodsReceiptService(prisma);
   });
 
   // ============================================================
@@ -235,14 +228,14 @@ describe('GoodsReceiptService', () => {
       prisma.goodsReceipt.create.mockResolvedValue({ ...makeGr(), lines: [
         { id: grLine1, grId, poLineId: poLine1, quantity: new Prisma.Decimal('0'), batchNumber: null, expiryDate: null, serialNumbers: [], qualityCheck: null, coldChainOk: null },
         { id: grLine2, grId, poLineId: poLine2, quantity: new Prisma.Decimal('0'), batchNumber: null, expiryDate: null, serialNumbers: [], qualityCheck: null, coldChainOk: null },
-      ] });
+      ] } as never);
 
       const res = await svc.createFromPo(magasinier, poId, {});
 
       expect(res.grNumber).toMatch(/^GR-\d{4}-\d{4}$/);
       expect(res.status).toBe(GrStatus.draft);
       expect(res.lines).toHaveLength(2);
-      const create = prisma.goodsReceipt.create.mock.calls[0][0].data;
+      const create = grCreateDataOf(prisma.goodsReceipt.create.mock.calls);
       expect(create.lines.create).toEqual([
         { poLineId: poLine1, quantity: new Prisma.Decimal(0) },
         { poLineId: poLine2, quantity: new Prisma.Decimal(0) },
@@ -266,15 +259,15 @@ describe('GoodsReceiptService', () => {
 
     it('accepts PO in partially_received (second GR)', async () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue(makePo({ status: PoStatus.partially_received }));
-      prisma.goodsReceipt.create.mockResolvedValue({ ...makeGr(), lines: [] });
+      prisma.goodsReceipt.create.mockResolvedValue({ ...makeGr(), lines: [] } as never);
       await expect(svc.createFromPo(magasinier, poId, {})).resolves.toBeDefined();
     });
 
     it('persists coldChainRequired flag', async () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue(makePo());
-      prisma.goodsReceipt.create.mockResolvedValue({ ...makeGr({ coldChainRequired: true }), lines: [] });
+      prisma.goodsReceipt.create.mockResolvedValue({ ...makeGr({ coldChainRequired: true }), lines: [] } as never);
       await svc.createFromPo(magasinier, poId, { coldChainRequired: true });
-      const data = prisma.goodsReceipt.create.mock.calls[0][0].data;
+      const data = grCreateDataOf(prisma.goodsReceipt.create.mock.calls);
       expect(data.coldChainRequired).toBe(true);
     });
   });
@@ -285,7 +278,7 @@ describe('GoodsReceiptService', () => {
   describe('update header', () => {
     it('happy path : patch notes and date when draft', async () => {
       prisma.goodsReceipt.findUnique.mockResolvedValue(makeGr());
-      prisma.goodsReceipt.update.mockResolvedValue({ ...makeGr({ notes: 'updated' }), lines: [] });
+      prisma.goodsReceipt.update.mockResolvedValue({ ...makeGr({ notes: 'updated' }), lines: [] } as never);
       const res = await svc.update(magasinier, grId, { notes: 'updated' });
       expect(res.notes).toBe('updated');
     });
@@ -307,7 +300,7 @@ describe('GoodsReceiptService', () => {
   describe('updateLines', () => {
     it('happy path : updates quantities and batch info', async () => {
       prisma.goodsReceipt.findUnique.mockResolvedValue(makeGr());
-      prisma.goodsReceipt.findUniqueOrThrow.mockResolvedValue({ ...makeGr(), lines: [] });
+      prisma.goodsReceipt.findUniqueOrThrow.mockResolvedValue({ ...makeGr(), lines: [] } as never);
       await svc.updateLines(magasinier, grId, {
         lines: [
           { lineId: grLine1, quantity: 8, batchNumber: 'LOT-A', expiryDate: new Date('2027-01-01') },
@@ -334,7 +327,7 @@ describe('GoodsReceiptService', () => {
     it('rejects quantity + other completed > ordered', async () => {
       prisma.goodsReceipt.findUnique.mockResolvedValue(makeGr());
       // 6 déjà reçus ailleurs + nouvelle qty 5 = 11 > 10 ordered
-      prisma.goodsReceiptLine.groupBy.mockResolvedValue([{ poLineId: poLine1, _sum: { quantity: new Prisma.Decimal('6') } }]);
+      (prisma.goodsReceiptLine.groupBy as jest.Mock).mockResolvedValue([{ poLineId: poLine1, _sum: { quantity: new Prisma.Decimal('6') } }]);
       await expect(
         svc.updateLines(magasinier, grId, { lines: [{ lineId: grLine1, quantity: 5 }] }),
       ).rejects.toBeInstanceOf(GrQtyExceedsOrderException);
@@ -349,11 +342,11 @@ describe('GoodsReceiptService', () => {
 
     it('allows partial PATCH (only batch, no quantity change)', async () => {
       prisma.goodsReceipt.findUnique.mockResolvedValue(makeGr());
-      prisma.goodsReceipt.findUniqueOrThrow.mockResolvedValue({ ...makeGr(), lines: [] });
+      prisma.goodsReceipt.findUniqueOrThrow.mockResolvedValue({ ...makeGr(), lines: [] } as never);
       await svc.updateLines(magasinier, grId, {
         lines: [{ lineId: grLine1, batchNumber: 'LOT-X' }],
       });
-      const call = prisma.goodsReceiptLine.update.mock.calls[0][0];
+      const call = grLineUpdateArgOf(prisma.goodsReceiptLine.update.mock.calls);
       expect(call.data.batchNumber).toBe('LOT-X');
       expect(call.data.quantity).toBeUndefined();
     });
@@ -371,7 +364,7 @@ describe('GoodsReceiptService', () => {
       prisma.purchaseOrderLine.findMany.mockResolvedValue([
         { quantity: new Prisma.Decimal('10'), quantityReceived: new Prisma.Decimal('5') },
         { quantity: new Prisma.Decimal('5'), quantityReceived: new Prisma.Decimal('0') },
-      ]);
+      ] as never);
       const res = await svc.complete(magasinier, grId);
       expect(res.poStatus).toBe(PoStatus.partially_received);
       expect(res.totalReceivedLines).toBe(1);
@@ -386,7 +379,7 @@ describe('GoodsReceiptService', () => {
       prisma.purchaseOrderLine.findMany.mockResolvedValue([
         { quantity: new Prisma.Decimal('10'), quantityReceived: new Prisma.Decimal('10') },
         { quantity: new Prisma.Decimal('5'), quantityReceived: new Prisma.Decimal('5') },
-      ]);
+      ] as never);
       const res = await svc.complete(magasinier, grId);
       expect(res.poStatus).toBe(PoStatus.received);
       expect(res.totalReceivedLines).toBe(2);
@@ -433,7 +426,7 @@ describe('GoodsReceiptService', () => {
       prisma.purchaseOrderLine.findMany.mockResolvedValue([
         { quantity: new Prisma.Decimal('10'), quantityReceived: new Prisma.Decimal('5') },
         { quantity: new Prisma.Decimal('5'), quantityReceived: new Prisma.Decimal('0') },
-      ]);
+      ] as never);
       const res = await svc.complete(magasinier, grId);
       expect(res.poStatus).toBe(PoStatus.partially_received);
     });
@@ -443,7 +436,7 @@ describe('GoodsReceiptService', () => {
         { id: grLine1, quantity: new Prisma.Decimal('5') },
       ]));
       // Une autre GR a été completée entretemps avec qty=8 → 8+5=13 > 10
-      prisma.goodsReceiptLine.groupBy.mockResolvedValue([
+      (prisma.goodsReceiptLine.groupBy as jest.Mock).mockResolvedValue([
         { poLineId: poLine1, _sum: { quantity: new Prisma.Decimal('8') } },
       ]);
       await expect(svc.complete(magasinier, grId)).rejects.toBeInstanceOf(GrQtyExceedsOrderException);
@@ -500,7 +493,7 @@ describe('GoodsReceiptService', () => {
 
     it('DEMANDEUR owner of linked PR sees the GR', async () => {
       prisma.goodsReceipt.findUnique.mockResolvedValue(makeGr());
-      prisma.purchaseOrderPr.findFirst.mockResolvedValue({ poId });
+      prisma.purchaseOrderPr.findFirst.mockResolvedValue({ poId } as never);
       await expect(svc.findOne(demandeurOwner, grId)).resolves.toBeDefined();
     });
 
@@ -516,7 +509,7 @@ describe('GoodsReceiptService', () => {
       await svc.findMany(demandeurOwner, {
         page: 1, pageSize: 20, sort: 'createdAt', order: 'desc',
       } as never);
-      const where = prisma.goodsReceipt.findMany.mock.calls[0][0].where;
+      const where = grFindManyWhereOf(prisma.goodsReceipt.findMany.mock.calls);
       expect(where.po).toBeDefined();
     });
 
@@ -526,7 +519,7 @@ describe('GoodsReceiptService', () => {
       await svc.findMany(magasinier, {
         page: 1, pageSize: 20, sort: 'createdAt', order: 'desc',
       } as never);
-      const where = prisma.goodsReceipt.findMany.mock.calls[0][0].where;
+      const where = grFindManyWhereOf(prisma.goodsReceipt.findMany.mock.calls);
       expect(where.po).toBeUndefined();
     });
   });
@@ -555,12 +548,14 @@ describe('GoodsReceiptService', () => {
   // ============================================================
   describe('GR number sequence', () => {
     it('generates GR-YYYY-NNNN format', async () => {
-      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo());
-      prisma.goodsReceipt.count.mockResolvedValue(7);
-      prisma.goodsReceipt.create.mockResolvedValue({ ...makeGr(), lines: [] });
-      await svc.createFromPo(magasinier, poId, {});
-      const created = prisma.goodsReceipt.create.mock.calls[0][0].data;
       const year = new Date().getFullYear();
+      prisma.purchaseOrder.findUnique.mockResolvedValue(makePo());
+      // generateGrNumber lit désormais le MAX via findFirst (résilient aux trous) :
+      // dernier numéro 0007 → prochaine séquence 0008.
+      prisma.goodsReceipt.findFirst.mockResolvedValue({ grNumber: `GR-${year}-0007` } as never);
+      prisma.goodsReceipt.create.mockResolvedValue({ ...makeGr(), lines: [] } as never);
+      await svc.createFromPo(magasinier, poId, {});
+      const created = grCreateDataOf(prisma.goodsReceipt.create.mock.calls);
       expect(created.grNumber).toBe(`GR-${year}-0008`);
     });
   });
