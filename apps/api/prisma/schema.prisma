@@ -325,7 +325,6 @@ model Supplier {
   riskScore        Int?                  @default(0) @map("risk_score")
   isActive         Boolean               @default(true) @map("is_active")
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  // Sprint F-PO-EMAIL : adresse e-mail du fournisseur (best-effort envoi PDF du BC).
   contactEmail     String?               @map("contact_email")
   invoices         Invoice[]
   purchaseOrders   PurchaseOrder[]
@@ -429,33 +428,36 @@ model CashSettlement {
 }
 
 model PurchaseRequest {
-  id              String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  prNumber        String                @unique @map("pr_number")
-  requestedBy     String                @map("requested_by") @db.Uuid
-  requestedAt     DateTime              @default(now()) @map("requested_at") @db.Timestamptz(6)
-  neededBy        DateTime?             @map("needed_by") @db.Date
-  status          PrStatus              @default(draft)
-  projectId       String                @map("project_id") @db.Uuid
-  grantId         String                @map("grant_id") @db.Uuid
-  costCenterId    String?               @map("cost_center_id") @db.Uuid
-  activityId      String?               @map("activity_id") @db.Uuid
-  totalAmount     Decimal               @default(0) @map("total_amount") @db.Decimal(18, 2)
-  currency        String                @default("XOF") @db.Char(3)
-  description     String?
-  requestType     PrType                @default(standard) @map("request_type")
-  rejectionReason String?               @map("rejection_reason")
-  updatedAt       DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
-  cashBoxId       String?               @map("cash_box_id") @db.Uuid
-  purchaseOrders  PurchaseOrder[]
-  poLinks         PurchaseOrderPr[]
-  activity        AnalyticalAxis?       @relation("PrActivity", fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  cashBox         CashBox?              @relation(fields: [cashBoxId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  costCenter      AnalyticalAxis?       @relation("PrCostCenter", fields: [costCenterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  grant           GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  project         Project               @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  requester       AppUser               @relation(fields: [requestedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  lines           PurchaseRequestLine[]
-  cashSettlement  CashSettlement?
+  id               String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  prNumber         String                @unique @map("pr_number")
+  requestedBy      String                @map("requested_by") @db.Uuid
+  requestedAt      DateTime              @default(now()) @map("requested_at") @db.Timestamptz(6)
+  neededBy         DateTime?             @map("needed_by") @db.Date
+  status           PrStatus              @default(draft)
+  projectId        String                @map("project_id") @db.Uuid
+  grantId          String                @map("grant_id") @db.Uuid
+  costCenterId     String?               @map("cost_center_id") @db.Uuid
+  activityId       String?               @map("activity_id") @db.Uuid
+  totalAmount      Decimal               @default(0) @map("total_amount") @db.Decimal(18, 2)
+  currency         String                @default("XOF") @db.Char(3)
+  description      String?
+  requestType      PrType                @default(standard) @map("request_type")
+  rejectionReason  String?               @map("rejection_reason")
+  updatedAt        DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  cashBoxId        String?               @map("cash_box_id") @db.Uuid
+  total_amount_xof BigInt?
+  fx_rate          Decimal?              @db.Decimal(14, 6)
+  fx_rate_date     DateTime?             @db.Date
+  purchaseOrders   PurchaseOrder[]
+  poLinks          PurchaseOrderPr[]
+  activity         AnalyticalAxis?       @relation("PrActivity", fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cashBox          CashBox?              @relation(fields: [cashBoxId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  costCenter       AnalyticalAxis?       @relation("PrCostCenter", fields: [costCenterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grant            GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project          Project               @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  requester        AppUser               @relation(fields: [requestedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines            PurchaseRequestLine[]
+  cashSettlement   CashSettlement?
 
   @@index([status], map: "idx_pr_status")
   @@index([requestedBy], map: "idx_pr_requested_by")
@@ -476,6 +478,9 @@ model PurchaseRequestLine {
   lineTotal          Decimal?            @default(dbgenerated("(quantity * unit_price)")) @map("line_total") @db.Decimal(18, 2)
   budgetLineId       String              @map("budget_line_id") @db.Uuid
   defaultAccount     String?             @map("default_account")
+  unit_price_xof     BigInt?
+  fx_rate            Decimal?            @db.Decimal(14, 6)
+  fx_rate_date       DateTime?           @db.Date
   purchaseOrderLines PurchaseOrderLine[]
   budgetLine         BudgetLine          @relation(fields: [budgetLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   defaultAccountRef  GlAccount?          @relation(fields: [defaultAccount], references: [code], onDelete: NoAction, onUpdate: NoAction)
@@ -527,6 +532,11 @@ model PurchaseOrder {
   emailSentAt        DateTime?           @map("email_sent_at") @db.Timestamptz(6)
   emailSentTo        String?             @map("email_sent_to")
   createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  total_ht_xof       BigInt?
+  total_vat_xof      BigInt?
+  total_ttc_xof      BigInt?
+  fx_rate            Decimal?            @db.Decimal(14, 6)
+  fx_rate_date       DateTime?           @db.Date
   invoices           Invoice[]
   goodsReceipts      GoodsReceipt[]
   buyer              AppUser?            @relation(fields: [buyerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -569,6 +579,9 @@ model PurchaseOrderLine {
   taxCodeId         String?              @map("tax_code_id") @db.Uuid
   lineTotal         Decimal?             @default(dbgenerated("(quantity * unit_price)")) @map("line_total") @db.Decimal(18, 2)
   budgetLineId      String               @map("budget_line_id") @db.Uuid
+  unit_price_xof    BigInt?
+  fx_rate           Decimal?             @db.Decimal(14, 6)
+  fx_rate_date      DateTime?            @db.Date
   invoiceLines      InvoiceLine[]
   invoiceMatches    InvoiceMatch[]
   goodsReceiptLines GoodsReceiptLine[]
@@ -657,6 +670,11 @@ model Invoice {
   matchedBy       String?        @map("matched_by") @db.Uuid
   matchedAt       DateTime?      @map("matched_at") @db.Timestamptz(6)
   matchSummary    Json?          @map("match_summary")
+  total_ht_xof    BigInt?
+  total_vat_xof   BigInt?
+  total_ttc_xof   BigInt?
+  fx_rate         Decimal?       @db.Decimal(14, 6)
+  fx_rate_date    DateTime?      @db.Date
   matcher         AppUser?       @relation("InvoiceMatchedBy", fields: [matchedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
   po              PurchaseOrder? @relation(fields: [poId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   supplier        Supplier       @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -682,6 +700,10 @@ model InvoiceLine {
   taxCodeId      String?            @map("tax_code_id") @db.Uuid
   poLineId       String?            @map("po_line_id") @db.Uuid
   glAccount      String?            @map("gl_account")
+  unit_price_xof BigInt?
+  line_total_xof BigInt?
+  fx_rate        Decimal?           @db.Decimal(14, 6)
+  fx_rate_date   DateTime?          @db.Date
   glAccountRef   GlAccount?         @relation(fields: [glAccount], references: [code], onDelete: NoAction, onUpdate: NoAction)
   invoice        Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   poLine         PurchaseOrderLine? @relation(fields: [poLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -760,6 +782,9 @@ model Payment {
   originalAmount   Decimal?      @map("original_amount") @db.Decimal(18, 2)
   originalCurrency String?       @map("original_currency") @db.Char(3)
   exchangeRate     Decimal?      @map("exchange_rate") @db.Decimal(18, 8)
+  amount_xof       BigInt?
+  fx_rate          Decimal?      @db.Decimal(14, 6)
+  fx_rate_date     DateTime?     @db.Date
   invoice          Invoice       @relation(fields: [invoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   paymentRun       PaymentRun?   @relation(fields: [paymentRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -873,6 +898,8 @@ model JournalLine {
   budgetLineId   String?         @map("budget_line_id") @db.Uuid
   costCenterId   String?         @map("cost_center_id") @db.Uuid
   activityId     String?         @map("activity_id") @db.Uuid
+  fx_rate        Decimal?        @db.Decimal(14, 6)
+  fx_rate_date   DateTime?       @db.Date
   account        GlAccount       @relation(fields: [accountCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
   activity       AnalyticalAxis? @relation("JlActivity", fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   budgetLine     BudgetLine?     @relation(fields: [budgetLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
