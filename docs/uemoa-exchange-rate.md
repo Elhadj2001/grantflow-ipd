@@ -102,7 +102,57 @@ CREATE INDEX idx_exchange_rate_fixed
   WHERE is_fixed = true;
 ```
 
-## 5. Références officielles
+## 5. Politique FX GRANTFLOW IPD (Sprint S1 / US-005, ADR-005)
+
+La conversion vers **XOF** (devise fonctionnelle SYSCEBNL) suit une politique
+unique, centralisée dans `apps/api/src/referential/exchange-rate/uemoa.constants.ts`
+et appliquée par `ExchangeRateService`.
+
+### 5.1 Parité immuable EUR/XOF
+
+`1 EUR = 655,957 XOF`, fixée par les accords successifs de Bretton Woods et
+garantie par le **Trésor français** depuis 1999. Constante unique
+`FX_BCEAO_EUR_XOF` (valeur littérale présente à **un seul endroit** du code API).
+Indépendante de la date : toute conversion EUR↔XOF l'utilise telle quelle.
+**NE PAS MODIFIER** sauf modification du traité international.
+
+### 5.2 Taux historisés en BD pour USD / GBP / CHF / autres
+
+Les devises non rattachées sont valorisées via la table `ref.exchange_rate`
+(taux quotidiens BCEAO, le plus récent ≤ date demandée). Le contrôle de
+gestion (CG) alimente cette table. C'est la **source de vérité comptable**.
+
+### 5.3 Fallback indicatif (en attendant l'alimentation par le CG)
+
+Tant que `ref.exchange_rate` n'est pas seedée pour une devise, `convertToXof`
+retombe sur `FALLBACK_INDICATIVE_TO_XOF` (`Object.freeze({ USD: 600, GBP: 800,
+CHF: 700 })`) — valeurs « ordre de grandeur 2026 ».
+
+* ⚠️ **À NE PAS UTILISER pour des décisions comptables** en production.
+* Chaque usage est marqué `isIndicativeFallback = true` dans le résultat et
+  sera **loggé loud** (log Pino, audit ajouté en US-006).
+* Le CG doit **valider et seeder** `ref.exchange_rate` avant la mise en prod.
+
+### 5.4 `lookup` (comptable strict) vs `convertToXof` (opérationnel)
+
+| | `lookup` | `convertToXof` |
+|---|---|---|
+| Vocation | Primitive comptable STRICTE | Conversion OPÉRATIONNELLE (source unique) |
+| Devise absente | **Lève** `ExchangeRateNotFoundException` | Fallback indicatif tracé, ou `UnknownCurrencyException` |
+| Usage | Vues SYSCEBNL strictes, écritures | Seuils d'approbation, contrôle budgétaire, colonnes `*_xof` |
+| EUR | via ligne `is_fixed=true` en BD | parité `FX_BCEAO_EUR_XOF` en dur |
+
+`convertToXof` ne doit JAMAIS alimenter une écriture comptable sur la base d'un
+fallback indicatif sans validation CG.
+
+### 5.5 Références code
+
+* Constantes : `apps/api/src/referential/exchange-rate/uemoa.constants.ts`
+  (`FX_BCEAO_EUR_XOF`, `FIXED_XOF_EUR`, `FALLBACK_INDICATIVE_TO_XOF`).
+* Service : `ExchangeRateService.convertToXof` / `.lookup`.
+* Décision d'architecture : **ADR-005** (`docs/adr/adr-005-multidevise-tripartite.md`).
+
+## 6. Références officielles
 
 * BCEAO — Banque Centrale des États de l'Afrique de l'Ouest : <https://www.bceao.int/>
 * Article 1 du règlement UEMOA N° 09/2010/CM/UEMOA portant statuts de la BCEAO.
@@ -112,4 +162,4 @@ CREATE INDEX idx_exchange_rate_fixed
 
 ---
 
-_Dernière mise à jour : 16/05/2026 — Sprint 1.4 (El Hadj Amadou NIANG)._
+_Dernière mise à jour : 06/06/2026 — Sprint S1 / US-005 (El Hadj Amadou NIANG)._
