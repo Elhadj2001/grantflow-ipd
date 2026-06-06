@@ -726,6 +726,23 @@ export class SameCurrencyException extends BusinessException {
 }
 
 /**
+ * 400 — devise non supportée par `ExchangeRateService.convertToXof` (ni
+ * gérée nativement XOF/EUR, ni présente dans `ref.exchange_rate`, ni dans
+ * la table de fallback indicatif). Le caller doit corriger la devise ou
+ * saisir un taux. Sprint S1 / US-004 (ADR-005).
+ */
+export class UnknownCurrencyException extends BusinessException {
+  constructor(currency: string) {
+    super(
+      ErrorCode.BUSINESS.UNKNOWN_CURRENCY,
+      HttpStatus.BAD_REQUEST,
+      `Unknown / unsupported currency "${currency}" — no rate in ref.exchange_rate and no indicative fallback. Add a rate or correct the currency.`,
+      { currency },
+    );
+  }
+}
+
+/**
  * 409 — tentative d'insérer un taux variable pour un couple devise qui a
  * déjà une parité fixe BCEAO (ex: EUR/XOF). La parité fixe est sacro-sainte —
  * on refuse explicitement plutôt que de risquer un override silencieux.

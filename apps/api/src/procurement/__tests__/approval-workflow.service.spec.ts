@@ -138,14 +138,12 @@ describe('ApprovalWorkflowService', () => {
     // Les tests qui veulent simuler une devise non-XOF mockent ce hook au
     // cas par cas (cf. describe `currency conversion`).
     fx = {
-      convertToXof: jest.fn(async (amount: number, currency: string) => {
-        if (currency === 'XOF') {
-          return { xofAmount: amount, rate: 1, isFallback: false, isIndicativeFallback: false };
-        }
-        // Default for non-XOF in tests qui ne se soucient pas du taux :
-        // on retourne tel quel (rate=1) pour préserver le comportement
-        // historique des tests existants.
-        return { xofAmount: amount, rate: 1, isFallback: false, isIndicativeFallback: false };
+      // US-004 : XofConversionResult = { xofAmount, fxRate, fxRateDate, isIndicativeFallback }.
+      convertToXof: jest.fn(async (amount: number) => {
+        // Défaut : on retourne tel quel (fxRate=1) — les tests de routage ne
+        // s'appuient que sur xofAmount ; les cas devise ≠ XOF surchargent
+        // via mockResolvedValueOnce.
+        return { xofAmount: amount, fxRate: 1, fxRateDate: new Date('2026-05-10'), isIndicativeFallback: false };
       }),
     };
     svc = new ApprovalWorkflowService(
@@ -226,8 +224,8 @@ describe('ApprovalWorkflowService', () => {
       // Au taux BCEAO 655,957 : 100 000 EUR = 65 595 700 XOF.
       fx.convertToXof.mockResolvedValueOnce({
         xofAmount: 65_595_700,
-        rate: 655.957,
-        isFallback: false,
+        fxRate: 655.957,
+        fxRateDate: new Date('2026-05-10'),
         isIndicativeFallback: false,
       });
       prisma.purchaseRequest.findUnique.mockResolvedValue(
@@ -252,8 +250,8 @@ describe('ApprovalWorkflowService', () => {
       // 1 000 EUR = 655 957 XOF — au-dessus de CG (500k), en-dessous de DAF (5M).
       fx.convertToXof.mockResolvedValueOnce({
         xofAmount: 655_957,
-        rate: 655.957,
-        isFallback: false,
+        fxRate: 655.957,
+        fxRateDate: new Date('2026-05-10'),
         isIndicativeFallback: false,
       });
       prisma.purchaseRequest.findUnique.mockResolvedValue(
@@ -294,8 +292,8 @@ describe('ApprovalWorkflowService', () => {
       // Côté CG : on doit router sur DAF.
       fx.convertToXof.mockResolvedValueOnce({
         xofAmount: 6_000_000,
-        rate: 600,
-        isFallback: true,
+        fxRate: 600,
+        fxRateDate: new Date('2026-05-10'),
         isIndicativeFallback: true,
       });
       prisma.purchaseRequest.findUnique.mockResolvedValue(
