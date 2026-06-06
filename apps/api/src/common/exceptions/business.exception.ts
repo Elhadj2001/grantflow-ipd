@@ -554,26 +554,46 @@ export class CashBoxInactiveException extends BusinessException {
   }
 }
 
-/** 409 — total DA > plafond par requête de la caisse. */
+/**
+ * 409 — total DA > plafond par requête de la caisse.
+ * S2/US-011 : `requested` et `max` sont en XOF (la comparaison de plafond
+ * caisse opère en devise fonctionnelle). `context` (optionnel) porte les
+ * montants en devise native + les devises, pour un message clair.
+ * Rétrocompatible : signature positionnelle inchangée.
+ */
 export class CashLimitPerRequestExceededException extends BusinessException {
-  constructor(cashBoxId: string, requested: number, max: number) {
+  constructor(
+    cashBoxId: string,
+    requested: number,
+    max: number,
+    context?: Record<string, unknown>,
+  ) {
     super(
       ErrorCode.BUSINESS.CASH_LIMIT_PER_REQUEST_EXCEEDED,
       HttpStatus.CONFLICT,
-      `Requested amount (${requested}) exceeds per-request limit (${max})`,
-      { cashBoxId, requested, max },
+      `Requested amount (${requested} XOF) exceeds per-request limit (${max} XOF)`,
+      { cashBoxId, requested, max, ...(context ?? {}) },
     );
   }
 }
 
-/** 409 — somme des DA petty_cash du jour pour ce demandeur > plafond. */
+/**
+ * 409 — somme des DA petty_cash du jour pour ce demandeur > plafond.
+ * S2/US-011 : `todaySpent`, `requested`, `max` en XOF. `context` optionnel.
+ */
 export class CashLimitPerDayExceededException extends BusinessException {
-  constructor(cashBoxId: string, todaySpent: number, requested: number, max: number) {
+  constructor(
+    cashBoxId: string,
+    todaySpent: number,
+    requested: number,
+    max: number,
+    context?: Record<string, unknown>,
+  ) {
     super(
       ErrorCode.BUSINESS.CASH_LIMIT_PER_DAY_EXCEEDED,
       HttpStatus.CONFLICT,
-      `Daily limit per user exceeded (${todaySpent} + ${requested} > ${max})`,
-      { cashBoxId, todaySpent, requested, max },
+      `Daily limit per user exceeded (${todaySpent} + ${requested} > ${max} XOF)`,
+      { cashBoxId, todaySpent, requested, max, ...(context ?? {}) },
     );
   }
 }

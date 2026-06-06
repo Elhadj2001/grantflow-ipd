@@ -127,7 +127,7 @@ describe('PurchaseRequestService', () => {
   beforeEach(() => {
     prisma = {
       purchaseRequest: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
         count: jest.fn(),
         create: jest.fn(),
@@ -689,9 +689,11 @@ describe('PurchaseRequestService', () => {
         perDayUserMax: new Prisma.Decimal('200000'),
       });
       // Déjà 180k consommés aujourd'hui ; on tente d'en ajouter 50k.
-      prisma.purchaseRequest.aggregate.mockResolvedValue({
-        _sum: { totalAmount: new Prisma.Decimal('180000') },
-      });
+      // US-011 : computeUserDailyCashXof fetche les DA du jour (findMany) et
+      // convertit chacune en XOF — plus d'aggregate(_sum).
+      prisma.purchaseRequest.findMany.mockResolvedValue([
+        { totalAmount: new Prisma.Decimal('180000'), currency: 'XOF', requestedAt: new Date() },
+      ]);
       const { CashLimitPerDayExceededException } = await import(
         '../../common/exceptions/business.exception'
       );

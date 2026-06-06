@@ -185,6 +185,7 @@ export class PurchaseRequestService {
         grant: { id: grant.id, allowsCashPayment: grant.allowsCashPayment },
         requesterId: appUserId,
         totalAmount,
+        currency: dto.currency,
       });
     }
 
@@ -254,6 +255,8 @@ export class PurchaseRequestService {
     grant: { id: string; allowsCashPayment: boolean };
     requesterId: string;
     totalAmount: number;
+    /** Devise de la DA en cours (pour conversion XOF du plafond). */
+    currency: string;
   }): Promise<void> {
     if (!args.cashBoxId) throw new CashBoxRequiredException(args.requestType);
 
@@ -265,44 +268,74 @@ export class PurchaseRequestService {
       throw new CashPaymentNotAllowedException(args.grant.id);
     }
 
-    const perReqMax = Number(cashBox.perRequestMax);
-    if (args.totalAmount > perReqMax) {
-      throw new CashLimitPerRequestExceededException(cashBox.id, args.totalAmount, perReqMax);
+    // US-011 (F1, ADR-005) — comparaison de plafond EN XOF. La DA est en cours
+    // de création → date de valorisation = aujourd'hui (convertToXof par défaut).
+    // Si caisse XOF + DA XOF (cas baseline IPD), convertToXof est un no-op
+    // identité (rate=1) → résultat strictement inchangé.
+    const requestedXof = (await this.fx.convertToXof(args.totalAmount, args.currency)).xofAmount;
+    const perReqMaxXof = (
+      await this.fx.convertToXof(cashBox.perRequestMax, cashBox.currency)
+    ).xofAmount;
+    if (requestedXof > perReqMaxXof) {
+      throw new CashLimitPerRequestExceededException(cashBox.id, requestedXof, perReqMaxXof, {
+        prCurrency: args.currency,
+        prTotalNative: args.totalAmount,
+        cashBoxCurrency: cashBox.currency,
+        perRequestMaxNative: Number(cashBox.perRequestMax),
+      });
     }
 
     if (args.requestType === 'petty_cash') {
-      const start = new Date();
-      start.setUTCHours(0, 0, 0, 0);
-      const end = new Date();
-      end.setUTCHours(23, 59, 59, 999);
-
-      const agg = await this.prisma.purchaseRequest.aggregate({
-        _sum: { totalAmount: true },
-        where: {
-          cashBoxId: cashBox.id,
-          requestType: 'petty_cash',
-          requestedBy: args.requesterId,
-          status: {
-            in: [
-              PrStatus.draft,
-              PrStatus.pending_caissier,
-              PrStatus.approved,
-            ],
-          },
-          requestedAt: { gte: start, lte: end },
-        },
-      });
-      const todaySpent = Number(agg._sum?.totalAmount ?? 0);
-      const perDayMax = Number(cashBox.perDayUserMax);
-      if (todaySpent + args.totalAmount > perDayMax) {
+      const todaySpentXof = await this.computeUserDailyCashXof(cashBox.id, args.requesterId);
+      const perDayMaxXof = (
+        await this.fx.convertToXof(cashBox.perDayUserMax, cashBox.currency)
+      ).xofAmount;
+      if (todaySpentXof + requestedXof > perDayMaxXof) {
         throw new CashLimitPerDayExceededException(
           cashBox.id,
-          todaySpent,
-          args.totalAmount,
-          perDayMax,
+          todaySpentXof,
+          requestedXof,
+          perDayMaxXof,
+          {
+            prCurrency: args.currency,
+            prTotalNative: args.totalAmount,
+            cashBoxCurrency: cashBox.currency,
+            perDayUserMaxNative: Number(cashBox.perDayUserMax),
+          },
         );
       }
     }
+  }
+
+  /**
+   * Somme EN XOF des DA petty_cash du jour pour un demandeur sur une caisse.
+   * US-011 : on fetche chaque DA (avec sa devise + date) et on convertit en
+   * XOF AVANT de sommer — un `aggregate(_sum)` perdrait la devise et
+   * mélangerait des montants hétérogènes (cf. même contrainte qu'US-010).
+   */
+  private async computeUserDailyCashXof(cashBoxId: string, requesterId: string): Promise<number> {
+    const start = new Date();
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date();
+    end.setUTCHours(23, 59, 59, 999);
+
+    const todays = await this.prisma.purchaseRequest.findMany({
+      where: {
+        cashBoxId,
+        requestType: 'petty_cash',
+        requestedBy: requesterId,
+        status: { in: [PrStatus.draft, PrStatus.pending_caissier, PrStatus.approved] },
+        requestedAt: { gte: start, lte: end },
+      },
+      select: { totalAmount: true, currency: true, requestedAt: true },
+    });
+
+    let sumXof = 0;
+    for (const d of todays) {
+      const xof = await this.fx.convertToXof(d.totalAmount, d.currency, d.requestedAt);
+      sumXof += xof.xofAmount;
+    }
+    return sumXof;
   }
 
   // ------------------------------------------------------------------
