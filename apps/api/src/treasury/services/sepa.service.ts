@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { create } from 'xmlbuilder2';
 import { SepaGenerationFailedException } from '../../common/exceptions/business.exception';
 
@@ -83,8 +84,11 @@ export class SepaService {
     }
 
     try {
+      // Somme de contrôle exacte en Prisma.Decimal (F10). Les montants sont
+      // des chaînes 2-décimales ; le constructeur Decimal les parse sans
+      // perte float, contrairement à une addition Number().
       const ctrlSum = payload.transactions
-        .reduce((s, t) => s + Number(t.amount), 0)
+        .reduce((s, t) => s.plus(new Prisma.Decimal(t.amount)), new Prisma.Decimal(0))
         .toFixed(2);
       const nbOfTxs = payload.transactions.length;
 

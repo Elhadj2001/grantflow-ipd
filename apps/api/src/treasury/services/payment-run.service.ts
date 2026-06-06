@@ -154,10 +154,11 @@ export class PaymentRunService {
     const invoices = await this.loadAndValidateInvoices(dto.invoiceIds, currency);
 
     const paymentDate = dto.paymentDate ?? new Date();
-    const totalAmount = invoices.reduce(
-      (s, i) => s + this.remainingAmount(i),
-      0,
-    );
+    // Somme exacte en Prisma.Decimal (F10) ; conversion number au point
+    // d'écriture (la colonne accepte number, contrat historique préservé).
+    const totalAmount = invoices
+      .reduce((s, i) => s.plus(this.remainingAmount(i)), new Prisma.Decimal(0))
+      .toNumber();
 
     return this.prisma.$transaction(async (tx) => {
       const runNumber = await this.generateRunNumber(tx);
@@ -233,7 +234,11 @@ export class PaymentRunService {
         })),
       });
       const allPayments = await tx.payment.findMany({ where: { paymentRunId: runId } });
-      const totalAmount = allPayments.reduce((s, p) => s + Number(p.amount), 0);
+      // Somme exacte en Prisma.Decimal (F10) ; conversion number au point
+      // d'écriture (la colonne accepte number, contrat historique préservé).
+      const totalAmount = allPayments
+        .reduce((s, p) => s.plus(p.amount), new Prisma.Decimal(0))
+        .toNumber();
       await tx.paymentRun.update({
         where: { id: runId },
         data: { totalAmount },
@@ -270,7 +275,11 @@ export class PaymentRunService {
         where: { id: { in: paymentIds }, paymentRunId: runId },
       });
       const allPayments = await tx.payment.findMany({ where: { paymentRunId: runId } });
-      const totalAmount = allPayments.reduce((s, p) => s + Number(p.amount), 0);
+      // Somme exacte en Prisma.Decimal (F10) ; conversion number au point
+      // d'écriture (la colonne accepte number, contrat historique préservé).
+      const totalAmount = allPayments
+        .reduce((s, p) => s.plus(p.amount), new Prisma.Decimal(0))
+        .toNumber();
       await tx.paymentRun.update({
         where: { id: runId },
         data: { totalAmount },
@@ -451,9 +460,13 @@ export class PaymentRunService {
           where: { invoiceId: p.invoiceId, status: 'executed' },
           _sum: { amount: true },
         });
-        const totalPaid = Number(totalPaidRow._sum.amount ?? 0);
-        const totalTtc = Number(p.invoice.totalTtc);
-        const fullyPaid = totalPaid >= totalTtc - 0.01;
+        // Comparaison exacte en Prisma.Decimal (F10). La tolérance flottante
+        // « − 0.01 » historique contournait l'imprécision de la somme float64 ;
+        // avec un cumul Decimal exact elle n'a plus lieu d'être : on teste
+        // strictement cumulPaid >= totalTtc.
+        const cumulPaid = new Prisma.Decimal(totalPaidRow._sum.amount ?? 0);
+        const totalTtc = new Prisma.Decimal(p.invoice.totalTtc);
+        const fullyPaid = cumulPaid.gte(totalTtc);
         await tx.invoice.update({
           where: { id: p.invoiceId },
           data: { status: fullyPaid ? InvoiceStatus.paid : InvoiceStatus.partially_paid },
@@ -664,13 +677,18 @@ export class PaymentRunService {
 
   /** Reste à payer = totalTtc − Σ(payments executed). Cas typique 1ʳᵉ
    *  passe : remaining = totalTtc. Cas paiement partiel : on reprend la
-   *  différence. */
+   *  différence. Calcul en Prisma.Decimal (exact) ; conversion en number
+   *  uniquement à la frontière de retour (F10). */
   private remainingAmount(
     invoice: { totalTtc: Prisma.Decimal; payments: { amount: Prisma.Decimal }[] },
   ): number {
-    const totalTtc = Number(invoice.totalTtc);
-    const alreadyPaid = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
-    return Math.max(0, totalTtc - alreadyPaid);
+    const totalTtc = new Prisma.Decimal(invoice.totalTtc);
+    const alreadyPaid = invoice.payments.reduce(
+      (s, p) => s.plus(p.amount),
+      new Prisma.Decimal(0),
+    );
+    const remaining = totalTtc.minus(alreadyPaid);
+    return remaining.isNegative() ? 0 : remaining.toNumber();
   }
 
   private async loadAndValidateInvoices(

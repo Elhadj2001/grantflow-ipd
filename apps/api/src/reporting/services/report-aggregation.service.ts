@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   DonorTemplateHasNoMappingsException,
@@ -111,14 +112,15 @@ export class ReportAggregationService {
       });
     }
 
-    // Accumulateur par categoryId
-    const spentByCategory = new Map<string, number>();
+    // Accumulateur par categoryId (en Decimal pour préserver la précision —
+    // produit montant XOF × taux FX × sens, cf. ADR-005 / audit F10)
+    const spentByCategory = new Map<string, Prisma.Decimal>();
     for (const [accountCode, signedAmountXof] of sumsByAccount) {
       const mapping = categoryByAccount.get(accountCode);
       if (!mapping) continue; // compte non mappé — ignoré
-      const inTarget = signedAmountXof * fxRateUsed * mapping.sign;
-      const acc = spentByCategory.get(mapping.categoryId) ?? 0;
-      spentByCategory.set(mapping.categoryId, acc + inTarget);
+      const inTarget = signedAmountXof.times(fxRateUsed).times(mapping.sign);
+      const acc = spentByCategory.get(mapping.categoryId) ?? new Prisma.Decimal(0);
+      spentByCategory.set(mapping.categoryId, acc.plus(inTarget));
     }
 
     // Budget par categorie : on cherche les budget_lines associées à la
@@ -133,21 +135,29 @@ export class ReportAggregationService {
       input.periodEnd,
     );
 
-    // Construit les lignes finales en respectant l'ordre des categories
+    // Construit les lignes finales en respectant l'ordre des categories.
+    // Agrégats internes en Decimal ; conversion .toNumber() seulement au
+    // remplissage des champs DTO (number) — cf. audit F10.
+    const spentDecByCategory = new Map<string, Prisma.Decimal>();
+    const budgetDecByCategory = new Map<string, Prisma.Decimal>();
     const lines: AggregatedCategoryLine[] = template.categories.map((c) => {
-      const spent = this.round2(spentByCategory.get(c.id) ?? 0);
-      const budget = this.round2(budgetByCategory.get(c.id) ?? 0);
-      const variance = this.round2(spent - budget);
-      const variancePct = budget > 0 ? this.round4((variance / budget) * 100) : 0;
+      const spentDec = this.roundDec2(spentByCategory.get(c.id) ?? new Prisma.Decimal(0));
+      const budgetDec = this.roundDec2(budgetByCategory.get(c.id) ?? new Prisma.Decimal(0));
+      const varianceDec = this.roundDec2(spentDec.minus(budgetDec));
+      const variancePctDec = budgetDec.greaterThan(0)
+        ? this.roundDec4(varianceDec.div(budgetDec).times(100))
+        : new Prisma.Decimal(0);
+      spentDecByCategory.set(c.id, spentDec);
+      budgetDecByCategory.set(c.id, budgetDec);
       return {
         donorCategoryId: c.id,
         categoryCode: c.code,
         categoryLabel: c.label,
-        budgetAmount: budget,
-        spentAmount: spent,
-        variance,
-        variancePct,
-        alert: Math.abs(variancePct) > VARIANCE_ALERT_THRESHOLD_PCT,
+        budgetAmount: budgetDec.toNumber(),
+        spentAmount: spentDec.toNumber(),
+        variance: varianceDec.toNumber(),
+        variancePct: variancePctDec.toNumber(),
+        alert: variancePctDec.abs().greaterThan(VARIANCE_ALERT_THRESHOLD_PCT),
       };
     });
 
@@ -159,10 +169,15 @@ export class ReportAggregationService {
       fxRateUsed,
     );
 
-    const totalSpent = this.round2(
-      lines.reduce((s, l) => s + l.spentAmount, 0) + totalOverhead,
+    const totalSpentDec = this.roundDec2(
+      lines
+        .reduce((s, l) => s.plus(spentDecByCategory.get(l.donorCategoryId) ?? new Prisma.Decimal(0)), new Prisma.Decimal(0))
+        .plus(totalOverhead),
     );
-    const totalBudget = this.round2(lines.reduce((s, l) => s + l.budgetAmount, 0));
+    const totalSpent = totalSpentDec.toNumber();
+    const totalBudget = this.roundDec2(
+      lines.reduce((s, l) => s.plus(budgetDecByCategory.get(l.donorCategoryId) ?? new Prisma.Decimal(0)), new Prisma.Decimal(0)),
+    ).toNumber();
 
     // Funds carried over : grant.amount converti en target currency − totalSpent
     const grant = await this.prisma.grantAgreement.findUnique({
@@ -171,15 +186,13 @@ export class ReportAggregationService {
     });
     let fundsCarried = 0;
     if (grant) {
-      const grantAmountXof = await this.toXof(
-        Number(grant.amount),
-        grant.currency,
-        input.periodEnd,
-      );
-      const grantInTarget = this.round2(grantAmountXof * fxRateUsed);
-      fundsCarried = Math.max(0, this.round2(grantInTarget - totalSpent));
+      const grantAmountXof = await this.toXof(grant.amount, grant.currency, input.periodEnd);
+      const grantInTarget = this.roundDec2(grantAmountXof.times(fxRateUsed));
+      const carriedDec = this.roundDec2(grantInTarget.minus(totalSpentDec));
+      fundsCarried = carriedDec.greaterThan(0) ? carriedDec.toNumber() : 0;
     }
 
+    const fxRateUsedNum = fxRateUsed.toNumber();
     this.logger.log(
       {
         templateCode: template.code,
@@ -188,12 +201,19 @@ export class ReportAggregationService {
         totalSpent,
         totalOverhead,
         fundsCarried,
-        fxRateUsed,
+        fxRateUsed: fxRateUsedNum,
       },
       'donor report aggregated',
     );
 
-    return { lines, totalBudget, totalSpent, totalOverhead, fundsCarried, fxRateUsed };
+    return {
+      lines,
+      totalBudget,
+      totalSpent,
+      totalOverhead,
+      fundsCarried,
+      fxRateUsed: fxRateUsedNum,
+    };
   }
 
   // ------------------------------------------------------------------
@@ -209,7 +229,7 @@ export class ReportAggregationService {
     accountCodes: string[],
     periodStart: Date,
     periodEnd: Date,
-  ): Promise<Map<string, number>> {
+  ): Promise<Map<string, Prisma.Decimal>> {
     const rows = await this.prisma.journalLine.groupBy({
       by: ['accountCode'],
       where: {
@@ -222,11 +242,11 @@ export class ReportAggregationService {
       },
       _sum: { debit: true, credit: true },
     });
-    const out = new Map<string, number>();
+    const out = new Map<string, Prisma.Decimal>();
     for (const r of rows) {
-      const d = Number(r._sum.debit ?? 0);
-      const c = Number(r._sum.credit ?? 0);
-      out.set(r.accountCode, d - c);
+      const d = r._sum.debit ?? new Prisma.Decimal(0);
+      const c = r._sum.credit ?? new Prisma.Decimal(0);
+      out.set(r.accountCode, d.minus(c));
     }
     return out;
   }
@@ -245,16 +265,16 @@ export class ReportAggregationService {
     templateId: string,
     targetCurrency: string,
     periodEnd: Date,
-  ): Promise<Map<string, number>> {
+  ): Promise<Map<string, Prisma.Decimal>> {
     const grant = await this.prisma.grantAgreement.findUnique({
       where: { id: grantId },
       select: { currency: true },
     });
     if (!grant) return new Map();
 
-    const grantToXof = await this.toXof(1, grant.currency, periodEnd);
+    const grantToXof = await this.toXof(new Prisma.Decimal(1), grant.currency, periodEnd);
     const xofToTarget = await this.lookupFxRate('XOF', targetCurrency, periodEnd);
-    const factor = grantToXof * xofToTarget;
+    const factor = grantToXof.times(xofToTarget);
 
     const budgetLines = await this.prisma.budgetLine.findMany({
       where: { grantId },
@@ -268,13 +288,13 @@ export class ReportAggregationService {
     const categoryByAccount = new Map<string, string>();
     for (const m of mappings) categoryByAccount.set(m.glAccountCode, m.donorCategoryId);
 
-    const out = new Map<string, number>();
+    const out = new Map<string, Prisma.Decimal>();
     for (const bl of budgetLines) {
       if (!bl.defaultAccount) continue;
       const categoryId = categoryByAccount.get(bl.defaultAccount);
       if (!categoryId) continue;
-      const amt = Number(bl.budgetedAmount) * factor;
-      out.set(categoryId, (out.get(categoryId) ?? 0) + amt);
+      const amt = bl.budgetedAmount.times(factor);
+      out.set(categoryId, (out.get(categoryId) ?? new Prisma.Decimal(0)).plus(amt));
     }
     return out;
   }
@@ -287,7 +307,7 @@ export class ReportAggregationService {
     grantId: string,
     periodStart: Date,
     periodEnd: Date,
-    xofToTarget: number,
+    xofToTarget: Prisma.Decimal,
   ): Promise<number> {
     const rows = await this.prisma.overheadCalculation.findMany({
       where: {
@@ -296,18 +316,25 @@ export class ReportAggregationService {
       },
       select: { overheadAmount: true },
     });
-    const totalXof = rows.reduce((s, r) => s + Number(r.overheadAmount ?? 0), 0);
-    return this.round2(totalXof * xofToTarget);
+    const totalXof = rows.reduce(
+      (s, r) => s.plus(r.overheadAmount ?? new Prisma.Decimal(0)),
+      new Prisma.Decimal(0),
+    );
+    return this.round2(totalXof.times(xofToTarget).toNumber());
   }
 
   /**
    * Convertit 1 unité de `from` en XOF (devise des livres) à la date
    * la plus récente ≤ targetDate. Si from=XOF, renvoie 1.
    */
-  private async toXof(amount: number, from: string, targetDate: Date): Promise<number> {
+  private async toXof(
+    amount: Prisma.Decimal,
+    from: string,
+    targetDate: Date,
+  ): Promise<Prisma.Decimal> {
     if (from === 'XOF') return amount;
     const rate = await this.lookupFxRate(from, 'XOF', targetDate);
-    return amount * rate;
+    return amount.times(rate);
   }
 
   /**
@@ -315,19 +342,23 @@ export class ReportAggregationService {
    * REPORTING_FX_RATE_MISSING sinon. Le taux retourné s'applique en
    * multiplication (amount_from * rate = amount_to).
    */
-  private async lookupFxRate(from: string, to: string, targetDate: Date): Promise<number> {
-    if (from === to) return 1;
+  private async lookupFxRate(
+    from: string,
+    to: string,
+    targetDate: Date,
+  ): Promise<Prisma.Decimal> {
+    if (from === to) return new Prisma.Decimal(1);
     const direct = await this.prisma.exchangeRate.findFirst({
       where: { fromCurrency: from, toCurrency: to, rateDate: { lte: targetDate } },
       orderBy: { rateDate: 'desc' },
     });
-    if (direct) return Number(direct.rate);
+    if (direct) return direct.rate;
     // Tente l'inverse : si rate(B→A) existe, on peut faire 1/rate
     const inverse = await this.prisma.exchangeRate.findFirst({
       where: { fromCurrency: to, toCurrency: from, rateDate: { lte: targetDate } },
       orderBy: { rateDate: 'desc' },
     });
-    if (inverse) return 1 / Number(inverse.rate);
+    if (inverse) return new Prisma.Decimal(1).div(inverse.rate);
     throw new ReportingFxRateMissingException(
       from,
       to,
@@ -338,7 +369,13 @@ export class ReportAggregationService {
   private round2(v: number): number {
     return Math.round(v * 100) / 100;
   }
-  private round4(v: number): number {
-    return Math.round(v * 10000) / 10000;
+
+  /** Arrondi Decimal à 2 décimales (préserve la précision, cf. audit F10). */
+  private roundDec2(v: Prisma.Decimal): Prisma.Decimal {
+    return v.toDecimalPlaces(2);
+  }
+  /** Arrondi Decimal à 4 décimales (pourcentages de variance). */
+  private roundDec4(v: Prisma.Decimal): Prisma.Decimal {
+    return v.toDecimalPlaces(4);
   }
 }

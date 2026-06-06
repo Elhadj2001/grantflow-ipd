@@ -111,16 +111,19 @@ export class AccrualService {
     }
 
     const lines: AccrualLineResult[] = [];
-    let totalAccrued = 0;
+    // Cumul exact (Decimal) des montants accruisés (cf. F10).
+    let totalAccruedDec = new Prisma.Decimal(0);
 
     for (const gr of eligibleGrs) {
       const line = await this.processOneReceipt(actor, period, nextPeriod, gr);
       lines.push(line);
-      if (!line.skippedReason) totalAccrued += line.amount;
+      if (!line.skippedReason) totalAccruedDec = totalAccruedDec.plus(line.amount);
     }
 
     const processed = lines.filter((l) => !l.skippedReason).length;
     const skipped = lines.length - processed;
+    // Frontières (JSON payload, log, DTO) : un number arrondi 2 décimales.
+    const totalAccrued = this.round2(totalAccruedDec);
 
     // Trace dans period_close_event (audit bailleur)
     await this.prisma.periodCloseEvent.create({
@@ -153,7 +156,7 @@ export class AccrualService {
       periodCode: period.code,
       processed,
       skipped,
-      totalAccrued: this.round2(totalAccrued),
+      totalAccrued,
       currency: 'XOF',
       lines,
       reversalsPeriodId: nextPeriod?.id ?? null,
@@ -265,24 +268,28 @@ export class AccrualService {
       };
     }
 
-    // Construction des lignes de débit (1 par GR line) avec imputation
+    // Construction des lignes de débit (1 par GR line) avec imputation.
+    // Montants conservés en Decimal exact (prix unitaire × quantité) — la
+    // conversion en number ne se fait qu'aux frontières DTO (cf. F10).
     interface DebitLineSpec {
       lineNumber: number;
       accountCode: string;
       label: string;
-      amount: number;
+      amount: Prisma.Decimal;
       grantId: string | null;
       budgetLineId: string | null;
       projectId: string | null;
     }
     const debitLines: DebitLineSpec[] = [];
     let lineNumber = 1;
-    let total = 0;
+    let total = new Prisma.Decimal(0);
     for (const grLine of gr.lines) {
-      const unitPrice = Number(grLine.poLine.unitPrice);
-      const qty = Number(grLine.quantity);
-      const amount = this.round2(unitPrice * qty);
-      if (amount <= 0) continue;
+      const unitPrice = new Prisma.Decimal(grLine.poLine.unitPrice);
+      const qty = new Prisma.Decimal(grLine.quantity);
+      // Arrondi à 2 décimales en Decimal exact (ROUND_HALF_UP, cohérent
+      // avec Math.round positif de round2).
+      const amount = unitPrice.times(qty).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      if (amount.lte(0)) continue;
       const account =
         grLine.poLine.budgetLine.defaultAccount ?? ACCOUNT_FALLBACK_EXPENSE;
       debitLines.push({
@@ -294,10 +301,10 @@ export class AccrualService {
         budgetLineId: grLine.poLine.budgetLineId,
         projectId: grLine.poLine.budgetLine.grant.projectId,
       });
-      total += amount;
+      total = total.plus(amount);
     }
-    total = this.round2(total);
-    if (total <= 0) {
+    total = total.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    if (total.lte(0)) {
       return {
         grId: gr.id,
         grNumber: gr.grNumber,
@@ -332,7 +339,7 @@ export class AccrualService {
         lineNumber: dl.lineNumber,
         accountCode: dl.accountCode,
         label: dl.label,
-        debit: new Prisma.Decimal(dl.amount.toString()),
+        debit: dl.amount,
         credit: new Prisma.Decimal(0),
         currency: gr.po.currency,
         grantId: dl.grantId,
@@ -345,7 +352,7 @@ export class AccrualService {
         accountCode: ACCOUNT_FNP,
         label: `FNP ${gr.grNumber} - contrepartie 408`,
         debit: new Prisma.Decimal(0),
-        credit: new Prisma.Decimal(total.toString()),
+        credit: total,
         currency: gr.po.currency,
         // On garde l'imputation analytique sur le 408 aussi pour les rapports
         // par grant (CLAUDE.md §2 règle 1).
@@ -384,7 +391,7 @@ export class AccrualService {
           lineNumber: 1,
           accountCode: ACCOUNT_FNP,
           label: `Extourne FNP 408 ${gr.grNumber}`,
-          debit: new Prisma.Decimal(total.toString()),
+          debit: total,
           credit: new Prisma.Decimal(0),
           currency: gr.po.currency,
           grantId: debitLines[0]?.grantId ?? null,
@@ -396,7 +403,7 @@ export class AccrualService {
           accountCode: dl.accountCode,
           label: `Extourne ${dl.label}`.slice(0, 256),
           debit: new Prisma.Decimal(0),
-          credit: new Prisma.Decimal(dl.amount.toString()),
+          credit: dl.amount,
           currency: gr.po.currency,
           grantId: dl.grantId,
           budgetLineId: dl.budgetLineId,
@@ -426,7 +433,8 @@ export class AccrualService {
       grId: gr.id,
       grNumber: gr.grNumber,
       poNumber: gr.po.poNumber,
-      amount: total,
+      // Frontière DTO (AccrualLineResult.amount: number).
+      amount: total.toNumber(),
       currency: gr.po.currency,
       accrualEntryId: result.fnpId,
       reversalEntryId: result.reversalId,
@@ -463,8 +471,9 @@ export class AccrualService {
     return h;
   }
 
-  private round2(v: number): number {
-    return Math.round(v * 100) / 100;
+  private round2(v: Prisma.Decimal | number): number {
+    const n = v instanceof Prisma.Decimal ? v.toNumber() : v;
+    return Math.round(n * 100) / 100;
   }
 }
 
