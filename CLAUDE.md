@@ -2,6 +2,15 @@
 
 > Ce fichier est lu automatiquement par Claude (dans Cowork, Claude Code, Antigravity et tout autre agent compatible). Il fournit le contexte indispensable pour collaborer efficacement.
 
+## 0. Documents de référence (lire avant toute action structurante)
+
+- **`docs/cadrage-phase-0.md`** — note de cadrage stratégique : domaine métier IPD, mapping vs codebase, hypothèses Q1-Q5, modélisation conceptuelle, plan 12 mois.
+- **`docs/adr/`** — Architecture Decision Records (DDL-first, Modular monolith, Multidevise tripartite, Grant Office, Eligibility engine, SoD, Immutabilité rapports).
+- **`docs/memoire-plan.md`** — plan du mémoire MIAGE et trajectoire de rédaction.
+- **`docs/backlog-initial.md`** — backlog sprintable 12 mois avec user stories US-XXX et critères Gherkin.
+- **`docs/audit-codebase-2026-06-02.md`** — audit transversal 28 findings, base de la roadmap de résorption.
+- **`docs/INDEX.md`** — point d'entrée navigable de toute la documentation.
+
 ## 1. Identité du projet
 
 - **Nom** : GRANTFLOW IPD
@@ -9,10 +18,11 @@
 - **Client / structure** : Institut Pasteur de Dakar — Direction Finance & Comptabilité
 - **Cadre** : Mémoire MIAGE 2025/2026 — El Hadj Amadou NIANG
 - **Référentiel comptable** : SYSCEBNL (OHADA) — fiscalité sénégalaise
+- **Soutenance cible** : fin mai 2027
 
 ## 2. Vocabulaire et règles d'or
 
-### Acronymes à connaître
+### Acronymes et entités à connaître
 - **DA** = Demande d'Achat (Purchase Request, PR)
 - **BC** = Bon de Commande (Purchase Order, PO)
 - **GR** = Goods Receipt (réception)
@@ -20,24 +30,34 @@
 - **CCA / PCA** = Charges / Produits Constatés d'Avance
 - **TER** = Tableau des Emplois et Ressources (état SYSCEBNL)
 - **PI** = Principal Investigator (responsable scientifique)
-- **DAF** = Directeur Administratif et Financier
-- **Overhead** = frais administratifs facturables au bailleur (taux conventionnel)
+- **GO** = Grant Office (cellule administrative IPD interface bailleurs ↔ opérationnel — rédige la **Note Technique**)
+- **DAF** = Directeur Administratif et Financier (valide Note Technique, co-signe rapports financiers)
+- **Directeur** = Directeur Général ou Scientifique (co-signe rapports bailleur avec le DAF)
+- **CG** = Contrôleur de Gestion (imputation analytique, disponibilité budgétaire)
+- **Overhead** = frais administratifs facturables au bailleur (taux conventionnel, peut être différencié par catégorie de dépense — cf. ADR-006)
+- **Note Technique** = document GO traduisant une convention en infrastructure budgétaire activée (entité de premier plan, cf. ADR-006)
+- **Eligibility Engine** = moteur centralisé de validation des règles d'éligibilité issues du PPT IPD (cf. ADR-007)
+- **Maquette bailleur** = template de rapport financier imposé par le bailleur, utilisé tel quel par le système
 
 ### Règles d'or
-1. **Imputation analytique obligatoire à la source** (dès la DA) : projet + grant + ligne budgétaire + centre de coût + activité.
+1. **Imputation analytique obligatoire à la source** (dès la DA) : projet + grant + ligne budgétaire + centre de coût + activité + nature de dépense.
 2. **Comptabilité d'engagement** : un BC validé crée une écriture en classe 8 ; une facture crée une écriture en classe 4/6.
-3. **Contrôle budgétaire** : aucune DA ne peut être soumise si le solde de la ligne budgétaire est insuffisant.
-4. **Multidevises** : la comptabilité est tenue en XOF ; les écritures multidevises stockent la valeur en devise + équivalent XOF + taux.
-5. **Piste d'audit immuable** : toute écriture et toute modification est journalisée avec chaînage hash SHA-256.
-6. **Séparation des tâches** : le saisisseur ≠ le valideur (pour les DA, BC, factures, écritures, paiements).
-7. **Périodes fiscales** : aucune écriture ne peut être passée ou modifiée dans une période close.
+3. **Contrôle budgétaire en XOF** : aucune DA ne peut être soumise si l'équivalent XOF de la dépense fait dépasser le solde de la ligne budgétaire (cf. ADR-005).
+4. **Multidevise tripartite** : devise transactionnelle + fonctionnelle XOF (tenue SYSCEBNL) + devise de reporting (selon contexte). Stockage systématique du triplet `*_amount`, `*_amount_xof`, `*_fx_rate`, `*_fx_rate_date` (cf. ADR-005).
+5. **Piste d'audit immuable** : toute écriture et toute modification est journalisée avec chaînage hash SHA-256 au niveau du trigger PostgreSQL `audit.compute_hash_chain`.
+6. **Séparation des tâches enforced par identité** : le saisisseur ≠ le valideur pour DA, BC, GR, factures, écritures, paiements. Dérogation explicite via convention `single_actor_authorized` ou break-glass SUPER_ADMIN avec `bypass_reason` obligatoire (cf. ADR-009).
+7. **Périodes fiscales** : aucune écriture ne peut être passée ou modifiée dans une période close (trigger `gl.check_period_open`).
+8. **Eligibility engine centralisé** : aucune validation d'éligibilité métier (nature, date, plafond, refacturation Pasteur Paris) ne doit exister hors du moteur `EligibilityEngine` (cf. ADR-007).
+9. **Note Technique comme source de vérité budgétaire** : les contraintes d'éligibilité, le taux d'overhead, les échéances de reporting sont portées par la Note Technique active de la convention, pas par le Grant nu (cf. ADR-006).
+10. **Immutabilité des rapports publiés** : un rapport bailleur transmis ne peut pas être modifié ; toute correction crée une nouvelle version avec **colonne d'ajustement** explicite et nouveau total (cf. ADR-011).
 
 ### Données toujours à respecter
 - Devise par défaut : **XOF** (Franc CFA UEMOA)
 - Fuseau horaire : **Africa/Dakar (UTC+0)**
-- Langue UI primaire : **français**, secondaire : **anglais** (i18n)
+- Langue UI : **français uniquement**. L'internationalisation est portée par les **rapports bailleur uniquement** (selon la maquette transmise par chaque bailleur, souvent EN). Pas d'i18n UI prévue (cf. cadrage Q4 et ADR-008).
 - Format des dates : **ISO 8601** (`YYYY-MM-DD`) en base, format français côté UI (`14/05/2026`)
 - Format des nombres : **séparateur de milliers = espace insécable**, décimal = virgule
+- Parité fixe BCEAO : **1 EUR = 655,957 XOF** (immuable, garantie Trésor français). Codée en dur dans `ExchangeRateService`.
 
 ## 3. Architecture
 
@@ -47,7 +67,8 @@
 - **Redis + BullMQ** pour les jobs asynchrones (OCR, génération de rapports, runs de paiement).
 - **MinIO** pour le stockage des PDF de factures et pièces jointes.
 - **Keycloak** pour l'authentification OIDC + MFA + RBAC.
-- **Schémas Postgres** par bounded context : `auth`, `ref`, `procurement`, `ap`, `gl`, `co`, `reporting`, `audit`.
+- **Schémas Postgres** par bounded context : `auth`, `ref`, `procurement`, `ap`, `gl`, `co`, `reporting`, `audit`. À étendre Phase 5A avec `grant_office` (Note Technique, eligibility, overhead rules) et `compliance_audit` (audit conventionnel).
+- **Cloud cible 12 mois** : Render (API + Keycloak Docker) + Vercel (Web) + Neon (Postgres) + Cloudflare R2 (storage) + Mailtrap (SMTP sandbox). Migration vers infra IPD on-premise prévue post-soutenance (cf. ADR-013 à formaliser).
 
 ## 4. Conventions de code
 
@@ -118,14 +139,20 @@ Quand Claude m'aide (Cowork, Antigravity, etc.) :
 
 ## 8. À ne pas faire
 
-- ❌ Pas d'écriture comptable sans imputation analytique.
-- ❌ Pas de modification d'une période fiscale close.
+- ❌ Pas d'écriture comptable sans imputation analytique complète (projet + grant + ligne + cost center + activité + nature).
+- ❌ Pas de modification d'une période fiscale close (trigger PG l'empêche, mais valider en amont applicatif aussi).
 - ❌ Pas de soft delete d'une écriture validée (`posted`).
 - ❌ Pas de stockage de mot de passe en base (Keycloak gère).
-- ❌ Pas de hardcoding du taux d'overhead (vient de la convention).
+- ❌ Pas de hardcoding du taux d'overhead (vient de la Note Technique active de la convention).
 - ❌ Pas de duplication de logique métier entre `apps/web` et `apps/api` : factoriser dans `packages/shared`.
 - ❌ Pas d'utilisation de `prisma migrate dev` ou `prisma migrate deploy` (voir section 9).
 - ❌ Pas d'écriture côté code applicatif des colonnes `GENERATED ALWAYS AS STORED` (`line_total`, `overhead_amount`) — PostgreSQL les calcule.
+- ❌ Pas de comparaison de montant brut à un seuil XOF sans conversion préalable via `ExchangeRateService.convertToXof` (cf. ADR-005).
+- ❌ Pas de validation d'éligibilité métier (nature, date, plafond, refacturation Pasteur Paris) hors du moteur `EligibilityEngine` (cf. ADR-007).
+- ❌ Pas d'approbation par le créateur de l'opération (saisisseur ≠ valideur, cf. ADR-009). Dérogation = convention `single_actor_authorized = true` ou header `X-Bypass-SoD-Reason`.
+- ❌ Pas de modification d'un rapport bailleur en statut `transmitted` (cf. ADR-011). Toute correction = nouvelle version avec colonne d'ajustement.
+- ❌ Pas de `Number(decimal)` sur un montant Decimal Prisma utilisé dans un agrégat ou une comparaison comptable (perte de précision float64 — cf. audit finding F10).
+- ❌ Pas de validation d'éligibilité Zod en doublon de l'EligibilityEngine : Zod valide la structure, le moteur valide la cohérence métier.
 
 ## 9. Workflow base de données — DDL-first (CRITIQUE)
 
@@ -168,6 +195,20 @@ npm run prisma:seed
 6. Vérifier que les triggers, CHECK et GENERATED sont toujours présents (`\d+ table_name` dans psql).
 7. Ajouter un test d'intégration qui couvre la nouvelle contrainte.
 
+### Convention sprint : section additive DDL + migration extraite
+
+Chaque sprint qui touche au DDL ajoute :
+1. Une section additive idempotente en fin de `grantflow_ddl_postgresql.sql`,
+   délimitée par un commentaire `-- Sprint SX / US-XXX — description`.
+   Tous les `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, `CREATE INDEX
+   IF NOT EXISTS`, etc.
+2. Un fichier migration extrait dans `docs/migrations/YYYY-MM-DD-sprint-SX-description.sql`
+   contenant strictement la même section, en-tête de traçabilité, et
+   requête de vérification post-migration.
+3. Le DDL principal reste la source de vérité ; le fichier migration
+   est un extrait dérivé pour application opérationnelle sur les
+   bases existantes (Neon prod, dev local) sans rejouer tout le DDL.
+
 ### Colonnes calculées : règle d'or
 Ne JAMAIS écrire dans le code applicatif les colonnes calculées par PostgreSQL :
 - `purchase_request_line.line_total`
@@ -179,4 +220,16 @@ Les modèles Prisma les exposent en lecture seule de fait — toute tentative d'
 
 ---
 
-_Dernière mise à jour : 14/05/2026 — El Hadj Amadou NIANG_
+## 10. Workflow de développement (cadence sprint)
+
+Le projet est désormais cadencé en **sprints de 2 semaines** (S1, S2, …) avec démarrage le lundi et démo personnelle le vendredi de la 2ᵉ semaine. Le backlog complet est dans `docs/backlog-initial.md`, avec une cadence cible de 36-47 story points par sprint.
+
+**Convention de branche** : `feature/sprint-SX-US-XXX-slug` pour les stories, `fix/finding-FNN-slug` pour les correctifs d'audit.
+
+**Convention de commits** : `<type>(<scope>): <message>` avec types `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `perf`.
+
+**Definition of Done** : code mergé `main`, tests passent, couverture stable, doc à jour (ADR/CLAUDE.md/README module), illustration E2E ou capture quand pertinent.
+
+---
+
+_Dernière mise à jour : 02/06/2026 — El Hadj Amadou NIANG (réalignement post-cadrage Phase 0)_
