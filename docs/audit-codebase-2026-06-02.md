@@ -69,6 +69,8 @@ Un correctif récent (`fix-approval-workflow-currency-conversion`) a branché `E
 
 ### 🔴 F2 — ~28 tests API rouges, défaut systémique (CRITIQUE)
 
+> [Résolu Sprint S2bis — main 6e30f32 — US-060+US-061 : createPrismaMock helper via mockDeep<PrismaService>(), 7 specs migrées (dedicated-funds, posting-payment, posting, goods-receipt, payment-run, purchase-order, purchase-request). Compteur F2 28 → 0. CI 100 % verte (1029/1029).]
+
 Diagnostic initial (5 tests `tx.purchaseRequest.findFirst is not a function`) **confirmé ET étendu**. Cause racine : refactor des générateurs de numéros de séquence `count()`→`findFirst()` (« MAX résilient aux trous ») **non répercuté dans les mocks Prisma littéraux**. Comme `$transaction` passe `prisma` lui-même comme `tx`, tout test atteignant la création plante.
 
 | Service (l.) | Méthode tx manquante | Spec | Rouges |
