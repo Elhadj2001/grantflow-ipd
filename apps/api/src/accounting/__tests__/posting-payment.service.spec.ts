@@ -1,7 +1,7 @@
 import { Prisma, JournalType, EntryStatus, InvoiceStatus } from '@prisma/client';
 import type { BankAccount, Invoice, Payment } from '@prisma/client';
 import { PostingService } from '../services/posting.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
 import {
   BankAccountWrongClassException,
   EntityNotFoundException,
@@ -23,15 +23,24 @@ import {
  *  - listEntriesForPayment filtre sourceType='payment'
  */
 describe('PostingService.postPayment', () => {
-  let prisma: {
-    journalEntry: { create: jest.Mock; update: jest.Mock; count: jest.Mock; findMany: jest.Mock };
-    journalLine: { createMany: jest.Mock };
-    fiscalPeriod: { findMany: jest.Mock };
-    glAccount: { findUnique: jest.Mock };
-    $transaction: jest.Mock;
-    $executeRawUnsafe: jest.Mock;
-  };
+  let prisma: PrismaMock;
   let svc: PostingService;
+
+  // Projection typée des lignes lues sur `journalLine.createMany.mock.calls` :
+  // l'argument est une union Prisma non-indexable (TS7053), on en extrait
+  // strictement les champs lus par les assertions.
+  // `debit`/`credit` sont écrits par la prod comme `Prisma.Decimal` (montant
+  // exact, cf. F10), pas comme `number` : on les lit via `Number()` pour les
+  // assertions de valeur.
+  type LineArg = {
+    accountCode: string;
+    auxiliaryCode?: string;
+    debit: Prisma.Decimal | number;
+    credit: Prisma.Decimal | number;
+    currency: string;
+  };
+  const linesOf = (calls: unknown[][]): LineArg[] =>
+    (calls[0][0] as { data: LineArg[] }).data;
 
   const actor = { id: 'usr-1', email: 'a@x', fullName: 'A' };
   const openPeriod = { id: 'per-1', periodType: 'month', isClosed: false };
@@ -99,89 +108,82 @@ describe('PostingService.postPayment', () => {
   }
 
   beforeEach(() => {
-    prisma = {
-      journalEntry: {
-        create: jest.fn(),
-        update: jest.fn(),
-        count: jest.fn().mockResolvedValue(0),
-        findMany: jest.fn(),
-      },
-      journalLine: { createMany: jest.fn() },
-      fiscalPeriod: { findMany: jest.fn().mockResolvedValue([openPeriod]) },
-      glAccount: { findUnique: jest.fn().mockResolvedValue({ code: '521', class: '5' }) },
-      $transaction: jest.fn(async (cb: unknown) => {
-        if (typeof cb === 'function') return (cb as (tx: unknown) => unknown)(prisma);
-        return Promise.all(cb as unknown[]);
-      }),
-      $executeRawUnsafe: jest.fn().mockResolvedValue(1),
-    };
-    svc = new PostingService(prisma as unknown as PrismaService);
+    prisma = createPrismaMock();
+    // Numérotation : production lit `journalEntry.findFirst` (MAX par préfixe).
+    // null → première pièce de l'année (séquence = 1).
+    prisma.journalEntry.findFirst.mockResolvedValue(null as never);
+    prisma.fiscalPeriod.findMany.mockResolvedValue([openPeriod] as never);
+    prisma.glAccount.findUnique.mockResolvedValue({ code: '521', class: '5' } as never);
+    prisma.$executeRawUnsafe.mockResolvedValue(1 as never);
+    svc = new PostingService(prisma);
   });
 
   it('creates a balanced BQ entry : debit 401 + credit 521', async () => {
-    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' });
-    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' });
+    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' } as never);
     await svc.postPayment(actor, makePayment(), bankXof);
 
-    const lines = prisma.journalLine.createMany.mock.calls[0][0].data;
+    const lines = linesOf(prisma.journalLine.createMany.mock.calls);
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatchObject({
-      accountCode: '401',
-      auxiliaryCode: 'ACME',
-      debit: 118000,
-      credit: 0,
-    });
-    expect(lines[1]).toMatchObject({
-      accountCode: '521',
-      debit: 0,
-      credit: 118000,
-    });
+    expect(lines[0]).toMatchObject({ accountCode: '401', auxiliaryCode: 'ACME' });
+    expect(Number(lines[0].debit)).toBe(118000);
+    expect(Number(lines[0].credit)).toBe(0);
+    expect(lines[1]).toMatchObject({ accountCode: '521' });
+    expect(Number(lines[1].debit)).toBe(0);
+    expect(Number(lines[1].credit)).toBe(118000);
     // balanced
-    const totalDebit = lines.reduce(
-      (s: number, l: { debit: number }) => s + Number(l.debit),
-      0,
-    );
-    const totalCredit = lines.reduce(
-      (s: number, l: { credit: number }) => s + Number(l.credit),
-      0,
-    );
+    const totalDebit = lines.reduce((s: number, l: LineArg) => s + Number(l.debit), 0);
+    const totalCredit = lines.reduce((s: number, l: LineArg) => s + Number(l.credit), 0);
     expect(totalDebit).toBe(totalCredit);
   });
 
   it('numbers entry BQ-YYYY-NNNN with sequence count', async () => {
-    prisma.journalEntry.count.mockResolvedValue(7);
-    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' });
-    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' });
-    const r = await svc.postPayment(actor, makePayment(), bankXof);
     const year = new Date().getFullYear();
+    // Production lit le dernier numéro (MAX) via findFirst puis incrémente.
+    prisma.journalEntry.findFirst.mockResolvedValue({
+      entryNumber: `BQ-${year}-0007`,
+    } as never);
+    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' } as never);
+    const r = await svc.postPayment(actor, makePayment(), bankXof);
     expect(r.entryNumber).toBe(`BQ-${year}-0008`);
-    const createArgs = prisma.journalEntry.create.mock.calls[0][0].data;
+    const createArgs = (
+      prisma.journalEntry.create.mock.calls[0][0] as { data: { journal: JournalType } }
+    ).data;
     expect(createArgs.journal).toBe(JournalType.BQ);
   });
 
   it('sourceType=payment + sourceId=payment.id', async () => {
-    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' });
-    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' });
+    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' } as never);
     await svc.postPayment(actor, makePayment(), bankXof);
-    const createArgs = prisma.journalEntry.create.mock.calls[0][0].data;
+    const createArgs = (
+      prisma.journalEntry.create.mock.calls[0][0] as {
+        data: { sourceType: string; sourceId: string };
+      }
+    ).data;
     expect(createArgs.sourceType).toBe('payment');
     expect(createArgs.sourceId).toBe('pay-1');
   });
 
   it('label includes supplier code and invoice number', async () => {
-    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' });
-    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' });
+    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' } as never);
     await svc.postPayment(actor, makePayment(), bankXof);
-    const createArgs = prisma.journalEntry.create.mock.calls[0][0].data;
+    const createArgs = (
+      prisma.journalEntry.create.mock.calls[0][0] as { data: { label: string } }
+    ).data;
     expect(createArgs.label).toContain('Paiement ACME');
     expect(createArgs.label).toContain('F-001');
   });
 
   it('promotes entry to posted with postedBy + postedAt', async () => {
-    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' });
-    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' });
+    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' } as never);
     await svc.postPayment(actor, makePayment(), bankXof);
-    const updateArgs = prisma.journalEntry.update.mock.calls[0][0];
+    const updateArgs = prisma.journalEntry.update.mock.calls[0][0] as {
+      data: { status: EntryStatus; postedBy: string; postedAt: Date };
+    };
     expect(updateArgs.data).toMatchObject({
       status: EntryStatus.posted,
       postedBy: actor.id,
@@ -196,7 +198,7 @@ describe('PostingService.postPayment', () => {
   });
 
   it('rejects when bank account gl_account is not class 5', async () => {
-    prisma.glAccount.findUnique.mockResolvedValue({ code: '601', class: '6' });
+    prisma.glAccount.findUnique.mockResolvedValue({ code: '601', class: '6' } as never);
     const bank601 = { ...bankXof, glAccountCode: '601' };
     await expect(svc.postPayment(actor, makePayment(), bank601)).rejects.toBeInstanceOf(
       BankAccountWrongClassException,
@@ -204,7 +206,7 @@ describe('PostingService.postPayment', () => {
   });
 
   it('rejects when bank gl_account does not exist', async () => {
-    prisma.glAccount.findUnique.mockResolvedValue(null);
+    prisma.glAccount.findUnique.mockResolvedValue(null as never);
     await expect(svc.postPayment(actor, makePayment(), bankXof)).rejects.toBeInstanceOf(
       EntityNotFoundException,
     );
@@ -213,32 +215,35 @@ describe('PostingService.postPayment', () => {
   it('rejects when fiscal period is closed', async () => {
     prisma.fiscalPeriod.findMany.mockResolvedValue([
       { ...openPeriod, isClosed: true, code: '2026-05' },
-    ]);
+    ] as never);
     await expect(svc.postPayment(actor, makePayment(), bankXof)).rejects.toBeInstanceOf(
       PeriodClosedException,
     );
   });
 
   it('rejects when no fiscal period covers the payment date', async () => {
-    prisma.fiscalPeriod.findMany.mockResolvedValue([]);
+    prisma.fiscalPeriod.findMany.mockResolvedValue([] as never);
     await expect(svc.postPayment(actor, makePayment(), bankXof)).rejects.toBeInstanceOf(
       NoOpenFiscalPeriodException,
     );
   });
 
   it('records the right currency on each journal line', async () => {
-    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' });
-    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' });
+    prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+    prisma.journalEntry.update.mockResolvedValue({ id: 'je-1' } as never);
     await svc.postPayment(actor, makePayment(), bankXof);
-    const lines = prisma.journalLine.createMany.mock.calls[0][0].data;
+    const lines = linesOf(prisma.journalLine.createMany.mock.calls);
     expect(lines[0].currency).toBe('XOF');
     expect(lines[1].currency).toBe('XOF');
   });
 
   it('listEntriesForPayment filters by sourceType=payment and sourceId', async () => {
-    prisma.journalEntry.findMany.mockResolvedValue([{ id: 'je-1' }]);
+    prisma.journalEntry.findMany.mockResolvedValue([{ id: 'je-1' }] as never);
     await svc.listEntriesForPayment('pay-1');
-    const args = prisma.journalEntry.findMany.mock.calls[0][0];
+    const args = prisma.journalEntry.findMany.mock.calls[0][0] as {
+      where: unknown;
+      include?: unknown;
+    };
     expect(args.where).toEqual({ sourceType: 'payment', sourceId: 'pay-1' });
     expect(args.include).toBeDefined();
   });

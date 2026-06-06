@@ -1,7 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { PurchaseRequest, PurchaseRequestLine } from '@prisma/client';
 import { PurchaseRequestService } from '../purchase-request.service';
-import { PrismaService } from '../../prisma/prisma.service';
 import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import {
@@ -16,34 +15,22 @@ import {
 } from '../../common/exceptions/business.exception';
 import type { CreatePurchaseRequestDto } from '../dto/create-pr.dto';
 import type { PurchaseRequestQueryDto } from '../dto/pr-query.dto';
+import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
 
 describe('PurchaseRequestService', () => {
-  let prisma: {
-    purchaseRequest: {
-      findMany: jest.Mock;
-      findUnique: jest.Mock;
-      count: jest.Mock;
-      create: jest.Mock;
-      update: jest.Mock;
-    };
-    purchaseRequestLine: {
-      groupBy: jest.Mock;
-      findMany: jest.Mock;
-      deleteMany: jest.Mock;
-    };
-    purchaseOrderLine: { groupBy: jest.Mock; findMany: jest.Mock };
-    grantAgreement: { findUnique: jest.Mock };
-    budgetLine: { findMany: jest.Mock };
-    approvalStep: { create: jest.Mock };
-    appUser: { findUnique: jest.Mock; create: jest.Mock };
-    cashBox: { findUnique: jest.Mock };
-    purchaseRequestAggregate?: jest.Mock;
-    $transaction: jest.Mock;
-    $executeRawUnsafe: jest.Mock;
-  } & {
-    purchaseRequest: { aggregate: jest.Mock };
-  };
+  let prisma: PrismaMock;
   let svc: PurchaseRequestService;
+
+  // Projection typée du `where` passé au 1er appel `findMany`. mockDeep type
+  // `mock.calls[0][0]` comme l'union d'args Prisma (potentiellement undefined
+  // + index signature absente → TS18048/TS7053). On narrow vers le type Prisma
+  // attendu pour conserver l'autocomplétion et des assertions type-safe.
+  function firstFindManyWhere(): Prisma.PurchaseRequestWhereInput {
+    const args = prisma.purchaseRequest.findMany.mock.calls[0]?.[0] as
+      | { where?: Prisma.PurchaseRequestWhereInput }
+      | undefined;
+    return (args?.where ?? {}) as Prisma.PurchaseRequestWhereInput;
+  }
 
   const projectId = 'prj00000-0000-0000-0000-000000000000';
   const grantId = 'grt00000-0000-0000-0000-000000000000';
@@ -125,53 +112,34 @@ describe('PurchaseRequestService', () => {
   }
 
   beforeEach(() => {
-    prisma = {
-      purchaseRequest: {
-        findMany: jest.fn().mockResolvedValue([]),
-        findUnique: jest.fn(),
-        count: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-        aggregate: jest.fn().mockResolvedValue({ _sum: { totalAmount: null } }),
-      },
-      purchaseRequestLine: {
-        groupBy: jest.fn().mockResolvedValue([]),
-        findMany: jest.fn().mockResolvedValue([]),
-        deleteMany: jest.fn(),
-      },
-      purchaseOrderLine: {
-        groupBy: jest.fn().mockResolvedValue([]),
-        findMany: jest.fn().mockResolvedValue([]),
-      },
-      grantAgreement: { findUnique: jest.fn() },
-      budgetLine: { findMany: jest.fn() },
-      approvalStep: { create: jest.fn() },
-      cashBox: { findUnique: jest.fn() },
-      // Bridge Keycloak.sub → auth.app_user.id : on assume id == actor.id pour le test.
-      appUser: {
-        findUnique: jest.fn(({ where }: { where: { email: string } }) => {
-          const map: Record<string, string> = {
-            'd@x': userOwn,
-            'b@x': userOther,
-            'daf@x': 'usr-daf',
-            'sa@x': 'usr-sa',
-            'acheteur@x': 'usr-acheteur',
-          };
-          const id = map[where.email];
-          return Promise.resolve(id ? { id } : null);
-        }),
-        create: jest.fn(),
-      },
-      $transaction: jest.fn(async (cb: unknown) => {
-        if (typeof cb === 'function') {
-          return (cb as (tx: unknown) => unknown)(prisma);
-        }
-        return Promise.all(cb as unknown[]);
-      }),
-      $executeRawUnsafe: jest.fn().mockResolvedValue(1),
-    };
+    // F2 : mock profond `mockDeep<PrismaService>()` — auto-stube toute méthode
+    // (y compris `tx.purchaseRequest.findFirst` ajouté par le générateur de
+    // numéro de DA). `$transaction` est pré-câblé en passthrough par le helper.
+    // On ne (re)configure ici que les retours dont les assertions dépendent.
+    prisma = createPrismaMock();
+    prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+    prisma.purchaseRequest.aggregate.mockResolvedValue({
+      _sum: { totalAmount: null },
+    } as never);
+    prisma.purchaseRequestLine.findMany.mockResolvedValue([] as never);
+    prisma.purchaseOrderLine.findMany.mockResolvedValue([] as never);
+    prisma.$executeRawUnsafe.mockResolvedValue(1 as never);
+    // Bridge Keycloak.sub → auth.app_user.id : on assume id == actor.id pour le test.
+    prisma.appUser.findUnique.mockImplementation((args: unknown) => {
+      const { where } = args as { where: { email: string } };
+      const map: Record<string, string> = {
+        'd@x': userOwn,
+        'b@x': userOther,
+        'daf@x': 'usr-daf',
+        'sa@x': 'usr-sa',
+        'acheteur@x': 'usr-acheteur',
+      };
+      const id = map[where.email];
+      return Promise.resolve(id ? { id } : null) as never;
+    });
     // US-010 : ExchangeRateService injecté. Mock identité XOF (toutes les
     // fixtures budget de ce spec sont en XOF → xofAmount = montant brut).
+    // PRÉSERVÉ tel quel : seul le mock PRISMA migre vers mockDeep.
     const fx = {
       convertToXof: jest.fn(async (amount: number | { toString(): string }) => ({
         xofAmount: Number(amount),
@@ -180,18 +148,19 @@ describe('PurchaseRequestService', () => {
         isIndicativeFallback: false,
       })),
     };
-    svc = new PurchaseRequestService(
-      prisma as unknown as PrismaService,
-      fx as unknown as ExchangeRateService,
-    );
+    svc = new PurchaseRequestService(prisma, fx as unknown as ExchangeRateService);
   });
 
   // ------------------------------------------------------------------
   describe('generatePrNumber (advisory lock + count)', () => {
     it('formats DA-YYYY-NNNN with 4-digit zero-padding', async () => {
-      prisma.purchaseRequest.count.mockResolvedValueOnce(0);
-      prisma.purchaseRequest.create.mockResolvedValue(makePrWithLines([], { prNumber: 'DA-2026-0001' }));
-      prisma.grantAgreement.findUnique.mockResolvedValue({ projectId, budgetLines: [{ id: blId1 }] });
+      // Aucune DA existante cette année → `findFirst` renvoie null (par défaut
+      // mockDeep) → séquence repart à 1. NB : le générateur dérive la séquence
+      // de MAX(prNumber) via `findFirst`, plus de `count()` (cf. F2).
+      prisma.purchaseRequest.create.mockResolvedValue(
+        makePrWithLines([], { prNumber: 'DA-2026-0001' }) as never,
+      );
+      prisma.grantAgreement.findUnique.mockResolvedValue({ projectId, budgetLines: [{ id: blId1 }] } as never);
       const res = await svc.create(demandeur, createDto());
       expect(res.prNumber).toMatch(/^DA-\d{4}-0001$/);
       // pg_advisory_xact_lock was called.
@@ -199,11 +168,17 @@ describe('PurchaseRequestService', () => {
     });
 
     it('increments past existing PRs for the year', async () => {
-      prisma.purchaseRequest.count.mockResolvedValueOnce(42);
-      prisma.grantAgreement.findUnique.mockResolvedValue({ projectId, budgetLines: [{ id: blId1 }] });
-      prisma.purchaseRequest.create.mockImplementation(async (args: { data: { prNumber: string } }) =>
-        makePrWithLines([], { prNumber: args.data.prNumber }),
-      );
+      // F2 : la séquence vient de MAX(prNumber) via `findFirst` (et non plus de
+      // `count()`). On stube donc la dernière DA de l'année à -0042 → next = 43.
+      const year = new Date().getFullYear();
+      prisma.purchaseRequest.findFirst.mockResolvedValue({
+        prNumber: `DA-${year}-0042`,
+      } as never);
+      prisma.grantAgreement.findUnique.mockResolvedValue({ projectId, budgetLines: [{ id: blId1 }] } as never);
+      prisma.purchaseRequest.create.mockImplementation((args: unknown) => {
+        const { data } = args as { data: { prNumber: string } };
+        return Promise.resolve(makePrWithLines([], { prNumber: data.prNumber })) as never;
+      });
       const res = await svc.create(demandeur, createDto());
       expect(res.prNumber).toMatch(/-0043$/);
     });
@@ -215,14 +190,14 @@ describe('PurchaseRequestService', () => {
       prisma.grantAgreement.findUnique.mockResolvedValue({
         projectId: 'other-project',
         budgetLines: [{ id: blId1 }],
-      });
+      } as never);
       await expect(svc.create(demandeur, createDto())).rejects.toBeInstanceOf(
         ProjectGrantMismatchException,
       );
     });
 
     it('throws BudgetLineNotInGrantException when a line references a wrong BL', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ projectId, budgetLines: [{ id: blId1 }] });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ projectId, budgetLines: [{ id: blId1 }] } as never);
       await expect(
         svc.create(
           demandeur,
@@ -246,11 +221,14 @@ describe('PurchaseRequestService', () => {
       prisma.grantAgreement.findUnique.mockResolvedValue({
         projectId,
         budgetLines: [{ id: blId1 }, { id: blId2 }],
+      } as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
+      prisma.purchaseRequest.create.mockImplementation((args: unknown) => {
+        const { data } = args as { data: { totalAmount: number } };
+        return Promise.resolve(
+          makePrWithLines([], { totalAmount: new Prisma.Decimal(data.totalAmount) }),
+        ) as never;
       });
-      prisma.purchaseRequest.count.mockResolvedValue(0);
-      prisma.purchaseRequest.create.mockImplementation(async (args: { data: { totalAmount: number } }) =>
-        makePrWithLines([], { totalAmount: new Prisma.Decimal(args.data.totalAmount) }),
-      );
       const res = await svc.create(
         demandeur,
         createDto({
@@ -267,47 +245,47 @@ describe('PurchaseRequestService', () => {
   // ------------------------------------------------------------------
   describe('findMany — RBAC scoping', () => {
     it('DEMANDEUR sees only own DAs (requestedBy override)', async () => {
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
       await svc.findMany(demandeur, baseQuery());
-      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
-      expect(args.where.requestedBy).toBe(demandeur.id);
+      const where = firstFindManyWhere();
+      expect(where.requestedBy).toBe(demandeur.id);
     });
 
     it('DAF can pass requestedBy filter (sees everyone)', async () => {
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
       await svc.findMany(daf, baseQuery({ requestedBy: userOwn }));
-      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
-      expect(args.where.requestedBy).toBe(userOwn);
+      const where = firstFindManyWhere();
+      expect(where.requestedBy).toBe(userOwn);
     });
 
     it('DAF without requestedBy sees all (no ownership filter)', async () => {
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
       await svc.findMany(daf, baseQuery());
-      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
-      expect(args.where.requestedBy).toBeUndefined();
+      const where = firstFindManyWhere();
+      expect(where.requestedBy).toBeUndefined();
     });
 
     it('builds OR clause for q on description+prNumber', async () => {
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
       await svc.findMany(daf, baseQuery({ q: 'reactif' }));
-      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
-      expect(args.where.OR).toHaveLength(2);
+      const where = firstFindManyWhere();
+      expect(where.OR).toHaveLength(2);
     });
 
     it('filters status / projectId / grantId / date range', async () => {
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
       await svc.findMany(daf, baseQuery({
         status: 'submitted', projectId, grantId,
         fromDate: '2026-01-01', toDate: '2026-12-31',
       }));
-      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
-      expect(args.where.status).toBe('submitted');
-      expect(args.where.requestedAt).toEqual({
+      const where = firstFindManyWhere();
+      expect(where.status).toBe('submitted');
+      expect(where.requestedAt).toEqual({
         gte: new Date('2026-01-01'),
         lte: new Date('2026-12-31'),
       });
@@ -319,15 +297,15 @@ describe('PurchaseRequestService', () => {
     it('ACHETEUR : where.OR couvre ownership ∨ status ∈ [approved, closed]', async () => {
       // Symptôme corrigé : avant le fix, l\'acheteur recevait
       // where.requestedBy = self → liste vide (jamais owner d\'une DA).
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
       await svc.findMany(acheteur, baseQuery());
-      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
+      const where = firstFindManyWhere();
 
       // Plus de filtre flat requestedBy.
-      expect(args.where.requestedBy).toBeUndefined();
+      expect(where.requestedBy).toBeUndefined();
       // OR composite :
-      expect(args.where.OR).toEqual([
+      expect(where.OR).toEqual([
         { requestedBy: 'usr-acheteur' },
         { status: { in: ['approved', 'closed'] } },
       ]);
@@ -337,52 +315,55 @@ describe('PurchaseRequestService', () => {
       // Régression : sans la composition AND, le OR de recherche
       // clobberait celui de la visibilité, exposant TOUTES les DA
       // matchant le texte (y compris les drafts cross-projets).
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
       await svc.findMany(acheteur, baseQuery({ q: 'reactif' }));
-      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
+      const where = firstFindManyWhere();
+      const and = where.AND as Prisma.PurchaseRequestWhereInput[] | undefined;
 
-      expect(args.where.OR).toBeUndefined();
-      expect(args.where.AND).toHaveLength(2);
+      expect(where.OR).toBeUndefined();
+      expect(and).toHaveLength(2);
       // Premier AND : visibility OR.
-      expect(args.where.AND[0]).toEqual({
+      expect(and?.[0]).toEqual({
         OR: [
           { requestedBy: 'usr-acheteur' },
           { status: { in: ['approved', 'closed'] } },
         ],
       });
       // Second AND : recherche q.
-      expect(args.where.AND[1].OR).toHaveLength(2);
+      expect(and?.[1].OR).toHaveLength(2);
     });
 
     it('DEMANDEUR non-régression : pas de OR de visibilité, scope ownership flat', async () => {
-      prisma.purchaseRequest.findMany.mockResolvedValue([]);
-      prisma.purchaseRequest.count.mockResolvedValue(0);
+      prisma.purchaseRequest.findMany.mockResolvedValue([] as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
       await svc.findMany(demandeur, baseQuery());
-      const args = prisma.purchaseRequest.findMany.mock.calls[0][0];
+      const where = firstFindManyWhere();
       // Forme flat conservée pour DEMANDEUR (pas de OR visibilité).
-      expect(args.where.requestedBy).toBe(userOwn);
-      expect(args.where.OR).toBeUndefined();
-      expect(args.where.AND).toBeUndefined();
+      expect(where.requestedBy).toBe(userOwn);
+      expect(where.OR).toBeUndefined();
+      expect(where.AND).toBeUndefined();
     });
   });
 
   // ------------------------------------------------------------------
   describe('findOne — ownership', () => {
     it('DEMANDEUR sees own DA', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([]));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([]) as never);
       const res = await svc.findOne(demandeur, pr.id);
       expect(res.id).toBe(pr.id);
     });
 
     it("DEMANDEUR foreign DA → PrNotOwnedException (404 for obscurity)", async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([], { requestedBy: 'other' }));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePrWithLines([], { requestedBy: 'other' }) as never,
+      );
       await expect(svc.findOne(demandeur, pr.id)).rejects.toBeInstanceOf(PrNotOwnedException);
     });
 
     it('DAF sees any DA', async () => {
       prisma.purchaseRequest.findUnique.mockResolvedValue(
-        makePrWithLines([], { requestedBy: 'someone-else' }),
+        makePrWithLines([], { requestedBy: 'someone-else' }) as never,
       );
       await expect(svc.findOne(daf, pr.id)).resolves.toBeTruthy();
     });
@@ -405,7 +386,8 @@ describe('PurchaseRequestService', () => {
         id: piId, email: 'pi@x', fullName: 'PI', roles: ['PI'],
       };
       // Étendre le bridge email → app_user.id pour ce test.
-      prisma.appUser.findUnique.mockImplementation(({ where }: { where: { email: string } }) => {
+      prisma.appUser.findUnique.mockImplementation((args: unknown) => {
+        const { where } = args as { where: { email: string } };
         const map: Record<string, string> = {
           'd@x': userOwn,
           'b@x': userOther,
@@ -414,7 +396,7 @@ describe('PurchaseRequestService', () => {
           'pi@x': piId,
         };
         const id = map[where.email];
-        return Promise.resolve(id ? { id } : null);
+        return Promise.resolve(id ? { id } : null) as never;
       });
       // `project` n'est pas dans `PurchaseRequest` natif (c'est une relation
       // chargée via include). On builde l'objet enrichi via unknown narrow.
@@ -422,7 +404,7 @@ describe('PurchaseRequestService', () => {
         ...makePrWithLines([], { status: 'pending_pi', requestedBy: userOther }),
         project: { piUserId: piId },
       };
-      prisma.purchaseRequest.findUnique.mockResolvedValue(prWithProject);
+      prisma.purchaseRequest.findUnique.mockResolvedValue(prWithProject as never);
       const res = await svc.findOne(pi, pr.id);
       expect(res.id).toBe(pr.id);
     });
@@ -433,18 +415,19 @@ describe('PurchaseRequestService', () => {
       const piForeign: AuthenticatedUser = {
         id: 'usr-pi-other', email: 'pi-other@x', fullName: 'PI Other', roles: ['PI'],
       };
-      prisma.appUser.findUnique.mockImplementation(({ where }: { where: { email: string } }) => {
+      prisma.appUser.findUnique.mockImplementation((args: unknown) => {
+        const { where } = args as { where: { email: string } };
         const map: Record<string, string> = {
           'pi-other@x': 'usr-pi-other-app',
         };
         const id = map[where.email];
-        return Promise.resolve(id ? { id } : null);
+        return Promise.resolve(id ? { id } : null) as never;
       });
       const prWithForeignProject: unknown = {
         ...makePrWithLines([], { status: 'pending_pi', requestedBy: userOther }),
         project: { piUserId: 'usr-some-other-pi' },
       };
-      prisma.purchaseRequest.findUnique.mockResolvedValue(prWithForeignProject);
+      prisma.purchaseRequest.findUnique.mockResolvedValue(prWithForeignProject as never);
       await expect(svc.findOne(piForeign, pr.id)).rejects.toBeInstanceOf(PrNotOwnedException);
     });
   });
@@ -452,7 +435,9 @@ describe('PurchaseRequestService', () => {
   // ------------------------------------------------------------------
   describe('update', () => {
     it('rejects when status ≠ draft', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([], { status: 'submitted' }));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePrWithLines([], { status: 'submitted' }) as never,
+      );
       await expect(svc.update(demandeur, pr.id, {} as never)).rejects.toBeInstanceOf(
         PrNotEditableException,
       );
@@ -460,7 +445,7 @@ describe('PurchaseRequestService', () => {
 
     it("DEMANDEUR cannot update another's DA (404 obscurity)", async () => {
       prisma.purchaseRequest.findUnique.mockResolvedValue(
-        makePrWithLines([], { requestedBy: 'other-user' }),
+        makePrWithLines([], { requestedBy: 'other-user' }) as never,
       );
       await expect(svc.update(demandeur, pr.id, {} as never)).rejects.toBeInstanceOf(
         PrNotOwnedException,
@@ -469,15 +454,15 @@ describe('PurchaseRequestService', () => {
 
     it('SUPER_ADMIN can update any draft DA', async () => {
       prisma.purchaseRequest.findUnique.mockResolvedValue(
-        makePrWithLines([], { requestedBy: 'other-user' }),
+        makePrWithLines([], { requestedBy: 'other-user' }) as never,
       );
-      prisma.purchaseRequest.update.mockResolvedValue(makePrWithLines([]));
+      prisma.purchaseRequest.update.mockResolvedValue(makePrWithLines([]) as never);
       await expect(svc.update(sa, pr.id, { description: 'fix' } as never)).resolves.toBeTruthy();
     });
 
     it('revalidates grant cohérence when projectId/grantId change', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([]));
-      prisma.grantAgreement.findUnique.mockResolvedValue({ projectId: 'other-project' });
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([]) as never);
+      prisma.grantAgreement.findUnique.mockResolvedValue({ projectId: 'other-project' } as never);
       await expect(
         svc.update(demandeur, pr.id, { projectId, grantId: 'new-grant' } as never),
       ).rejects.toBeInstanceOf(ProjectGrantMismatchException);
@@ -487,19 +472,19 @@ describe('PurchaseRequestService', () => {
   // ------------------------------------------------------------------
   describe('cancel', () => {
     it('passes draft → cancelled', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue(pr);
-      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'cancelled' });
+      prisma.purchaseRequest.findUnique.mockResolvedValue(pr as never);
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'cancelled' } as never);
       const res = await svc.cancel(demandeur, pr.id);
       expect(res.status).toBe('cancelled');
     });
 
     it('refuses cancel on non-draft', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue({ ...pr, status: 'submitted' });
+      prisma.purchaseRequest.findUnique.mockResolvedValue({ ...pr, status: 'submitted' } as never);
       await expect(svc.cancel(demandeur, pr.id)).rejects.toBeInstanceOf(PrNotDeletableException);
     });
 
     it('refuses cancel from foreign user (404 obscurity)', async () => {
-      prisma.purchaseRequest.findUnique.mockResolvedValue({ ...pr, requestedBy: 'other' });
+      prisma.purchaseRequest.findUnique.mockResolvedValue({ ...pr, requestedBy: 'other' } as never);
       await expect(svc.cancel(demandeur, pr.id)).rejects.toBeInstanceOf(PrNotOwnedException);
     });
   });
@@ -508,10 +493,10 @@ describe('PurchaseRequestService', () => {
   describe('checkBudget', () => {
     it('returns wouldExceed=true when line totals exceed budget', async () => {
       const ln = line({ lineTotal: new Prisma.Decimal('50000'), budgetLineId: blId1 });
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]) as never);
       prisma.budgetLine.findMany.mockResolvedValue([
         { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
-      ]);
+      ] as never);
       const res = await svc.checkBudget(demandeur, pr.id);
       expect(res.wouldExceed).toBe(true);
       expect(res.byLine).toHaveLength(1);
@@ -520,20 +505,20 @@ describe('PurchaseRequestService', () => {
 
     it('returns wouldExceed=false when within budget', async () => {
       const ln = line({ lineTotal: new Prisma.Decimal('10000'), budgetLineId: blId1 });
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]) as never);
       prisma.budgetLine.findMany.mockResolvedValue([
         { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
-      ]);
+      ] as never);
       const res = await svc.checkBudget(demandeur, pr.id);
       expect(res.wouldExceed).toBe(false);
     });
 
     it('aggregates other pending PRs as alreadyConsumed', async () => {
       const ln = line({ lineTotal: new Prisma.Decimal('5000'), budgetLineId: blId1 });
-      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]));
+      prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]) as never);
       prisma.budgetLine.findMany.mockResolvedValue([
         { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
-      ]);
+      ] as never);
       // US-010 : computeBudgetUsageByLine fetche désormais les lignes (avec la
       // devise du parent) puis convertit en XOF — plus de groupBy.
       prisma.purchaseRequestLine.findMany.mockResolvedValue([
@@ -542,7 +527,7 @@ describe('PurchaseRequestService', () => {
           lineTotal: new Prisma.Decimal('20000'),
           pr: { currency: 'XOF', requestedAt: new Date('2026-05-01') },
         },
-      ]);
+      ] as never);
       const res = await svc.checkBudget(demandeur, pr.id);
       expect(res.byLine[0].alreadyConsumed).toBe(20000);
       expect(res.byLine[0].available).toBe(38000 - 20000 - 5000);
@@ -554,14 +539,14 @@ describe('PurchaseRequestService', () => {
     it('rejects when status ≠ draft', async () => {
       prisma.purchaseRequest.findUnique.mockResolvedValue({
         ...pr, status: 'submitted', lines: [], grant: { status: 'active', projectId },
-      });
+      } as never);
       await expect(svc.submit(demandeur, pr.id)).rejects.toBeInstanceOf(PrNotEditableException);
     });
 
     it('rejects when grant.status ≠ active', async () => {
       prisma.purchaseRequest.findUnique.mockResolvedValue({
         ...pr, lines: [], grant: { status: 'suspended', projectId },
-      });
+      } as never);
       await expect(svc.submit(demandeur, pr.id)).rejects.toBeInstanceOf(GrantNotActiveException);
     });
 
@@ -569,10 +554,10 @@ describe('PurchaseRequestService', () => {
       const ln = line({ lineTotal: new Prisma.Decimal('99999999'), budgetLineId: blId1 });
       prisma.purchaseRequest.findUnique.mockResolvedValue({
         ...pr, lines: [ln], grant: { status: 'active', projectId },
-      });
+      } as never);
       prisma.budgetLine.findMany.mockResolvedValue([
         { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('100'), grant: { currency: 'XOF' } },
-      ]);
+      ] as never);
       await expect(svc.submit(demandeur, pr.id)).rejects.toBeInstanceOf(InsufficientBudgetException);
     });
 
@@ -580,12 +565,12 @@ describe('PurchaseRequestService', () => {
       const ln = line({ lineTotal: new Prisma.Decimal('100'), budgetLineId: blId1 });
       prisma.purchaseRequest.findUnique.mockResolvedValue({
         ...pr, lines: [ln], grant: { status: 'active', projectId },
-      });
+      } as never);
       prisma.budgetLine.findMany.mockResolvedValue([
         { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
-      ]);
-      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' });
-      prisma.approvalStep.create.mockResolvedValue({});
+      ] as never);
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' } as never);
+      prisma.approvalStep.create.mockResolvedValue({} as never);
       const res = await svc.submit(demandeur, pr.id);
       expect(res.status).toBe('pending_pi');
       expect(prisma.approvalStep.create).toHaveBeenCalledWith(
@@ -604,7 +589,7 @@ describe('PurchaseRequestService', () => {
     it('rejects when project/grant mismatch detected late (data drift)', async () => {
       prisma.purchaseRequest.findUnique.mockResolvedValue({
         ...pr, lines: [], grant: { status: 'active', projectId: 'other-project' },
-      });
+      } as never);
       await expect(svc.submit(demandeur, pr.id)).rejects.toBeInstanceOf(
         ProjectGrantMismatchException,
       );
@@ -616,7 +601,7 @@ describe('PurchaseRequestService', () => {
     it('blocks foreign DEMANDEUR on submit', async () => {
       prisma.purchaseRequest.findUnique.mockResolvedValue({
         ...pr, requestedBy: 'someone', lines: [], grant: { status: 'active', projectId },
-      });
+      } as never);
       await expect(svc.submit(otherDemandeur, pr.id)).rejects.toBeInstanceOf(PrNotOwnedException);
     });
   });
@@ -632,10 +617,10 @@ describe('PurchaseRequestService', () => {
     }
 
     it('petty_cash on grant.allowsCashPayment=false → CASH_PAYMENT_NOT_ALLOWED', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(false));
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(false) as never);
       prisma.cashBox.findUnique.mockResolvedValue({
         id: cbId, isActive: true, perRequestMax: new Prisma.Decimal('100000'),
-      });
+      } as never);
       const { CashPaymentNotAllowedException } = await import(
         '../../common/exceptions/business.exception'
       );
@@ -648,10 +633,10 @@ describe('PurchaseRequestService', () => {
     });
 
     it('petty_cash on inactive cash box → CASH_BOX_INACTIVE', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true) as never);
       prisma.cashBox.findUnique.mockResolvedValue({
         id: cbId, isActive: false, perRequestMax: new Prisma.Decimal('100000'),
-      });
+      } as never);
       const { CashBoxInactiveException } = await import(
         '../../common/exceptions/business.exception'
       );
@@ -661,11 +646,11 @@ describe('PurchaseRequestService', () => {
     });
 
     it('petty_cash total > perRequestMax → CASH_LIMIT_PER_REQUEST_EXCEEDED', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true) as never);
       prisma.cashBox.findUnique.mockResolvedValue({
         id: cbId, isActive: true, perRequestMax: new Prisma.Decimal('50000'),
         perDayUserMax: new Prisma.Decimal('200000'),
-      });
+      } as never);
       const { CashLimitPerRequestExceededException } = await import(
         '../../common/exceptions/business.exception'
       );
@@ -682,18 +667,18 @@ describe('PurchaseRequestService', () => {
     });
 
     it('petty_cash : 4ᵉ DA du jour > perDayUserMax → CASH_LIMIT_PER_DAY_EXCEEDED', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true) as never);
       prisma.cashBox.findUnique.mockResolvedValue({
         id: cbId, isActive: true,
         perRequestMax: new Prisma.Decimal('100000'),
         perDayUserMax: new Prisma.Decimal('200000'),
-      });
+      } as never);
       // Déjà 180k consommés aujourd'hui ; on tente d'en ajouter 50k.
       // US-011 : computeUserDailyCashXof fetche les DA du jour (findMany) et
       // convertit chacune en XOF — plus d'aggregate(_sum).
       prisma.purchaseRequest.findMany.mockResolvedValue([
         { totalAmount: new Prisma.Decimal('180000'), currency: 'XOF', requestedAt: new Date() },
-      ]);
+      ] as never);
       const { CashLimitPerDayExceededException } = await import(
         '../../common/exceptions/business.exception'
       );
@@ -710,16 +695,17 @@ describe('PurchaseRequestService', () => {
     });
 
     it('petty_cash happy path under all limits → 201 + cashBoxId persisted', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true) as never);
       prisma.cashBox.findUnique.mockResolvedValue({
         id: cbId, isActive: true,
         perRequestMax: new Prisma.Decimal('100000'),
         perDayUserMax: new Prisma.Decimal('200000'),
+      } as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
+      prisma.purchaseRequest.create.mockImplementation((args: unknown) => {
+        const { data } = args as { data: Record<string, unknown> };
+        return Promise.resolve({ ...pr, ...data, lines: [] }) as never;
       });
-      prisma.purchaseRequest.count.mockResolvedValue(0);
-      prisma.purchaseRequest.create.mockImplementation(({ data }) =>
-        Promise.resolve({ ...pr, ...data, lines: [] }),
-      );
       const res = await svc.create(
         demandeur,
         createDto({
@@ -733,19 +719,20 @@ describe('PurchaseRequestService', () => {
     });
 
     it('cash_advance has NO per-day limit', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true) as never);
       prisma.cashBox.findUnique.mockResolvedValue({
         id: cbId, isActive: true,
         perRequestMax: new Prisma.Decimal('200000'),
         perDayUserMax: new Prisma.Decimal('100000'), // even with a low per-day, cash_advance ignores it
-      });
+      } as never);
       prisma.purchaseRequest.aggregate.mockResolvedValue({
         _sum: { totalAmount: new Prisma.Decimal('300000') },
+      } as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
+      prisma.purchaseRequest.create.mockImplementation((args: unknown) => {
+        const { data } = args as { data: Record<string, unknown> };
+        return Promise.resolve({ ...pr, ...data, lines: [] }) as never;
       });
-      prisma.purchaseRequest.count.mockResolvedValue(0);
-      prisma.purchaseRequest.create.mockImplementation(({ data }) =>
-        Promise.resolve({ ...pr, ...data, lines: [] }),
-      );
       const res = await svc.create(
         demandeur,
         createDto({
@@ -760,7 +747,7 @@ describe('PurchaseRequestService', () => {
     it('petty_cash without cashBoxId reaches the service → CASH_BOX_REQUIRED', async () => {
       // Zod superRefine déjà la 400 en amont, mais on s'assure que le service
       // double-vérifie pour les appels internes (ex: bulk import futur).
-      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true));
+      prisma.grantAgreement.findUnique.mockResolvedValue(makeGrant(true) as never);
       const { CashBoxRequiredException } = await import(
         '../../common/exceptions/business.exception'
       );
@@ -779,8 +766,8 @@ describe('PurchaseRequestService', () => {
         cashBoxId: 'cb-1',
         lines: [],
         grant: { status: 'active', projectId },
-      });
-      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_caissier' });
+      } as never);
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_caissier' } as never);
       await svc.submit(demandeur, pr.id);
       expect(prisma.approvalStep.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ approverRole: 'CAISSIER', stepOrder: 1 }),
@@ -794,8 +781,8 @@ describe('PurchaseRequestService', () => {
         cashBoxId: 'cb-1',
         lines: [],
         grant: { status: 'active', projectId },
-      });
-      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' });
+      } as never);
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' } as never);
       await svc.submit(demandeur, pr.id);
       expect(prisma.approvalStep.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ approverRole: 'PI', stepOrder: 1 }),

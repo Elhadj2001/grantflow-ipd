@@ -1,8 +1,8 @@
 import { Prisma, InvoiceStatus } from '@prisma/client';
 import type { BankAccount, PaymentRun } from '@prisma/client';
 import { PaymentRunService } from '../payment-run.service';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { PostingService } from '../../../accounting/services/posting.service';
+import { createPrismaMock, type PrismaMock } from '../../../test-utils/prisma-mock';
 import {
   BankAccountInactiveException,
   BankAccountNotFoundException,
@@ -33,34 +33,24 @@ import {
  *  - cancel : draft → cancelled
  */
 describe('PaymentRunService', () => {
-  let prisma: {
-    paymentRun: {
-      findUnique: jest.Mock;
-      findUniqueOrThrow: jest.Mock;
-      findMany: jest.Mock;
-      count: jest.Mock;
-      create: jest.Mock;
-      update: jest.Mock;
-    };
-    payment: {
-      findMany: jest.Mock;
-      createMany: jest.Mock;
-      updateMany: jest.Mock;
-      deleteMany: jest.Mock;
-      update: jest.Mock;
-      aggregate: jest.Mock;
-    };
-    invoice: {
-      findMany: jest.Mock;
-      update: jest.Mock;
-    };
-    bankAccount: { findUnique: jest.Mock };
-    glAccount: { findUnique: jest.Mock };
-    $transaction: jest.Mock;
-    $executeRawUnsafe: jest.Mock;
-  };
+  let prisma: PrismaMock;
   let posting: { postPayment: jest.Mock; listEntriesForPayment: jest.Mock };
   let svc: PaymentRunService;
+
+  // Projections typées des arguments lus sur `*.mock.calls` (les délégués
+  // DeepMockProxy exposent des types union Prisma non-indexables → TS7053).
+  type RunCreateArg = { runNumber: string; status: string; totalAmount: number };
+  const runCreateData = (calls: unknown[][]): RunCreateArg =>
+    (calls[0][0] as { data: RunCreateArg }).data;
+
+  type PaymentCreateArg = { amount: Prisma.Decimal | number };
+  const paymentCreateData = (calls: unknown[][]): PaymentCreateArg[] =>
+    (calls[0][0] as { data: PaymentCreateArg[] }).data;
+
+  type RunUpdateArg = {
+    data: { totalAmount?: number; preparationWarnings?: unknown };
+  };
+  const runUpdateArg = (calls: unknown[][]): RunUpdateArg => calls[0][0] as RunUpdateArg;
 
   const actor = { id: 'usr-1', email: 'tres@x', fullName: 'T' };
   const bankAccountXof: BankAccount = {
@@ -110,35 +100,11 @@ describe('PaymentRunService', () => {
   }
 
   beforeEach(() => {
-    prisma = {
-      paymentRun: {
-        findUnique: jest.fn(),
-        findUniqueOrThrow: jest.fn(),
-        findMany: jest.fn(),
-        count: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-      },
-      payment: {
-        findMany: jest.fn(),
-        createMany: jest.fn(),
-        updateMany: jest.fn(),
-        deleteMany: jest.fn(),
-        update: jest.fn(),
-        aggregate: jest.fn(),
-      },
-      invoice: {
-        findMany: jest.fn(),
-        update: jest.fn(),
-      },
-      bankAccount: { findUnique: jest.fn() },
-      glAccount: { findUnique: jest.fn() },
-      $transaction: jest.fn(async (cb: unknown) => {
-        if (typeof cb === 'function') return (cb as (tx: unknown) => unknown)(prisma);
-        return Promise.all(cb as unknown[]);
-      }),
-      $executeRawUnsafe: jest.fn().mockResolvedValue(1),
-    };
+    prisma = createPrismaMock();
+    // `$executeRawUnsafe` est utilisé par le générateur de numéro de run
+    // (advisory lock) ; le passthrough de `$transaction` re-passe `prisma`
+    // comme `tx`, donc ce stub couvre l'usage in-transaction.
+    prisma.$executeRawUnsafe.mockResolvedValue(1 as never);
     posting = {
       postPayment: jest.fn(),
       listEntriesForPayment: jest.fn(),
@@ -155,7 +121,7 @@ describe('PaymentRunService', () => {
       validateStructure: jest.fn().mockReturnValue({ valid: true, missing: [] }),
     };
     svc = new PaymentRunService(
-      prisma as unknown as PrismaService,
+      prisma,
       posting as unknown as PostingService,
       ibanFraud as unknown as import('../iban-fraud.service').IbanFraudService,
       sepa as unknown as import('../sepa.service').SepaService,
@@ -165,15 +131,15 @@ describe('PaymentRunService', () => {
   // ------------------------------------------------------------------
   describe('createRun', () => {
     it('creates a draft run with PAY-YYYY-NNNN, payments, and totalAmount', async () => {
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
-      prisma.invoice.findMany.mockResolvedValue([makeInvoice()]);
-      prisma.payment.findMany.mockResolvedValue([]); // no active link
-      prisma.paymentRun.count.mockResolvedValue(0);
-      prisma.paymentRun.create.mockResolvedValue(makeRun());
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.invoice.findMany.mockResolvedValue([makeInvoice()] as never);
+      prisma.payment.findMany.mockResolvedValue([] as never); // no active link
+      prisma.paymentRun.findFirst.mockResolvedValue(null as never); // dernier seq (générateur)
+      prisma.paymentRun.create.mockResolvedValue(makeRun() as never);
       prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({
         ...makeRun(),
         payments: [{ id: 'p1', amount: new Prisma.Decimal('118000') }],
-      });
+      } as never);
 
       const r = await svc.createRun(actor, {
         bankAccountId: bankAccountXof.id,
@@ -181,7 +147,7 @@ describe('PaymentRunService', () => {
         method: 'sepa',
       });
 
-      const createArgs = prisma.paymentRun.create.mock.calls[0][0].data;
+      const createArgs = runCreateData(prisma.paymentRun.create.mock.calls);
       const year = new Date().getFullYear();
       expect(createArgs.runNumber).toBe(`PAY-${year}-0001`);
       expect(createArgs.status).toBe('draft');
@@ -190,10 +156,10 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects INVOICE_NOT_PAYABLE when invoice not posted', async () => {
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
       prisma.invoice.findMany.mockResolvedValue([
         makeInvoice({ status: InvoiceStatus.captured }),
-      ]);
+      ] as never);
       await expect(
         svc.createRun(actor, {
           bankAccountId: bankAccountXof.id,
@@ -204,8 +170,8 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects PAYMENT_CURRENCY_MISMATCH when invoice currency differs from bank', async () => {
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
-      prisma.invoice.findMany.mockResolvedValue([makeInvoice({ currency: 'EUR' })]);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.invoice.findMany.mockResolvedValue([makeInvoice({ currency: 'EUR' })] as never);
       await expect(
         svc.createRun(actor, {
           bankAccountId: bankAccountXof.id,
@@ -216,15 +182,15 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects INVOICE_ALREADY_IN_RUN when invoice already linked', async () => {
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
-      prisma.invoice.findMany.mockResolvedValue([makeInvoice()]);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.invoice.findMany.mockResolvedValue([makeInvoice()] as never);
       prisma.payment.findMany.mockResolvedValue([
         {
           invoiceId: 'inv-1',
           paymentRunId: 'other-run',
           paymentRun: { runNumber: 'PAY-2026-0099' },
         },
-      ]);
+      ] as never);
       await expect(
         svc.createRun(actor, {
           bankAccountId: bankAccountXof.id,
@@ -235,7 +201,7 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects when bank account is inactive', async () => {
-      prisma.bankAccount.findUnique.mockResolvedValue({ ...bankAccountXof, isActive: false });
+      prisma.bankAccount.findUnique.mockResolvedValue({ ...bankAccountXof, isActive: false } as never);
       await expect(
         svc.createRun(actor, {
           bankAccountId: bankAccountXof.id,
@@ -246,7 +212,7 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects unknown bank account', async () => {
-      prisma.bankAccount.findUnique.mockResolvedValue(null);
+      prisma.bankAccount.findUnique.mockResolvedValue(null as never);
       await expect(
         svc.createRun(actor, {
           bankAccountId: 'missing',
@@ -257,7 +223,7 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects when explicit currency mismatches bank account currency', async () => {
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
       await expect(
         svc.createRun(actor, {
           bankAccountId: bankAccountXof.id,
@@ -269,27 +235,27 @@ describe('PaymentRunService', () => {
     });
 
     it('handles partial payment — remaining = totalTtc − Σ executed payments', async () => {
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
       prisma.invoice.findMany.mockResolvedValue([
         makeInvoice({
           status: InvoiceStatus.partially_paid,
           payments: [{ amount: new Prisma.Decimal('50000') }],
         }),
-      ]);
-      prisma.payment.findMany.mockResolvedValue([]);
-      prisma.paymentRun.count.mockResolvedValue(0);
-      prisma.paymentRun.create.mockResolvedValue(makeRun());
+      ] as never);
+      prisma.payment.findMany.mockResolvedValue([] as never);
+      prisma.paymentRun.findFirst.mockResolvedValue(null as never); // dernier seq (générateur)
+      prisma.paymentRun.create.mockResolvedValue(makeRun() as never);
       prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({
         ...makeRun(),
         payments: [],
-      });
+      } as never);
 
       await svc.createRun(actor, {
         bankAccountId: bankAccountXof.id,
         invoiceIds: ['inv-1'],
         method: 'sepa',
       });
-      const payArgs = prisma.payment.createMany.mock.calls[0][0].data;
+      const payArgs = paymentCreateData(prisma.payment.createMany.mock.calls);
       expect(Number(payArgs[0].amount)).toBe(68000); // 118000 - 50000
     });
   });
@@ -297,51 +263,51 @@ describe('PaymentRunService', () => {
   // ------------------------------------------------------------------
   describe('addInvoices', () => {
     it('rejects when run is not draft', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'prepared' }));
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'prepared' }) as never);
       await expect(
         svc.addInvoices(actor, 'run-1', { invoiceIds: ['inv-2'] }),
       ).rejects.toBeInstanceOf(PaymentRunNotEditableException);
     });
 
     it('appends invoices to a draft run', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun());
-      prisma.invoice.findMany.mockResolvedValue([makeInvoice({ id: 'inv-2' })]);
-      prisma.payment.findMany.mockResolvedValueOnce([]); // active link check
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun() as never);
+      prisma.invoice.findMany.mockResolvedValue([makeInvoice({ id: 'inv-2' })] as never);
+      prisma.payment.findMany.mockResolvedValueOnce([] as never); // active link check
       prisma.payment.findMany.mockResolvedValueOnce([
         { amount: new Prisma.Decimal('118000') },
         { amount: new Prisma.Decimal('100000') },
-      ]); // sum after add
+      ] as never); // sum after add
       prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({
         ...makeRun({ totalAmount: new Prisma.Decimal('218000') }),
         payments: [],
-      });
+      } as never);
 
       await svc.addInvoices(actor, 'run-1', { invoiceIds: ['inv-2'] });
       expect(prisma.payment.createMany).toHaveBeenCalled();
-      const updateArgs = prisma.paymentRun.update.mock.calls[0][0];
+      const updateArgs = runUpdateArg(prisma.paymentRun.update.mock.calls);
       expect(updateArgs.data.totalAmount).toBe(218000);
     });
   });
 
   describe('removeInvoices', () => {
     it('rejects when run is not draft', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'executed' }));
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'executed' }) as never);
       await expect(
         svc.removeInvoices(actor, 'run-1', ['p1']),
       ).rejects.toBeInstanceOf(PaymentRunNotEditableException);
     });
 
     it('removes payments and recomputes totalAmount', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun());
-      prisma.payment.deleteMany.mockResolvedValue({ count: 1 });
-      prisma.payment.findMany.mockResolvedValue([{ amount: new Prisma.Decimal('50000') }]);
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun() as never);
+      prisma.payment.deleteMany.mockResolvedValue({ count: 1 } as never);
+      prisma.payment.findMany.mockResolvedValue([{ amount: new Prisma.Decimal('50000') }] as never);
       prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({
         ...makeRun({ totalAmount: new Prisma.Decimal('50000') }),
         payments: [],
-      });
+      } as never);
 
       await svc.removeInvoices(actor, 'run-1', ['p1']);
-      const updateArgs = prisma.paymentRun.update.mock.calls[0][0];
+      const updateArgs = runUpdateArg(prisma.paymentRun.update.mock.calls);
       expect(updateArgs.data.totalAmount).toBe(50000);
     });
   });
@@ -349,20 +315,20 @@ describe('PaymentRunService', () => {
   // ------------------------------------------------------------------
   describe('prepare', () => {
     it('rejects if run not draft', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'prepared' }));
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'prepared' }) as never);
       await expect(svc.prepare(actor, 'run-1')).rejects.toBeInstanceOf(
         PaymentRunNotPreparableException,
       );
     });
 
     it('rejects empty run', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun());
-      prisma.payment.findMany.mockResolvedValue([]);
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun() as never);
+      prisma.payment.findMany.mockResolvedValue([] as never);
       await expect(svc.prepare(actor, 'run-1')).rejects.toBeInstanceOf(PaymentRunEmptyException);
     });
 
     it('rejects when SEPA payment supplier has no IBAN', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun());
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun() as never);
       prisma.payment.findMany.mockResolvedValue([
         {
           id: 'p1',
@@ -370,12 +336,12 @@ describe('PaymentRunService', () => {
           method: 'sepa',
           invoice: { id: 'inv-1', supplier: { id: 's1', code: 'ACME', iban: null } },
         },
-      ]);
+      ] as never);
       await expect(svc.prepare(actor, 'run-1')).rejects.toBeInstanceOf(MissingIbanException);
     });
 
     it('rejects when supplier IBAN has invalid format (mod 97)', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun());
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun() as never);
       prisma.payment.findMany.mockResolvedValue([
         {
           id: 'p1',
@@ -386,12 +352,12 @@ describe('PaymentRunService', () => {
             supplier: { id: 's1', code: 'ACME', iban: 'FR9999999999999999999999999' }, // invalide
           },
         },
-      ]);
+      ] as never);
       await expect(svc.prepare(actor, 'run-1')).rejects.toBeInstanceOf(MissingIbanException);
     });
 
     it('promotes run to prepared with valid IBAN', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun());
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun() as never);
       prisma.payment.findMany.mockResolvedValue([
         {
           id: 'p1',
@@ -402,14 +368,14 @@ describe('PaymentRunService', () => {
             supplier: { id: 's1', code: 'ACME', iban: 'FR1420041010050500013M02606' }, // valide
           },
         },
-      ]);
-      prisma.paymentRun.update.mockResolvedValue(makeRun({ status: 'prepared' }));
+      ] as never);
+      prisma.paymentRun.update.mockResolvedValue(makeRun({ status: 'prepared' }) as never);
       const r = await svc.prepare(actor, 'run-1');
       expect(r.status).toBe('prepared');
     });
 
     it('accepts cash payment without IBAN (warning only)', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun());
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun() as never);
       prisma.payment.findMany.mockResolvedValue([
         {
           id: 'p1',
@@ -417,11 +383,11 @@ describe('PaymentRunService', () => {
           method: 'cash',
           invoice: { id: 'inv-1', supplier: { id: 's1', code: 'ACME', iban: null } },
         },
-      ]);
-      prisma.paymentRun.update.mockResolvedValue(makeRun({ status: 'prepared' }));
+      ] as never);
+      prisma.paymentRun.update.mockResolvedValue(makeRun({ status: 'prepared' }) as never);
       const r = await svc.prepare(actor, 'run-1');
       expect(r.status).toBe('prepared');
-      const updateArgs = prisma.paymentRun.update.mock.calls[0][0].data;
+      const updateArgs = runUpdateArg(prisma.paymentRun.update.mock.calls).data;
       expect(updateArgs.preparationWarnings).toBeDefined();
     });
   });
@@ -431,15 +397,15 @@ describe('PaymentRunService', () => {
     const preparedRun = makeRun({ status: 'prepared' });
 
     it('rejects if run not prepared', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'draft' }));
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'draft' }) as never);
       await expect(svc.approve(actor, 'run-1')).rejects.toBeInstanceOf(
         PaymentRunNotApprovableException,
       );
     });
 
     it('marks invoice as paid when full amount is paid', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun);
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
+      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun as never);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
       prisma.payment.findMany.mockResolvedValue([
         {
           id: 'p1',
@@ -453,14 +419,14 @@ describe('PaymentRunService', () => {
             supplier: { code: 'ACME', name: 'ACME' },
           },
         },
-      ]);
+      ] as never);
       posting.postPayment.mockResolvedValue({
         entryId: 'je-1',
         entryNumber: 'BQ-2026-0001',
         amountXof: 118000,
       });
-      prisma.payment.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal('118000') } });
-      prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({ ...preparedRun, status: 'executed' });
+      prisma.payment.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal('118000') } } as never);
+      prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({ ...preparedRun, status: 'executed' } as never);
 
       const r = await svc.approve(actor, 'run-1');
       expect(posting.postPayment).toHaveBeenCalled();
@@ -472,8 +438,8 @@ describe('PaymentRunService', () => {
     });
 
     it('marks invoice as partially_paid when partial', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun);
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
+      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun as never);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
       prisma.payment.findMany.mockResolvedValue([
         {
           id: 'p1',
@@ -487,14 +453,14 @@ describe('PaymentRunService', () => {
             supplier: { code: 'ACME', name: 'ACME' },
           },
         },
-      ]);
+      ] as never);
       posting.postPayment.mockResolvedValue({
         entryId: 'je-1',
         entryNumber: 'BQ-2026-0001',
         amountXof: 50000,
       });
-      prisma.payment.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal('50000') } });
-      prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({ ...preparedRun, status: 'executed' });
+      prisma.payment.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal('50000') } } as never);
+      prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({ ...preparedRun, status: 'executed' } as never);
 
       await svc.approve(actor, 'run-1');
       expect(prisma.invoice.update).toHaveBeenCalledWith({
@@ -504,14 +470,14 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects when run has no bankAccount', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue({ ...preparedRun, bankAccountId: null });
+      prisma.paymentRun.findUnique.mockResolvedValue({ ...preparedRun, bankAccountId: null } as never);
       await expect(svc.approve(actor, 'run-1')).rejects.toBeInstanceOf(EntityNotFoundException);
     });
 
     it('rejects when payments list is empty', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun);
-      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof);
-      prisma.payment.findMany.mockResolvedValue([]);
+      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun as never);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.payment.findMany.mockResolvedValue([] as never);
       await expect(svc.approve(actor, 'run-1')).rejects.toBeInstanceOf(PaymentRunEmptyException);
     });
   });
@@ -525,16 +491,16 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects when run is not prepared', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'draft' }));
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'draft' }) as never);
       await expect(svc.reject(actor, 'run-1', 'bad supplier IBAN error')).rejects.toBeInstanceOf(
         PaymentRunNotRejectableException,
       );
     });
 
     it('cancels payments and marks run as rejected', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'prepared' }));
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'prepared' }) as never);
       prisma.paymentRun.update.mockResolvedValue(
-        makeRun({ status: 'rejected', rejectionReason: 'bank refused transfer' }),
+        makeRun({ status: 'rejected', rejectionReason: 'bank refused transfer' }) as never,
       );
       const r = await svc.reject(actor, 'run-1', 'bank refused transfer');
       expect(r.status).toBe('rejected');
@@ -554,16 +520,16 @@ describe('PaymentRunService', () => {
     });
 
     it('rejects when run is not draft', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'prepared' }));
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'prepared' }) as never);
       await expect(svc.cancel(actor, 'run-1', 'changed our mind')).rejects.toBeInstanceOf(
         PaymentRunNotCancellableException,
       );
     });
 
     it('cancels a draft run', async () => {
-      prisma.paymentRun.findUnique.mockResolvedValue(makeRun());
+      prisma.paymentRun.findUnique.mockResolvedValue(makeRun() as never);
       prisma.paymentRun.update.mockResolvedValue(
-        makeRun({ status: 'cancelled', rejectionReason: 'changed our mind' }),
+        makeRun({ status: 'cancelled', rejectionReason: 'changed our mind' }) as never,
       );
       const r = await svc.cancel(actor, 'run-1', 'changed our mind');
       expect(r.status).toBe('cancelled');
