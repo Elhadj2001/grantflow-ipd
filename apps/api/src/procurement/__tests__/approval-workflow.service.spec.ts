@@ -16,8 +16,14 @@ import {
   PrTypeMismatchException,
   RejectionReasonRequiredException,
 } from '../../common/exceptions/business.exception';
+import { useFakeDate, restoreRealDate } from '../../test-utils/fake-time';
 
 describe('ApprovalWorkflowService', () => {
+  // US-062 (fix F22) : horloge figée → fenêtres temporelles (urgence,
+  // fractionnement) et horodatages déterministes, indépendants de l'exécution.
+  beforeAll(() => useFakeDate('2026-06-15'));
+  afterAll(() => restoreRealDate());
+
   let prisma: {
     purchaseRequest: {
       findUnique: jest.Mock;

@@ -10,6 +10,7 @@ import {
   PeriodClosedException,
   PostingCancelReasonRequiredException,
 } from '../../common/exceptions/business.exception';
+import { useFakeDate, restoreRealDate } from '../../test-utils/fake-time';
 
 /**
  * Tests unitaires PostingService — sprint 4.2b (postInvoice + cancelPosting).
@@ -33,6 +34,11 @@ import {
  *  - listEntriesForInvoice : retourne les entries source=invoice
  */
 describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
+  // US-062 (fix F22) : horloge figée → numéros de séquence YYYY-NNNN et
+  // horodatages par défaut déterministes, indépendants de la date d'exécution.
+  beforeAll(() => useFakeDate('2026-06-15'));
+  afterAll(() => restoreRealDate());
+
   type PrismaMock = {
     invoice: { findUnique: jest.Mock; update: jest.Mock };
     purchaseOrder: { findUnique: jest.Mock };

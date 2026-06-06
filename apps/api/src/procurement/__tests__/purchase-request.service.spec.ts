@@ -16,8 +16,14 @@ import {
 import type { CreatePurchaseRequestDto } from '../dto/create-pr.dto';
 import type { PurchaseRequestQueryDto } from '../dto/pr-query.dto';
 import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
+import { useFakeDate, restoreRealDate } from '../../test-utils/fake-time';
 
 describe('PurchaseRequestService', () => {
+  // US-062 (fix F22) : horloge figée → numéros DA-YYYY-NNNN et horodatages
+  // par défaut déterministes, indépendants de la date d'exécution.
+  beforeAll(() => useFakeDate('2026-06-15'));
+  afterAll(() => restoreRealDate());
+
   let prisma: PrismaMock;
   let svc: PurchaseRequestService;
 

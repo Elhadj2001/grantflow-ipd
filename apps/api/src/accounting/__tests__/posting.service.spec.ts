@@ -2,6 +2,7 @@ import { Prisma, JournalType, EntryStatus, PoStatus } from '@prisma/client';
 import type { PurchaseOrder } from '@prisma/client';
 import { PostingService } from '../services/posting.service';
 import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
+import { useFakeDate, restoreRealDate } from '../../test-utils/fake-time';
 import { NoOpenFiscalPeriodException, EntityNotFoundException } from '../../common/exceptions/business.exception';
 
 /**
@@ -18,6 +19,11 @@ import { NoOpenFiscalPeriodException, EntityNotFoundException } from '../../comm
  *  - listEntriesForPo : filtre source_type/source_id
  */
 describe('PostingService', () => {
+  // US-062 (fix F22) : horloge figée → numéros de séquence YYYY-NNNN et
+  // horodatages par défaut déterministes, indépendants de la date d'exécution.
+  beforeAll(() => useFakeDate('2026-06-15'));
+  afterAll(() => restoreRealDate());
+
   let prisma: PrismaMock;
   let svc: PostingService;
 

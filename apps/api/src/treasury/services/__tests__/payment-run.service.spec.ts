@@ -3,6 +3,7 @@ import type { BankAccount, PaymentRun } from '@prisma/client';
 import { PaymentRunService } from '../payment-run.service';
 import { PostingService } from '../../../accounting/services/posting.service';
 import { createPrismaMock, type PrismaMock } from '../../../test-utils/prisma-mock';
+import { useFakeDate, restoreRealDate } from '../../../test-utils/fake-time';
 import {
   BankAccountInactiveException,
   BankAccountNotFoundException,
@@ -33,6 +34,11 @@ import {
  *  - cancel : draft → cancelled
  */
 describe('PaymentRunService', () => {
+  // US-062 (fix F22) : horloge figée → numéros PAY-YYYY-NNNN et horodatages
+  // par défaut déterministes, indépendants de la date d'exécution.
+  beforeAll(() => useFakeDate('2026-06-15'));
+  afterAll(() => restoreRealDate());
+
   let prisma: PrismaMock;
   let posting: { postPayment: jest.Mock; listEntriesForPayment: jest.Mock };
   let svc: PaymentRunService;
