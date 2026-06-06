@@ -125,6 +125,12 @@ describe('PurchaseOrderService', () => {
       emailSentAt: null,
       emailSentTo: null,
       createdAt: new Date(),
+      // US-003-bis : colonnes multidevise ADR-005 (nullable, non testées ici).
+      total_ht_xof: null,
+      total_vat_xof: null,
+      total_ttc_xof: null,
+      fx_rate: null,
+      fx_rate_date: null,
       ...overrides,
     };
   }

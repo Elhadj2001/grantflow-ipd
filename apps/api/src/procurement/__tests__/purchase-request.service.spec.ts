@@ -86,6 +86,10 @@ describe('PurchaseRequestService', () => {
     rejectionReason: null,
     cashBoxId: null,
     updatedAt: new Date('2026-05-10T00:00:00Z'),
+    // US-003-bis : colonnes multidevise ADR-005 (nullable, non testées ici).
+    total_amount_xof: null,
+    fx_rate: null,
+    fx_rate_date: null,
   };
 
   function makePrWithLines(lines: PurchaseRequestLine[] = [], overrides: Partial<PurchaseRequest> = {}) {
