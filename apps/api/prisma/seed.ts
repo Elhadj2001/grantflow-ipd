@@ -23,6 +23,8 @@ import './load-env';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PrismaClient, Prisma, type DonorType } from '@prisma/client';
+// US-005 : source unique de la parité BCEAO (évite la duplication du littéral 655.957).
+import { FX_BCEAO_EUR_XOF } from '../src/referential/exchange-rate/uemoa.constants';
 
 const prisma = new PrismaClient();
 const SEED_DIR = path.join(__dirname, '..', '..', '..', 'seed');
@@ -176,10 +178,9 @@ async function seedTaxCodes() {
  * la date de demande.
  */
 async function seedFixedExchangeRates() {
-  const FIXED_EUR_XOF = 655.957;
   const rates = [
-    { from: 'EUR', to: 'XOF', rate: FIXED_EUR_XOF },
-    { from: 'XOF', to: 'EUR', rate: 1 / FIXED_EUR_XOF },
+    { from: 'EUR', to: 'XOF', rate: FX_BCEAO_EUR_XOF },
+    { from: 'XOF', to: 'EUR', rate: 1 / FX_BCEAO_EUR_XOF },
   ];
   for (const r of rates) {
     await prisma.exchangeRate.upsert({

@@ -13,7 +13,7 @@ import {
 } from '../../common/exceptions/business.exception';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import type { Role } from '../../auth/types/roles';
-import { FIXED_EUR_XOF } from './uemoa.constants';
+import { FX_BCEAO_EUR_XOF, FALLBACK_INDICATIVE_TO_XOF } from './uemoa.constants';
 import type { CreateExchangeRateDto } from './dto/create-exchange-rate.dto';
 import type { UpdateExchangeRateDto } from './dto/update-exchange-rate.dto';
 import type {
@@ -23,24 +23,6 @@ import type {
 
 const ENTITY_NAME = 'ExchangeRate';
 const SUPER_ADMIN: Role = 'SUPER_ADMIN';
-
-/**
- * Taux indicatifs de SECOURS (ADR-005 / sprint S1 US-004) — utilisés UNIQUEMENT
- * par `convertToXof` quand la table `ref.exchange_rate` ne connaît pas (encore)
- * la devise (typiquement USD/GBP/CHF non saisis, ou base fraîchement reset).
- *
- * ⚠️ Valeurs approximatives « ordre de grandeur 2026 » À VALIDER PAR LE
- * CONTRÔLE DE GESTION avant production. Le retour porte alors
- * `isIndicativeFallback = true` pour tracer la décision.
- *
- * Le taux autoritaire EUR↔XOF (parité fixe BCEAO 655,957, immuable) ne tombe
- * JAMAIS ici : il est traité en dur dans `convertToXof` (cas EUR).
- */
-const FALLBACK_INDICATIVE_TO_XOF: Readonly<Record<string, number>> = {
-  USD: 600,
-  GBP: 800,
-  CHF: 700,
-};
 
 /**
  * Résultat d'une conversion vers XOF (devise fonctionnelle SYSCEBNL).
@@ -209,8 +191,8 @@ export class ExchangeRateService {
     // 2. EUR : parité fixe BCEAO immuable (jamais de fallback / lookup).
     if (currency === 'EUR') {
       return {
-        xofAmount: Math.round(value * FIXED_EUR_XOF),
-        fxRate: FIXED_EUR_XOF,
+        xofAmount: Math.round(value * FX_BCEAO_EUR_XOF),
+        fxRate: FX_BCEAO_EUR_XOF,
         fxRateDate: effectiveDate,
         isIndicativeFallback: false,
       };
