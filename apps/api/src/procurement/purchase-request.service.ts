@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, PrStatus, PoStatus } from '@prisma/client';
 import type { PurchaseRequest, PurchaseRequestLine } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ExchangeRateService } from '../referential/exchange-rate/exchange-rate.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import type { Role } from '../auth/types/roles';
 import {
@@ -85,7 +86,10 @@ export interface PrWithLines extends PurchaseRequest {
 export class PurchaseRequestService {
   private readonly logger = new Logger(PurchaseRequestService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fx: ExchangeRateService,
+  ) {}
 
   // ------------------------------------------------------------------
   // Read
@@ -435,10 +439,13 @@ export class PurchaseRequestService {
       throw new PrNotOwnedException('hidden');
     }
 
-    const usageByLine = await this.computeBudgetUsageByLine(prId, pr.lines);
+    const usageByLine = await this.computeBudgetUsageByLine(pr);
 
     const wouldExceed = usageByLine.some((u) => u.wouldExceed);
-    const currentTotal = Number(pr.totalAmount);
+    // currentTotal exprimé en XOF (cohérent avec les agrégats byLine, règle d'or §3).
+    const currentTotal = (
+      await this.fx.convertToXof(pr.totalAmount, pr.currency, pr.requestedAt)
+    ).xofAmount;
     const available = usageByLine.reduce((s, u) => s + u.available, 0);
     const willConsume = usageByLine.reduce((s, u) => s + u.willConsume, 0);
 
@@ -480,12 +487,27 @@ export class PurchaseRequestService {
       throw new ProjectGrantMismatchException(pr.grantId, pr.projectId, pr.grant.projectId);
     }
 
-    const usage = await this.computeBudgetUsageByLine(prId, pr.lines);
+    const usage = await this.computeBudgetUsageByLine(pr);
     const exceeded = usage.filter((u) => u.wouldExceed);
     if (exceeded.length > 0) {
+      // US-010 : message enrichi — montants XOF explicites + devise de la DA,
+      // pour que l'utilisateur comprenne quel calcul (en XOF) l'a bloqué.
       throw new InsufficientBudgetException(
         prId,
-        exceeded.map((u) => ({ ...u }) as Record<string, unknown>),
+        exceeded.map(
+          (u) =>
+            ({
+              budgetLineId: u.budgetLineId,
+              code: u.code,
+              label: u.label,
+              currency: 'XOF',
+              prCurrency: pr.currency,
+              budgetedXof: u.budgeted,
+              alreadyConsumedXof: u.alreadyConsumed,
+              willConsumeXof: u.willConsume,
+              availableXof: u.available,
+            }) as Record<string, unknown>,
+        ),
       );
     }
 
@@ -562,64 +584,106 @@ export class PurchaseRequestService {
    * BC ouverts), willConsume (impact de cette DA), available, wouldExceed.
    */
   private async computeBudgetUsageByLine(
-    currentPrId: string,
-    lines: PurchaseRequestLine[],
+    pr: { id: string; currency: string; requestedAt: Date; lines: PurchaseRequestLine[] },
   ): Promise<CheckBudgetLineDto[]> {
+    const lines = pr.lines;
     if (lines.length === 0) return [];
 
     const blIds = Array.from(new Set(lines.map((l) => l.budgetLineId)));
 
+    // US-010 (F1, ADR-005) — TOUT le contrôle budgétaire opère en XOF.
+    // Le budget vit dans la devise du grant ; les DA/BC dans leur propre
+    // devise. On NE PEUT PAS sommer puis convertir (agrégat multi-devise) :
+    // on convertit CHAQUE montant en XOF via ExchangeRateService.convertToXof
+    // AVANT d'agréger. La date de valorisation = requestedAt de la DA/BC.
+    //
+    // NB : ref.budget_line n'a pas (encore) de colonne budgetedAmountXof
+    // (hors des 8 tables du sprint S1). On convertit donc budgetedAmount à
+    // la volée depuis la devise du grant. TODO Sprint S3 : matérialiser
+    // budgetedAmountXof sur ref.budget_line (DDL) pour éviter la conversion
+    // répétée et figer le taux au paramétrage de la convention.
+
+    // Budget lignes + devise du grant (devise du budget).
     const budgetLines = await this.prisma.budgetLine.findMany({
       where: { id: { in: blIds } },
-      select: { id: true, code: true, label: true, budgetedAmount: true },
+      select: {
+        id: true,
+        code: true,
+        label: true,
+        budgetedAmount: true,
+        grant: { select: { currency: true } },
+      },
     });
     const blMap = new Map(budgetLines.map((b) => [b.id, b]));
 
-    // Agrégat PR pending hors celle-ci.
-    const prAgg = await this.prisma.purchaseRequestLine.groupBy({
-      by: ['budgetLineId'],
+    // Agrégat PR pending hors celle-ci — fetch AVEC la devise + date du parent
+    // pour conversion par ligne (groupBy impossible : perd la devise).
+    const prLines = await this.prisma.purchaseRequestLine.findMany({
       where: {
         budgetLineId: { in: blIds },
-        pr: { status: { in: PENDING_STATUSES }, id: { not: currentPrId } },
+        pr: { status: { in: PENDING_STATUSES }, id: { not: pr.id } },
       },
-      _sum: { lineTotal: true },
+      select: {
+        budgetLineId: true,
+        lineTotal: true,
+        pr: { select: { currency: true, requestedAt: true } },
+      },
     });
-    const prByBl = new Map(prAgg.map((a) => [a.budgetLineId, Number(a._sum?.lineTotal ?? 0)]));
+    const prByBl = new Map<string, number>();
+    for (const l of prLines) {
+      const xof = await this.fx.convertToXof(l.lineTotal ?? 0, l.pr.currency, l.pr.requestedAt);
+      prByBl.set(l.budgetLineId, (prByBl.get(l.budgetLineId) ?? 0) + xof.xofAmount);
+    }
 
-    // Agrégat PO ouverts (engagement effectif).
-    const poAgg = await this.prisma.purchaseOrderLine.groupBy({
-      by: ['budgetLineId'],
+    // Agrégat BC ouverts (engagement effectif) — idem, devise + date du BC.
+    const poLines = await this.prisma.purchaseOrderLine.findMany({
       where: {
         budgetLineId: { in: blIds },
         po: { status: { in: OPEN_PO_STATUSES } },
       },
-      _sum: { lineTotal: true },
+      select: {
+        budgetLineId: true,
+        lineTotal: true,
+        po: { select: { currency: true, orderDate: true } },
+      },
     });
-    const poByBl = new Map(poAgg.map((a) => [a.budgetLineId, Number(a._sum?.lineTotal ?? 0)]));
-
-    // Impact de la DA en cours par ligne.
-    const willByBl = new Map<string, number>();
-    for (const l of lines) {
-      willByBl.set(l.budgetLineId, (willByBl.get(l.budgetLineId) ?? 0) + Number(l.lineTotal));
+    const poByBl = new Map<string, number>();
+    for (const l of poLines) {
+      const xof = await this.fx.convertToXof(l.lineTotal ?? 0, l.po.currency, l.po.orderDate);
+      poByBl.set(l.budgetLineId, (poByBl.get(l.budgetLineId) ?? 0) + xof.xofAmount);
     }
 
-    return blIds.map((blId) => {
+    // Impact de la DA en cours par ligne (devise de la DA courante).
+    const willByBl = new Map<string, number>();
+    for (const l of lines) {
+      const xof = await this.fx.convertToXof(l.lineTotal ?? 0, pr.currency, pr.requestedAt);
+      willByBl.set(l.budgetLineId, (willByBl.get(l.budgetLineId) ?? 0) + xof.xofAmount);
+    }
+
+    const result: CheckBudgetLineDto[] = [];
+    for (const blId of blIds) {
       const bl = blMap.get(blId);
-      const budgeted = bl ? Number(bl.budgetedAmount) : 0;
+      // Budget converti en XOF depuis la devise du grant.
+      const budgetedXof = bl
+        ? (await this.fx.convertToXof(bl.budgetedAmount, bl.grant.currency, pr.requestedAt)).xofAmount
+        : 0;
       const alreadyConsumed = (prByBl.get(blId) ?? 0) + (poByBl.get(blId) ?? 0);
       const willConsume = willByBl.get(blId) ?? 0;
-      const available = budgeted - alreadyConsumed - willConsume;
-      return {
+      const available = budgetedXof - alreadyConsumed - willConsume;
+      result.push({
         budgetLineId: blId,
         code: bl?.code ?? '?',
         label: bl?.label ?? '?',
-        budgeted,
+        // ⚠️ Tous les montants ci-dessous sont en XOF (devise fonctionnelle),
+        // pas dans la devise native de la ligne — cf. règle d'or §3.
+        budgeted: budgetedXof,
         alreadyConsumed,
         willConsume,
         available,
         wouldExceed: available < 0,
-      };
-    });
+      });
+    }
+    return result;
   }
 
   // ------------------------------------------------------------------
