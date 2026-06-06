@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { ExchangeRate } from '@prisma/client';
+import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { ExchangeRateService } from '../exchange-rate.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -229,66 +230,98 @@ describe('ExchangeRateService', () => {
   // ------------------------------------------------------------------
   // Fix fix-approval-workflow-currency-conversion
   // ------------------------------------------------------------------
-  describe('convertToXof — US-004 (source unique conversion XOF, ADR-005)', () => {
-    it('XOF → no-op (fxRate=1, montant arrondi au franc entier, pas d\'appel BD)', async () => {
-      const res = await svc.convertToXof(123_456.78, 'XOF');
-      // Le XOF n'a pas de sous-unité → Math.round (123 456.78 → 123 457).
-      expect(res.xofAmount).toBe(123_457);
-      expect(res.fxRate).toBe(1);
-      expect(res.fxRateDate).toBeInstanceOf(Date);
-      expect(res.isIndicativeFallback).toBe(false);
-      expect(prisma.exchangeRate.findFirst).not.toHaveBeenCalled();
+  // ------------------------------------------------------------------
+  // convertToXof — Sprint S1 / US-007 (contrat figé)
+  //
+  // Bloc isolé utilisant `mockDeep<PrismaService>()` (jest-mock-extended) —
+  // amorce de résorption du finding F2 : un mock profond auto-stube toute
+  // méthode Prisma, on ne casse donc plus sur l'ajout d'un appel (ex. le
+  // bug `findFirst is not a function`). beforeEach LOCAL pour ne pas polluer
+  // les autres describe (qui gardent le mock littéral historique).
+  //
+  // Ce bloc REMPLACE l'ancien bloc convertToXof (mock littéral) — pas de
+  // duplication : les cas sont déplacés ici et complétés (warn spy, Decimal).
+  // ------------------------------------------------------------------
+  describe('convertToXof — Sprint S1 (US-007)', () => {
+    let prismaMock: DeepMockProxy<PrismaService>;
+    let service: ExchangeRateService;
+
+    beforeEach(() => {
+      prismaMock = mockDeep<PrismaService>();
+      service = new ExchangeRateService(prismaMock as unknown as PrismaService);
     });
 
-    it('EUR → parité fixe BCEAO 655.957 (en dur, sans appel BD)', async () => {
-      const res = await svc.convertToXof(100_000, 'EUR');
-      expect(res.fxRate).toBe(655.957);
-      // 100 000 EUR = 65 595 700 XOF (régression du bug approval-workflow
-      // où 100k EUR sautait CG et DAF).
-      expect(res.xofAmount).toBe(65_595_700);
-      expect(res.fxRateDate).toBeInstanceOf(Date);
-      expect(res.isIndicativeFallback).toBe(false);
-      // EUR est traité en dur → aucun lookup BD.
-      expect(prisma.exchangeRate.findFirst).not.toHaveBeenCalled();
+    it('Test 1 — XOF passe-through, aucun appel BD', async () => {
+      const result = await service.convertToXof(10000, 'XOF');
+      expect(result).toEqual({
+        xofAmount: 10000,
+        fxRate: 1,
+        fxRateDate: expect.any(Date),
+        isIndicativeFallback: false,
+      });
+      expect(prismaMock.exchangeRate.findFirst).not.toHaveBeenCalled();
     });
 
-    it('USD avec taux BD → utilise le taux + sa rate_date, isIndicativeFallback=false', async () => {
-      // Pas de parité fixe USD/XOF → cherche un taux variable récent.
-      prisma.exchangeRate.findFirst
-        .mockResolvedValueOnce(null) // no fixed
-        .mockResolvedValueOnce(variableRow); // variable 598.1, rateDate 2026-05-14
-      const res = await svc.convertToXof(1000, 'USD');
-      expect(res.fxRate).toBe(598.1);
-      expect(res.xofAmount).toBe(598_100); // Math.round(1000 * 598.1)
-      expect(res.fxRateDate).toEqual(variableRow.rateDate);
-      expect(res.isIndicativeFallback).toBe(false);
+    it('Test 2 — EUR parité BCEAO exacte, aucun appel BD', async () => {
+      const result = await service.convertToXof(100000, 'EUR');
+      expect(result.xofAmount).toBe(65595700); // 100000 * 655.957
+      expect(result.fxRate).toBe(655.957);
+      expect(result.isIndicativeFallback).toBe(false);
+      expect(prismaMock.exchangeRate.findFirst).not.toHaveBeenCalled();
     });
 
-    it('USD sans taux BD → fallback indicatif FALLBACK_INDICATIVE_TO_XOF (600), flaggé', async () => {
-      // Pas de fixed, pas de variable → lookup lève ; convertToXof retombe
-      // sur le fallback indicatif.
-      prisma.exchangeRate.findFirst.mockResolvedValue(null);
-      const res = await svc.convertToXof(10_000, 'USD');
-      expect(res.fxRate).toBe(600);
-      expect(res.xofAmount).toBe(6_000_000);
-      expect(res.fxRateDate).toBeInstanceOf(Date);
-      expect(res.isIndicativeFallback).toBe(true);
+    it('Test 3 — USD avec taux BD → utilise le taux + sa rate_date', async () => {
+      prismaMock.exchangeRate.findFirst.mockResolvedValueOnce({
+        id: 'x',
+        fromCurrency: 'USD',
+        toCurrency: 'XOF',
+        rate: new Prisma.Decimal(605),
+        rateDate: new Date('2026-06-01'),
+        source: null,
+        isFixed: false,
+      } as ExchangeRate);
+      const result = await service.convertToXof(100, 'USD', new Date('2026-06-10'));
+      expect(result.xofAmount).toBe(60500);
+      expect(result.fxRate).toBe(605);
+      expect(result.isIndicativeFallback).toBe(false);
+      expect(result.fxRateDate).toEqual(new Date('2026-06-01'));
     });
 
-    it('GBP sans taux BD → fallback indicatif 800', async () => {
-      prisma.exchangeRate.findFirst.mockResolvedValue(null);
-      const res = await svc.convertToXof(100, 'GBP');
-      expect(res.fxRate).toBe(800);
-      expect(res.xofAmount).toBe(80_000);
-      expect(res.isIndicativeFallback).toBe(true);
+    it('Test 4 — USD sans taux BD → fallback indicatif (600) + warn loggé', async () => {
+      prismaMock.exchangeRate.findFirst.mockResolvedValue(null);
+      const loggerWarnSpy = jest.spyOn(service['logger'], 'warn');
+      const result = await service.convertToXof(100, 'USD');
+      expect(result.xofAmount).toBe(60000); // 100 * 600
+      expect(result.fxRate).toBe(600);
+      expect(result.isIndicativeFallback).toBe(true);
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'fx_indicative_fallback_used', currency: 'USD' }),
+        expect.stringContaining('CG must seed ref.exchange_rate'),
+      );
     });
 
-    it('devise inconnue (ni BD ni fallback) → UnknownCurrencyException', async () => {
-      // JPY n'est pas dans FALLBACK_INDICATIVE_TO_XOF.
-      prisma.exchangeRate.findFirst.mockResolvedValue(null);
-      await expect(svc.convertToXof(100, 'JPY')).rejects.toBeInstanceOf(
+    it('Test 5 — devise inconnue → UnknownCurrencyException', async () => {
+      prismaMock.exchangeRate.findFirst.mockResolvedValue(null);
+      await expect(service.convertToXof(100, 'JPY')).rejects.toThrow(
         UnknownCurrencyException,
       );
+    });
+
+    it('Test 6 — Prisma.Decimal en entrée + précision (arrondi au franc)', async () => {
+      const amount = new Prisma.Decimal('100.50');
+      const result = await service.convertToXof(amount, 'EUR');
+      // 100.50 * 655.957 = 65923.6785 → Math.round → 65924
+      expect(result.xofAmount).toBe(65924);
+      expect(result.fxRate).toBe(655.957);
+    });
+
+    it('Test 7 — GBP sans taux BD → fallback indicatif (800)', async () => {
+      // Couverture d'une 2ᵉ devise fallback (valeur 800, distincte de l'USD).
+      prismaMock.exchangeRate.findFirst.mockResolvedValue(null);
+      const result = await service.convertToXof(100, 'GBP');
+      expect(result.xofAmount).toBe(80000);
+      expect(result.fxRate).toBe(800);
+      expect(result.isIndicativeFallback).toBe(true);
     });
   });
 });
