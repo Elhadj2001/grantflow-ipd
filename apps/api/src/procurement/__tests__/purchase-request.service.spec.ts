@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import type { PurchaseRequest, PurchaseRequestLine } from '@prisma/client';
 import { PurchaseRequestService } from '../purchase-request.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import {
   BudgetLineNotInGrantException,
@@ -27,9 +28,10 @@ describe('PurchaseRequestService', () => {
     };
     purchaseRequestLine: {
       groupBy: jest.Mock;
+      findMany: jest.Mock;
       deleteMany: jest.Mock;
     };
-    purchaseOrderLine: { groupBy: jest.Mock };
+    purchaseOrderLine: { groupBy: jest.Mock; findMany: jest.Mock };
     grantAgreement: { findUnique: jest.Mock };
     budgetLine: { findMany: jest.Mock };
     approvalStep: { create: jest.Mock };
@@ -132,8 +134,15 @@ describe('PurchaseRequestService', () => {
         update: jest.fn(),
         aggregate: jest.fn().mockResolvedValue({ _sum: { totalAmount: null } }),
       },
-      purchaseRequestLine: { groupBy: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
-      purchaseOrderLine: { groupBy: jest.fn().mockResolvedValue([]) },
+      purchaseRequestLine: {
+        groupBy: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn(),
+      },
+      purchaseOrderLine: {
+        groupBy: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       grantAgreement: { findUnique: jest.fn() },
       budgetLine: { findMany: jest.fn() },
       approvalStep: { create: jest.fn() },
@@ -161,7 +170,20 @@ describe('PurchaseRequestService', () => {
       }),
       $executeRawUnsafe: jest.fn().mockResolvedValue(1),
     };
-    svc = new PurchaseRequestService(prisma as unknown as PrismaService);
+    // US-010 : ExchangeRateService injecté. Mock identité XOF (toutes les
+    // fixtures budget de ce spec sont en XOF → xofAmount = montant brut).
+    const fx = {
+      convertToXof: jest.fn(async (amount: number | { toString(): string }) => ({
+        xofAmount: Number(amount),
+        fxRate: 1,
+        fxRateDate: new Date('2026-05-10'),
+        isIndicativeFallback: false,
+      })),
+    };
+    svc = new PurchaseRequestService(
+      prisma as unknown as PrismaService,
+      fx as unknown as ExchangeRateService,
+    );
   });
 
   // ------------------------------------------------------------------
@@ -488,7 +510,7 @@ describe('PurchaseRequestService', () => {
       const ln = line({ lineTotal: new Prisma.Decimal('50000'), budgetLineId: blId1 });
       prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]));
       prisma.budgetLine.findMany.mockResolvedValue([
-        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000') },
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
       ]);
       const res = await svc.checkBudget(demandeur, pr.id);
       expect(res.wouldExceed).toBe(true);
@@ -500,7 +522,7 @@ describe('PurchaseRequestService', () => {
       const ln = line({ lineTotal: new Prisma.Decimal('10000'), budgetLineId: blId1 });
       prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]));
       prisma.budgetLine.findMany.mockResolvedValue([
-        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000') },
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
       ]);
       const res = await svc.checkBudget(demandeur, pr.id);
       expect(res.wouldExceed).toBe(false);
@@ -510,10 +532,16 @@ describe('PurchaseRequestService', () => {
       const ln = line({ lineTotal: new Prisma.Decimal('5000'), budgetLineId: blId1 });
       prisma.purchaseRequest.findUnique.mockResolvedValue(makePrWithLines([ln]));
       prisma.budgetLine.findMany.mockResolvedValue([
-        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000') },
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
       ]);
-      prisma.purchaseRequestLine.groupBy.mockResolvedValue([
-        { budgetLineId: blId1, _sum: { lineTotal: new Prisma.Decimal('20000') } },
+      // US-010 : computeBudgetUsageByLine fetche désormais les lignes (avec la
+      // devise du parent) puis convertit en XOF — plus de groupBy.
+      prisma.purchaseRequestLine.findMany.mockResolvedValue([
+        {
+          budgetLineId: blId1,
+          lineTotal: new Prisma.Decimal('20000'),
+          pr: { currency: 'XOF', requestedAt: new Date('2026-05-01') },
+        },
       ]);
       const res = await svc.checkBudget(demandeur, pr.id);
       expect(res.byLine[0].alreadyConsumed).toBe(20000);
@@ -543,7 +571,7 @@ describe('PurchaseRequestService', () => {
         ...pr, lines: [ln], grant: { status: 'active', projectId },
       });
       prisma.budgetLine.findMany.mockResolvedValue([
-        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('100') },
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('100'), grant: { currency: 'XOF' } },
       ]);
       await expect(svc.submit(demandeur, pr.id)).rejects.toBeInstanceOf(InsufficientBudgetException);
     });
@@ -554,7 +582,7 @@ describe('PurchaseRequestService', () => {
         ...pr, lines: [ln], grant: { status: 'active', projectId },
       });
       prisma.budgetLine.findMany.mockResolvedValue([
-        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000') },
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
       ]);
       prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' });
       prisma.approvalStep.create.mockResolvedValue({});
