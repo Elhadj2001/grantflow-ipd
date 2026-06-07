@@ -1,90 +1,73 @@
-# Taux de change UEMOA — Note de référence
+# Taux de change UEMOA & politique multidevise — Note de référence
 
-> Document de cadrage métier pour le module `exchange-rate` (sprint 1.4).
-> Vocation : référence rapide pour développeurs et mémoire MIAGE 2025/2026.
+> Référence opérationnelle du module `exchange-rate` et de la conversion XOF
+> dans GRANTFLOW IPD. Pour la **décision d'architecture** (modèle tripartite
+> devise transactionnelle / fonctionnelle XOF / reporting), voir
+> [`ADR-005`](adr/adr-005-multidevise-tripartite.md) — non recopiée ici.
+> Pour les règles d'or projet, voir `CLAUDE.md` §2.
 
-## 1. Parité fixe EUR ↔ XOF
+## Sommaire
 
-Le franc CFA (XOF, ISO 4217) est lié à l'**euro** par une **parité fixe** garantie
-par la **BCEAO** (Banque Centrale des États de l'Afrique de l'Ouest) depuis le
-**04 janvier 1999** :
+1. [Objet et périmètre](#1-objet-et-périmètre)
+2. [Parité fixe EUR ↔ XOF](#2-parité-fixe-eur--xof)
+3. [Devises à taux variable](#3-devises-à-taux-variable)
+4. [Le service `convertToXof`](#4-le-service-converttoxof)
+5. [Fallback indicatif et journalisation](#5-fallback-indicatif-et-journalisation)
+6. [Matérialisation XOF dans les entités](#6-matérialisation-xof-dans-les-entités)
+7. [Invariants multidevise](#7-invariants-multidevise-5)
+8. [Vue `v_general_balance`](#8-vue-v_general_balance-sprint-s3-us-021)
+9. [Politique opérationnelle](#9-politique-opérationnelle)
+10. [Migration et backfill](#10-migration-et-backfill)
+11. [Erreurs courantes à éviter](#11-erreurs-courantes-à-éviter)
+12. [Références](#12-références)
+
+---
+
+## 1. Objet et périmètre
+
+La devise de **tenue comptable** de l'IPD est le **XOF** (franc CFA UEMOA),
+conformément au référentiel SYSCEBNL/OHADA. Toute opération saisie dans une
+autre devise (EUR, USD…) est convertie en XOF pour les contrôles internes et
+les écritures. Cette note décrit **comment** cette conversion est faite, **où**
+l'équivalent XOF est figé, et **quels invariants** garantissent la cohérence.
+
+Le module concerné est `apps/api/src/referential/exchange-rate/`.
+
+## 2. Parité fixe EUR ↔ XOF
+
+Le XOF est lié à l'euro par une **parité fixe** garantie par la **BCEAO** et le
+**Trésor français** depuis le **4 janvier 1999** :
 
 ```
-1 EUR = 655,957 XOF            (exactement)
-1 XOF ≈ 0,001 524 49 EUR        (1 / 655,957)
+1 EUR = 655,957 XOF   (exactement, inchangé depuis 1999)
 ```
 
-Cette parité n'a **jamais changé** depuis 1999. La BCEAO n'a pas autorité pour
-la modifier unilatéralement : tout réajustement passerait par un acte du Conseil
-des Ministres de l'UEMOA et un avis de la Banque de France (Trésor public).
+Conséquences système :
 
-### Implication système
-
-* Toute conversion EUR↔XOF doit **utiliser cette constante** plutôt qu'un taux
-  historique. Sinon les écritures comptables divergeraient des relevés bancaires
-  émis par les banques sénégalaises (qui appliquent toutes 655,957).
-* Le module `exchange-rate` matérialise la parité en BD via une ligne avec
-  `is_fixed = true`. Le service la retourne **sans considérer la date** demandée.
-
-### Garde-fous applicatifs
+* Toute conversion EUR↔XOF utilise cette **constante**, jamais un taux
+  historique — sinon les écritures divergeraient des relevés des banques
+  sénégalaises (qui appliquent toutes 655,957).
+* La valeur littérale vit à **un seul endroit** :
+  `uemoa.constants.ts` → `FX_BCEAO_EUR_XOF = 655.957`.
+* Elle est **indépendante de la date** demandée.
 
 | Cas | Comportement |
 |---|---|
-| `GET /exchange-rates/lookup?from=EUR&to=XOF` | Retourne **655.957** quelle que soit la date. |
-| `GET /exchange-rates/lookup?from=EUR&to=XOF&date=1995-01-01` | Idem (la parité est rétroactive métier). |
-| `POST /exchange-rates` (DAF) avec `from=EUR, to=XOF, isFixed=false` | **409 `BUSINESS.FIXED_RATE_EXISTS`** — impossible d'écraser. |
-| `PATCH` ou `DELETE` sur la ligne `is_fixed=true` (DAF) | **409 `BUSINESS.IMMUTABLE_FIXED_RATE`** — refusé. |
-| Idem mais utilisateur `SUPER_ADMIN` | **Autorisé** — cas exceptionnel d'erreur de saisie. |
+| `lookup` ou `convertToXof` EUR→XOF, n'importe quelle date | **655,957** |
+| `POST /exchange-rates` EUR→XOF avec `isFixed=false` (DAF) | 409 `BUSINESS.FIXED_RATE_EXISTS` |
+| `PATCH`/`DELETE` sur la ligne `is_fixed=true` (DAF) | 409 `BUSINESS.IMMUTABLE_FIXED_RATE` |
+| Idem en `SUPER_ADMIN` | Autorisé (correction de saisie exceptionnelle) |
 
-## 2. Autres devises (taux variables)
+> ❌ Ne jamais modifier `FX_BCEAO_EUR_XOF` — cela supposerait une révision du
+> traité monétaire UEMOA/France.
 
-Les couples sans parité fixe sont alimentés par les taux journaliers BCEAO :
+## 3. Devises à taux variable
 
-| Devise | ISO 4217 | Source taux | Mise à jour |
-|---|---|---|---|
-| Dollar US | USD | BCEAO daily fix | Tous les jours ouvrables |
-| Livre sterling | GBP | BCEAO daily fix | Tous les jours ouvrables |
-| Franc suisse | CHF | BCEAO daily fix | Tous les jours ouvrables |
-| Rand sud-africain | ZAR | BCEAO daily fix | Tous les jours ouvrables |
-
-Le module expose un endpoint `/exchange-rates/lookup` qui retourne le taux le
-plus récent **antérieur ou égal** à la date demandée (champ `isFallback`
-indique si on a dû reculer faute de taux du jour exact).
-
-## 3. Procédure de mise à jour quotidienne
-
-En production, un job BullMQ (`treasury.exchange-rate-sync`, planifié à 09 h 00
-Africa/Dakar) :
-
-1. Télécharge le fichier CSV de la BCEAO (URL stable, format `YYYYMMDD.csv`).
-2. Parse les colonnes `from_currency, to_currency, rate`.
-3. Pour chaque ligne :
-   * Si `(from, to)` a une parité fixe → **ignoré** (sécurité).
-   * Sinon → upsert dans `ref.exchange_rate` avec `rateDate = today` et
-     `source = 'BCEAO_DAILY'`.
-4. Journalise dans `audit.event_log`.
-
-En développement / mémoire, on peut alimenter à la main :
-
-```bash
-curl -X POST http://localhost:4000/api/v1/exchange-rates \
-  -H "Authorization: Bearer $TOKEN_DAF" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "fromCurrency": "USD",
-    "toCurrency":   "XOF",
-    "rate":          598.10,
-    "rateDate":     "2026-05-14",
-    "source":       "manual"
-  }'
-```
-
-## 4. Schéma BD
-
-Table `ref.exchange_rate` :
+Les devises sans parité fixe (USD, GBP, CHF, ZAR…) sont valorisées par les
+**taux journaliers BCEAO**, historisés dans `ref.exchange_rate` :
 
 ```sql
-id            UUID PRIMARY KEY,
+-- ref.exchange_rate (extrait)
 from_currency CHAR(3) NOT NULL,
 to_currency   CHAR(3) NOT NULL,
 rate          NUMERIC(18,8) NOT NULL CHECK (rate > 0),
@@ -94,72 +77,125 @@ is_fixed      BOOLEAN NOT NULL DEFAULT false,
 UNIQUE (from_currency, to_currency, rate_date)
 ```
 
-Index partiel sur les parités fixes (au plus un couple par paire) :
+Le lookup retourne le taux le plus récent **antérieur ou égal** à la date
+demandée. L'alimentation de cette table est sous la responsabilité du
+**Contrôle de Gestion (CG)** (cf. §9) — c'est la **source de vérité comptable**.
 
-```sql
-CREATE INDEX idx_exchange_rate_fixed
-  ON ref.exchange_rate(from_currency, to_currency)
-  WHERE is_fixed = true;
+## 4. Le service `convertToXof`
+
+Toute conversion opérationnelle vers XOF passe par `ExchangeRateService` :
+
+```ts
+convertToXof(
+  amount: number | Prisma.Decimal,
+  currency: string,
+  date?: Date,        // date de valorisation (défaut : aujourd'hui)
+): Promise<XofConversionResult>;
+
+interface XofConversionResult {
+  xofAmount: number;            // montant converti (XOF, arrondi)
+  fxRate: number;               // taux appliqué (> 0)
+  fxRateDate: Date;             // date du taux (pour audit)
+  isIndicativeFallback: boolean; // true si taux indicatif non validé CG
+}
 ```
 
-## 5. Politique FX GRANTFLOW IPD (Sprint S1 / US-005, ADR-005)
+Comportement par devise :
 
-La conversion vers **XOF** (devise fonctionnelle SYSCEBNL) suit une politique
-unique, centralisée dans `apps/api/src/referential/exchange-rate/uemoa.constants.ts`
-et appliquée par `ExchangeRateService`.
+| Devise | Taux appliqué | `isIndicativeFallback` |
+|---|---|---|
+| `XOF` | identité (`fxRate = 1`, `xofAmount = round(amount)`) | `false` |
+| `EUR` | `FX_BCEAO_EUR_XOF` (655,957), indépendant de la date | `false` |
+| `USD`/`GBP`/`CHF`/… | `ref.exchange_rate` (≤ date) si présent | `false` |
+| idem, table non alimentée | fallback indicatif (§5) | **`true`** |
+| devise inconnue | lève `UnknownCurrencyException` | — |
 
-### 5.1 Parité immuable EUR/XOF
-
-`1 EUR = 655,957 XOF`, fixée par les accords successifs de Bretton Woods et
-garantie par le **Trésor français** depuis 1999. Constante unique
-`FX_BCEAO_EUR_XOF` (valeur littérale présente à **un seul endroit** du code API).
-Indépendante de la date : toute conversion EUR↔XOF l'utilise telle quelle.
-**NE PAS MODIFIER** sauf modification du traité international.
-
-### 5.2 Taux historisés en BD pour USD / GBP / CHF / autres
-
-Les devises non rattachées sont valorisées via la table `ref.exchange_rate`
-(taux quotidiens BCEAO, le plus récent ≤ date demandée). Le contrôle de
-gestion (CG) alimente cette table. C'est la **source de vérité comptable**.
-
-### 5.3 Fallback indicatif (en attendant l'alimentation par le CG)
-
-Tant que `ref.exchange_rate` n'est pas seedée pour une devise, `convertToXof`
-retombe sur `FALLBACK_INDICATIVE_TO_XOF` (`Object.freeze({ USD: 600, GBP: 800,
-CHF: 700 })`) — valeurs « ordre de grandeur 2026 ».
-
-* ⚠️ **À NE PAS UTILISER pour des décisions comptables** en production.
-* Chaque usage est marqué `isIndicativeFallback = true` dans le résultat et
-  sera **loggé loud** (log Pino, audit ajouté en US-006).
-* Le CG doit **valider et seeder** `ref.exchange_rate` avant la mise en prod.
-
-### 5.4 `lookup` (comptable strict) vs `convertToXof` (opérationnel)
+`convertToXof` (opérationnel) se distingue de `lookup` (comptable strict) :
 
 | | `lookup` | `convertToXof` |
 |---|---|---|
-| Vocation | Primitive comptable STRICTE | Conversion OPÉRATIONNELLE (source unique) |
-| Devise absente | **Lève** `ExchangeRateNotFoundException` | Fallback indicatif tracé, ou `UnknownCurrencyException` |
-| Usage | Vues SYSCEBNL strictes, écritures | Seuils d'approbation, contrôle budgétaire, colonnes `*_xof` |
-| EUR | via ligne `is_fixed=true` en BD | parité `FX_BCEAO_EUR_XOF` en dur |
+| Devise absente | **lève** `ExchangeRateNotFoundException` | fallback tracé, ou `UnknownCurrencyException` |
+| Usage | vues SYSCEBNL strictes | seuils, contrôle budgétaire, colonnes `*_xof` |
 
-`convertToXof` ne doit JAMAIS alimenter une écriture comptable sur la base d'un
-fallback indicatif sans validation CG.
+## 5. Fallback indicatif et journalisation
 
-### 5.5 Références code
+Tant que le CG n'a pas seedé `ref.exchange_rate` pour une devise, `convertToXof`
+retombe sur `FALLBACK_INDICATIVE_TO_XOF` — ordres de grandeur 2026 :
 
-* Constantes : `apps/api/src/referential/exchange-rate/uemoa.constants.ts`
-  (`FX_BCEAO_EUR_XOF`, `FIXED_XOF_EUR`, `FALLBACK_INDICATIVE_TO_XOF`).
-* Service : `ExchangeRateService.convertToXof` / `.lookup`.
-* Décision d'architecture : **ADR-005** (`docs/adr/adr-005-multidevise-tripartite.md`).
+```ts
+FALLBACK_INDICATIVE_TO_XOF = { USD: 600, GBP: 800, CHF: 700 };
+```
 
-## 6. Références officielles
+* Chaque conversion émet un log Pino structuré `event: 'fx_conversion'`.
+* Si fallback indicatif : log **warn** supplémentaire `fx_indicative_fallback_used`.
+* ⚠️ **À ne pas utiliser pour une décision comptable en production** : le CG doit
+  valider et seeder `ref.exchange_rate` avant la mise en prod.
 
-* BCEAO — Banque Centrale des États de l'Afrique de l'Ouest : <https://www.bceao.int/>
-* Article 1 du règlement UEMOA N° 09/2010/CM/UEMOA portant statuts de la BCEAO.
-* Note de change EUR↔XOF du 04/01/1999 (Banque de France, accord de coopération
-  monétaire France-UEMOA).
-* Plan SYSCEBNL : <https://www.uemoa.int/> (référentiel comptable OBNL).
+## 6. Matérialisation XOF dans les entités
+
+Pour les contrôles internes, l'équivalent XOF est figé au paramétrage de la
+convention sur :
+
+- `ref.budget_line` (Sprint S3 US-024) : `budgetedAmountXof`, `fxRate`,
+  `fxRateDate`, `currency`.
+- `gl.journal_line` (Sprint S1 US-001 puis S3 US-020) : `debit_amount`,
+  `credit_amount` déjà en XOF, `fxRate`, `fxRateDate` ajoutés ; ventilation
+  transactionnelle dans `debit_currency`, `credit_currency`.
+- `ap.invoice` / `ap.payment` / etc. : voir DDL section S1.
+
+## 7. Invariants multidevise (5)
+
+- **I1** : `currency ≠ XOF` ⟹ `fx_rate` + `fx_rate_date` renseignés.
+- **I2** : `debit/credit` toujours en XOF, brut dans `debit_currency` / `credit_currency`.
+- **I3** : `fx_rate > 0`.
+- **I4** : `fx_rate` ⟹ `fx_rate_date`.
+- **I5** : lignes d'un `journal_entry` = même devise.
+
+Aujourd'hui couverts au niveau application via `convertToXof` et les
+sentinelles `posting-multicurrency-invariants.spec.ts`. CHECK DB
+`chk_fx_consistency` planifié **US-140** (Sprint S3bis ou S4).
+
+## 8. Vue `v_general_balance` (Sprint S3 US-021)
+
+Exposition des soldes XOF :
+
+- `balance_xof`, `total_debit_xof`, `total_credit_xof` (source de vérité SYSCEBNL).
+- `transaction_currencies` : `array_agg DISTINCT` des devises étrangères
+  (XOF exclu par construction).
+- Colonnes historiques (`total_debit`, `total_credit`, `balance`) conservées
+  rétrocompat.
+
+## 9. Politique opérationnelle
+
+- Le CG IPD est responsable de la mise à jour mensuelle de
+  `ref.exchange_rate` pour USD, GBP, CHF (procédure à définir).
+- Tout taux non validé par le CG produit le warn fallback.
+- L'audit interne mensuel doit traiter les warns fallback (tableau de
+  bord à concevoir Phase 7).
+
+## 10. Migration et backfill
+
+- Nouvelle convention : `convertToXof` appelé au paramétrage.
+- Données legacy : script `apps/api/scripts/backfill-budget-line-xof.ts`
+  fige les `budget_line` existantes au taux du jour d'exécution. Pattern
+  réutilisable pour d'autres entités.
+
+## 11. Erreurs courantes à éviter
+
+- ❌ `Number(decimal)` sur un montant utilisé dans un agrégat → perte précision.
+- ❌ Comparaison de montant brut à un seuil XOF sans conversion.
+- ❌ Validation d'éligibilité ou de plafond hors XOF.
+- ❌ Modification de `FX_BCEAO_EUR_XOF`.
+- ❌ Utilisation du fallback indicatif en production sans validation CG.
+
+## 12. Références
+
+- [`ADR-005`](adr/adr-005-multidevise-tripartite.md) — multidevise tripartite.
+- [`audit-codebase-2026-06-02.md`](audit-codebase-2026-06-02.md) — findings F1, F10, F18.
+- Sprints S1–S3 (US-001, US-005, US-010 à US-014, US-020 à US-024).
+- BCEAO : <https://www.bceao.int/> · SYSCEBNL (Acte uniforme OHADA) : <https://www.uemoa.int/>
+- Code : `referential/exchange-rate/uemoa.constants.ts`, `ExchangeRateService`.
 
 ---
 
-_Dernière mise à jour : 06/06/2026 — Sprint S1 / US-005 (El Hadj Amadou NIANG)._
+_Dernière mise à jour : 07/06/2026 — Sprint S3 / US-023 (El Hadj Amadou NIANG)._
