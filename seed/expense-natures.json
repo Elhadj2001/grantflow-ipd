@@ -1,0 +1,30 @@
+{
+  "_comment": "Catalogue typologique des natures de dépenses (grant_office.expense_nature). Dérivé du PPT IPD (slide 4) + standards NGO. NB : la table n'a pas de catégorie 'consumables' (CHECK US-030) → réactifs/consommables labo rattachés à 'functioning', échantillons biologiques à 'other'.",
+  "expense_natures": [
+    { "code": "OFFICE_SUPPLIES", "label": "Fournitures de bureau", "category": "functioning", "defaultAccountClass": "6", "description": "Crayons, papier, consommables de bureau standard." },
+    { "code": "COMMUNICATION", "label": "Communications (téléphone, internet)", "category": "functioning", "defaultAccountClass": "6", "description": "Abonnements téléphonie, internet, frais de communication." },
+    { "code": "PRINTING", "label": "Impression et reprographie", "category": "functioning", "defaultAccountClass": "6", "description": "Impression, reprographie, reliure de documents." },
+    { "code": "UTILITIES", "label": "Services généraux (électricité, eau)", "category": "functioning", "defaultAccountClass": "6", "description": "Électricité, eau, charges locatives et services généraux." },
+    { "code": "INSURANCE", "label": "Assurances", "category": "functioning", "defaultAccountClass": "6", "description": "Primes d'assurance (matériel, responsabilité, missions)." },
+    { "code": "REAGENTS_LAB", "label": "Réactifs laboratoire", "category": "functioning", "defaultAccountClass": "6", "description": "Réactifs de laboratoire (Sigma-Aldrich, etc.). Consommable récurrent → fonctionnement." },
+    { "code": "CONSUMABLES_LAB", "label": "Consommables laboratoire généraux", "category": "functioning", "defaultAccountClass": "6", "description": "Consommables de laboratoire (tubes, gants, pipettes jetables)." },
+    { "code": "LAB_EQUIPMENT_PCR", "label": "Équipement laboratoire — Thermocycleur PCR", "category": "equipment", "defaultAccountClass": "2", "description": "Thermocycleur PCR et équipements d'amplification (immobilisation)." },
+    { "code": "LAB_EQUIPMENT_GENERAL", "label": "Équipement laboratoire — Général", "category": "equipment", "defaultAccountClass": "2", "description": "Équipements de laboratoire durables (centrifugeuses, hottes, etc.)." },
+    { "code": "COMPUTER", "label": "Matériel informatique", "category": "equipment", "defaultAccountClass": "2", "description": "Ordinateurs, serveurs, périphériques (immobilisation)." },
+    { "code": "SOFTWARE_LICENSE", "label": "Licences logicielles", "category": "equipment", "defaultAccountClass": "6", "description": "Licences et abonnements logiciels (généralement charge d'exploitation)." },
+    { "code": "FURNITURE", "label": "Mobilier de bureau et laboratoire", "category": "equipment", "defaultAccountClass": "2", "description": "Mobilier durable de bureau et de laboratoire (immobilisation)." },
+    { "code": "PERSONNEL_NATIONAL", "label": "Personnel national (salaires)", "category": "personnel", "defaultAccountClass": "6", "description": "Salaires et charges du personnel national affecté au projet." },
+    { "code": "PERSONNEL_INTERNATIONAL", "label": "Personnel international", "category": "personnel", "defaultAccountClass": "6", "description": "Rémunération du personnel international (expatriés, détachés)." },
+    { "code": "CONSULTANTS", "label": "Consultants et expertise ponctuelle", "category": "personnel", "defaultAccountClass": "6", "description": "Honoraires de consultants et expertises ponctuelles." },
+    { "code": "PERSONNEL_TRAINING", "label": "Formation du personnel", "category": "personnel", "defaultAccountClass": "6", "description": "Coûts de formation et de renforcement de capacités du personnel." },
+    { "code": "TRAVEL_DOMESTIC", "label": "Déplacements nationaux", "category": "missions", "defaultAccountClass": "6", "description": "Transports et déplacements à l'intérieur du Sénégal." },
+    { "code": "TRAVEL_INTERNATIONAL", "label": "Déplacements internationaux", "category": "missions", "defaultAccountClass": "6", "description": "Billets et frais de déplacement internationaux." },
+    { "code": "PER_DIEMS", "label": "Per diems", "category": "missions", "defaultAccountClass": "6", "description": "Indemnités journalières de mission (hébergement, repas)." },
+    { "code": "CONFERENCE", "label": "Inscriptions conférences", "category": "missions", "defaultAccountClass": "6", "description": "Frais d'inscription à des conférences et colloques scientifiques." },
+    { "code": "SUBCONTRACTING_RESEARCH", "label": "Sous-traitance recherche", "category": "subcontracting", "defaultAccountClass": "6", "description": "Sous-traitance d'activités de recherche à des tiers." },
+    { "code": "SUBCONTRACTING_SERVICES", "label": "Sous-traitance services", "category": "subcontracting", "defaultAccountClass": "6", "description": "Sous-traitance de prestations de services (logistique, support)." },
+    { "code": "SUBCONTRACTING_DATA", "label": "Sous-traitance analyse données", "category": "subcontracting", "defaultAccountClass": "6", "description": "Sous-traitance d'analyse statistique et de gestion de données." },
+    { "code": "SAMPLES_BIOLOGICAL", "label": "Échantillons biologiques", "category": "other", "defaultAccountClass": "6", "description": "Achat / collecte / transport d'échantillons biologiques." },
+    { "code": "OVERHEAD_INDIRECT", "label": "Frais administratifs indirects", "category": "overhead", "defaultAccountClass": "6", "description": "Frais généraux indirects facturables au bailleur (overhead)." }
+  ]
+}

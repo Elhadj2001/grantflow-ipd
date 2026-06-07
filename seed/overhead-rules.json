@@ -1,0 +1,41 @@
+{
+  "_comment": "Règles d'overhead différenciées par catégorie (grant_office.overhead_rule). Référencées par note_technique.overhead_rule_id (ADR-006). default_rate ∈ [0,1].",
+  "overhead_rules": [
+    {
+      "name": "USAID-STANDARD-15",
+      "defaultRate": 0.15,
+      "appliesToSubcontracting": false,
+      "appliesToEquipment": true,
+      "appliesToPersonnel": true,
+      "appliesToMissions": true,
+      "appliesToConsumables": true
+    },
+    {
+      "name": "WELLCOME-ZERO",
+      "defaultRate": 0.0,
+      "appliesToSubcontracting": false,
+      "appliesToEquipment": false,
+      "appliesToPersonnel": false,
+      "appliesToMissions": false,
+      "appliesToConsumables": false
+    },
+    {
+      "name": "EU-HORIZON-25",
+      "defaultRate": 0.25,
+      "appliesToSubcontracting": true,
+      "appliesToEquipment": true,
+      "appliesToPersonnel": true,
+      "appliesToMissions": true,
+      "appliesToConsumables": true
+    },
+    {
+      "name": "GENERIC-DEFAULT",
+      "defaultRate": 0.10,
+      "appliesToSubcontracting": true,
+      "appliesToEquipment": true,
+      "appliesToPersonnel": true,
+      "appliesToMissions": true,
+      "appliesToConsumables": true
+    }
+  ]
+}

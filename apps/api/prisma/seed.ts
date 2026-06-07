@@ -57,6 +57,23 @@ type SupplierFixture = {
   /** Sprint F-PO-EMAIL : destinataire du BC PDF (best-effort). */
   contactEmail?: string;
 };
+// Sprint S4 / US-032 : catalogue Grant Office.
+type ExpenseNatureFixture = {
+  code: string;
+  label: string;
+  category: string;
+  defaultAccountClass?: string;
+  description?: string;
+};
+type OverheadRuleFixture = {
+  name: string;
+  defaultRate: number;
+  appliesToSubcontracting: boolean;
+  appliesToEquipment: boolean;
+  appliesToPersonnel: boolean;
+  appliesToMissions: boolean;
+  appliesToConsumables: boolean;
+};
 
 function loadFixture<T>(filename: string, rootKey: string): T[] {
   const raw = fs.readFileSync(path.join(SEED_DIR, filename), 'utf-8');
@@ -439,6 +456,44 @@ async function seedDonorReportTemplates() {
   console.log(`✅ ${templates.length} donor templates chargés`);
 }
 
+async function seedExpenseNatures() {
+  const natures = loadFixture<ExpenseNatureFixture>('expense-natures.json', 'expense_natures');
+  for (const n of natures) {
+    const data = {
+      label: n.label,
+      category: n.category,
+      defaultAccountClass: n.defaultAccountClass ?? null,
+      description: n.description ?? null,
+    };
+    await prisma.expenseNature.upsert({
+      where: { code: n.code },
+      create: { code: n.code, ...data },
+      update: data,
+    });
+  }
+  console.log(`  ✓ ${natures.length} natures de dépense (grant_office.expense_nature)`);
+}
+
+async function seedOverheadRules() {
+  const rules = loadFixture<OverheadRuleFixture>('overhead-rules.json', 'overhead_rules');
+  for (const r of rules) {
+    const data = {
+      defaultRate: r.defaultRate,
+      appliesToSubcontracting: r.appliesToSubcontracting,
+      appliesToEquipment: r.appliesToEquipment,
+      appliesToPersonnel: r.appliesToPersonnel,
+      appliesToMissions: r.appliesToMissions,
+      appliesToConsumables: r.appliesToConsumables,
+    };
+    await prisma.overheadRule.upsert({
+      where: { name: r.name },
+      create: { name: r.name, ...data },
+      update: data,
+    });
+  }
+  console.log(`  ✓ ${rules.length} règles d'overhead (grant_office.overhead_rule)`);
+}
+
 async function main() {
   console.log('🌱 Seed GRANTFLOW IPD — démarrage...');
   await seedGlAccounts();
@@ -461,6 +516,20 @@ async function main() {
     if (err.code === 'P2021') {
       console.log(
         `⚠️  Table ${err.meta?.table ?? 'reporting.donor_report_template'} absente — sprint-6.1 pas encore appliqué, skip.`,
+      );
+    } else {
+      throw e;
+    }
+  }
+  // Grant Office (Sprint S4 / US-032). Tables absentes sur base pré-S4 → skip P2021.
+  try {
+    await seedExpenseNatures();
+    await seedOverheadRules();
+  } catch (e) {
+    const err = e as { code?: string; meta?: { table?: string } };
+    if (err.code === 'P2021') {
+      console.log(
+        `⚠️  Table ${err.meta?.table ?? 'grant_office.*'} absente — sprint-S4 pas encore appliqué, skip.`,
       );
     } else {
       throw e;
