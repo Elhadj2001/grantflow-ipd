@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { BudgetLine } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ExchangeRateService } from '../exchange-rate/exchange-rate.service';
 import {
   AlreadyActiveException,
   AlreadyInactiveException,
@@ -28,7 +29,10 @@ export interface BulkImportResult {
 export class BudgetLineService {
   private readonly logger = new Logger(BudgetLineService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fx: ExchangeRateService,
+  ) {}
 
   // ------------------------------------------------------------------
   // Read
@@ -64,6 +68,7 @@ export class BudgetLineService {
     const amount = this.toNumber(dto.budgetedAmount);
     await this.assertGrantNotOverflowed(grantId, grant.amount, amount);
 
+    const xof = await this.buildXofMaterialization(amount, grant.currency);
     try {
       return await this.prisma.budgetLine.create({
         data: {
@@ -73,6 +78,10 @@ export class BudgetLineService {
           budgetedAmount: new Prisma.Decimal(amount),
           defaultAccount: dto.defaultAccount ?? null,
           isOverheadEligible: dto.isOverheadEligible,
+          budgetedAmountXof: xof.budgetedAmountXof,
+          fxRate: xof.fxRate,
+          fxRateDate: xof.fxRateDate,
+          currency: xof.currency,
         },
       });
     } catch (e) {
@@ -89,6 +98,7 @@ export class BudgetLineService {
     const amount = this.toNumber(dto.budgetedAmount);
     await this.assertGrantNotOverflowed(grantId, grant.amount, amount, id);
 
+    const xof = await this.buildXofMaterialization(amount, grant.currency);
     try {
       return await this.prisma.budgetLine.update({
         where: { id },
@@ -98,6 +108,10 @@ export class BudgetLineService {
           budgetedAmount: new Prisma.Decimal(amount),
           defaultAccount: dto.defaultAccount ?? null,
           isOverheadEligible: dto.isOverheadEligible,
+          budgetedAmountXof: xof.budgetedAmountXof,
+          fxRate: xof.fxRate,
+          fxRateDate: xof.fxRateDate,
+          currency: xof.currency,
         },
       });
     } catch (e) {
@@ -120,7 +134,15 @@ export class BudgetLineService {
     if (dto.code !== undefined) data.code = dto.code;
     if (dto.label !== undefined) data.label = dto.label;
     if (dto.budgetedAmount !== undefined) {
-      data.budgetedAmount = new Prisma.Decimal(this.toNumber(dto.budgetedAmount));
+      const next = this.toNumber(dto.budgetedAmount);
+      data.budgetedAmount = new Prisma.Decimal(next);
+      // US-024 : le montant budgété change → on re-fige l'équivalent XOF et
+      // le taux à la date de modification.
+      const xof = await this.buildXofMaterialization(next, grant.currency);
+      data.budgetedAmountXof = xof.budgetedAmountXof;
+      data.fxRate = xof.fxRate;
+      data.fxRateDate = xof.fxRateDate;
+      data.currency = xof.currency;
     }
     if (dto.defaultAccount !== undefined) {
       data.defaultAccountRef = dto.defaultAccount === null
@@ -256,6 +278,10 @@ export class BudgetLineService {
             });
             if (!acc) throw new InvalidGlAccountException(row.defaultAccount);
           }
+          const xof = await this.buildXofMaterialization(
+            this.toNumber(row.budgetedAmount),
+            grant.currency,
+          );
           await tx.budgetLine.create({
             data: {
               grantId,
@@ -264,6 +290,10 @@ export class BudgetLineService {
               budgetedAmount: new Prisma.Decimal(this.toNumber(row.budgetedAmount)),
               defaultAccount: row.defaultAccount ?? null,
               isOverheadEligible: row.isOverheadEligible,
+              budgetedAmountXof: xof.budgetedAmountXof,
+              fxRate: xof.fxRate,
+              fxRateDate: xof.fxRateDate,
+              currency: xof.currency,
             },
           });
           created += 1;
@@ -286,13 +316,41 @@ export class BudgetLineService {
   // Helpers
   // ------------------------------------------------------------------
 
-  private async ensureGrantExists(grantId: string): Promise<{ amount: Prisma.Decimal }> {
+  private async ensureGrantExists(
+    grantId: string,
+  ): Promise<{ amount: Prisma.Decimal; currency: string }> {
     const grant = await this.prisma.grantAgreement.findUnique({
       where: { id: grantId },
-      select: { amount: true },
+      select: { amount: true, currency: true },
     });
     if (!grant) throw new EntityNotFoundException('Grant', { id: grantId });
     return grant;
+  }
+
+  /**
+   * US-024 (ADR-005) — fige l'équivalent XOF + le taux de change au
+   * paramétrage de la ligne budgétaire. La conversion devient une référence
+   * comptable stable (les contrôles budgétaires en aval s'appuient dessus,
+   * cf. computeBudgetUsageByLine), indépendante des variations de taux
+   * ultérieures. `currency` = devise du budget, héritée du grant tant que la
+   * Note Technique (Sprint S4) ne la porte pas. XOF → no-op identité.
+   */
+  private async buildXofMaterialization(
+    amount: number,
+    currency: string,
+  ): Promise<{
+    budgetedAmountXof: bigint;
+    fxRate: Prisma.Decimal;
+    fxRateDate: Date;
+    currency: string;
+  }> {
+    const conv = await this.fx.convertToXof(amount, currency, new Date());
+    return {
+      budgetedAmountXof: BigInt(Math.round(conv.xofAmount)),
+      fxRate: new Prisma.Decimal(conv.fxRate),
+      fxRateDate: conv.fxRateDate,
+      currency,
+    };
   }
 
   private async assertGlAccountExists(code: string): Promise<void> {

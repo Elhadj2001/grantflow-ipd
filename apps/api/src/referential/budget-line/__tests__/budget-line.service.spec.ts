@@ -3,6 +3,7 @@ import type { BudgetLine } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { BudgetLineService } from '../budget-line.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ExchangeRateService } from '../../exchange-rate/exchange-rate.service';
 import {
   AlreadyActiveException,
   AlreadyInactiveException,
@@ -43,6 +44,10 @@ describe('BudgetLineService', () => {
     defaultAccount: null,
     isOverheadEligible: true,
     isActive: true,
+    budgetedAmountXof: null,
+    fxRate: null,
+    fxRateDate: null,
+    currency: null,
   };
 
   function dto(overrides: Partial<CreateBudgetLineDto> = {}): CreateBudgetLineDto {
@@ -71,7 +76,24 @@ describe('BudgetLineService', () => {
       glAccount: { findUnique: jest.fn() },
       $transaction: jest.fn(),
     };
-    svc = new BudgetLineService(prisma as unknown as PrismaService);
+    // US-024 : ExchangeRateService stub déterministe. XOF identité, EUR parité
+    // BCEAO 655,957. La devise vient du grant (ensureGrantExists).
+    const fx = {
+      convertToXof: jest.fn(
+        async (amount: number | { toString(): string }, currency: string) => {
+          const n = Number(amount);
+          const fxRateDate = new Date('2026-06-15');
+          if (currency === 'EUR') {
+            return { xofAmount: Math.round(n * 655.957), fxRate: 655.957, fxRateDate, isIndicativeFallback: false };
+          }
+          return { xofAmount: Math.round(n), fxRate: 1, fxRateDate, isIndicativeFallback: false };
+        },
+      ),
+    };
+    svc = new BudgetLineService(
+      prisma as unknown as PrismaService,
+      fx as unknown as ExchangeRateService,
+    );
   });
 
   // ------------------------------------------------------------------
@@ -82,7 +104,7 @@ describe('BudgetLineService', () => {
     });
 
     it('returns active lines only', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000'), currency: 'XOF' });
       prisma.budgetLine.findMany.mockResolvedValue([fakeLine]);
       const res = await svc.listByGrant(grantId);
       expect(res.total).toBe(1);
@@ -96,7 +118,7 @@ describe('BudgetLineService', () => {
   // ------------------------------------------------------------------
   describe('findOne', () => {
     it('returns the line scoped to grant', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000'), currency: 'XOF' });
       prisma.budgetLine.findFirst.mockResolvedValue(fakeLine);
       const res = await svc.findOne(grantId, lineId);
       expect(res).toEqual(fakeLine);
@@ -106,7 +128,7 @@ describe('BudgetLineService', () => {
     });
 
     it('404 when line.grantId differs', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000'), currency: 'XOF' });
       prisma.budgetLine.findFirst.mockResolvedValue(null);
       await expect(svc.findOne(grantId, lineId)).rejects.toBeInstanceOf(EntityNotFoundException);
     });
@@ -115,7 +137,7 @@ describe('BudgetLineService', () => {
   // ------------------------------------------------------------------
   describe('create', () => {
     it('creates when sum stays within grant.amount', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.aggregate.mockResolvedValue({ _sum: { budgetedAmount: new Prisma.Decimal('30000') } });
       prisma.budgetLine.create.mockResolvedValue(fakeLine);
 
@@ -124,7 +146,7 @@ describe('BudgetLineService', () => {
     });
 
     it('throws BudgetLinesExceedGrantException when sum > grant.amount', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.aggregate.mockResolvedValue({ _sum: { budgetedAmount: new Prisma.Decimal('90000') } });
       await expect(svc.create(grantId, dto({ budgetedAmount: '20000' }))).rejects.toBeInstanceOf(
         BudgetLinesExceedGrantException,
@@ -132,15 +154,46 @@ describe('BudgetLineService', () => {
     });
 
     it('throws InvalidGlAccountException when defaultAccount unknown', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.glAccount.findUnique.mockResolvedValue(null);
       await expect(
         svc.create(grantId, dto({ defaultAccount: '9999' })),
       ).rejects.toBeInstanceOf(InvalidGlAccountException);
     });
 
+    it('US-024 — fige budgetedAmountXof en EUR (parité BCEAO 655,957)', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue({
+        amount: new Prisma.Decimal('100000000'),
+        currency: 'EUR',
+      });
+      prisma.budgetLine.aggregate.mockResolvedValue({ _sum: { budgetedAmount: new Prisma.Decimal('0') } });
+      prisma.budgetLine.create.mockResolvedValue(fakeLine);
+
+      await svc.create(grantId, dto({ budgetedAmount: '100000' }));
+      const data = prisma.budgetLine.create.mock.calls[0][0].data;
+      // 100 000 EUR × 655,957 = 65 595 700 XOF (BIGINT).
+      expect(data.budgetedAmountXof).toBe(65595700n);
+      expect(data.fxRate.toString()).toBe('655.957');
+      expect(data.currency).toBe('EUR');
+    });
+
+    it('US-024 — budgetedAmountXof = montant brut en XOF (no-op identité)', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue({
+        amount: new Prisma.Decimal('20000000'),
+        currency: 'XOF',
+      });
+      prisma.budgetLine.aggregate.mockResolvedValue({ _sum: { budgetedAmount: new Prisma.Decimal('0') } });
+      prisma.budgetLine.create.mockResolvedValue(fakeLine);
+
+      await svc.create(grantId, dto({ budgetedAmount: '10000000' }));
+      const data = prisma.budgetLine.create.mock.calls[0][0].data;
+      expect(data.budgetedAmountXof).toBe(10000000n);
+      expect(data.fxRate.toString()).toBe('1');
+      expect(data.currency).toBe('XOF');
+    });
+
     it('maps P2002 to DuplicateCodeException', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.aggregate.mockResolvedValue({ _sum: { budgetedAmount: new Prisma.Decimal('0') } });
       prisma.budgetLine.create.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: '5' }),
@@ -154,7 +207,7 @@ describe('BudgetLineService', () => {
   // ------------------------------------------------------------------
   describe('update — overflow check ignores own line', () => {
     it('passes when new amount fits after subtracting old', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.findFirst.mockResolvedValue(fakeLine);
       // Aggregate excludes own line (id !== lineId).
       prisma.budgetLine.aggregate.mockResolvedValue({ _sum: { budgetedAmount: new Prisma.Decimal('40000') } });
@@ -171,7 +224,7 @@ describe('BudgetLineService', () => {
   // ------------------------------------------------------------------
   describe('softDelete', () => {
     it('switches to inactive when no usage', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.findFirst.mockResolvedValue(fakeLine);
       prisma.purchaseRequestLine.count.mockResolvedValue(0);
       prisma.purchaseOrderLine.count.mockResolvedValue(0);
@@ -183,7 +236,7 @@ describe('BudgetLineService', () => {
     });
 
     it('refuses when at least one usage exists', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.findFirst.mockResolvedValue(fakeLine);
       prisma.purchaseRequestLine.count.mockResolvedValue(0);
       prisma.purchaseOrderLine.count.mockResolvedValue(2);
@@ -195,7 +248,7 @@ describe('BudgetLineService', () => {
     });
 
     it('refuses when already inactive', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.findFirst.mockResolvedValue({ ...fakeLine, isActive: false });
       await expect(svc.softDelete(grantId, lineId)).rejects.toBeInstanceOf(
         AlreadyInactiveException,
@@ -206,7 +259,7 @@ describe('BudgetLineService', () => {
   // ------------------------------------------------------------------
   describe('restore', () => {
     it('switches inactive → active', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.findFirst.mockResolvedValue({ ...fakeLine, isActive: false });
       prisma.budgetLine.update.mockResolvedValue({ ...fakeLine, isActive: true });
       const res = await svc.restore(grantId, lineId);
@@ -214,7 +267,7 @@ describe('BudgetLineService', () => {
     });
 
     it('refuses when already active', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.findFirst.mockResolvedValue(fakeLine);
       await expect(svc.restore(grantId, lineId)).rejects.toBeInstanceOf(AlreadyActiveException);
     });
@@ -230,7 +283,7 @@ describe('BudgetLineService', () => {
     }
 
     it('imports 5 valid rows in a transaction', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000'), currency: 'XOF' });
       prisma.budgetLine.aggregate.mockResolvedValue({ _sum: { budgetedAmount: new Prisma.Decimal('0') } });
       const txCreate = jest.fn().mockResolvedValue(fakeLine);
       prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<void>) => {
@@ -252,7 +305,7 @@ describe('BudgetLineService', () => {
     });
 
     it('rejects all when one row is invalid (e.g. negative amount)', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('500000'), currency: 'XOF' });
 
       const buffer = buildBook([
         { code: 'L01', label: 'Consommables labo', budgeted_amount: 38000, is_overhead_eligible: true },
@@ -267,7 +320,7 @@ describe('BudgetLineService', () => {
     });
 
     it('throws BudgetLinesExceedGrantException when total exceeds grant amount', async () => {
-      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000') });
+      prisma.grantAgreement.findUnique.mockResolvedValue({ amount: new Prisma.Decimal('100000'), currency: 'XOF' });
       prisma.budgetLine.aggregate.mockResolvedValue({ _sum: { budgetedAmount: new Prisma.Decimal('50000') } });
 
       const buffer = buildBook([

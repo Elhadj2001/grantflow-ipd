@@ -299,6 +299,10 @@ model BudgetLine {
   defaultAccount       String?               @map("default_account")
   isOverheadEligible   Boolean               @default(true) @map("is_overhead_eligible")
   isActive             Boolean               @default(true) @map("is_active")
+  budgetedAmountXof    BigInt?               @map("budgeted_amount_xof")
+  fxRate               Decimal?              @map("fx_rate") @db.Decimal(14, 6)
+  fxRateDate           DateTime?             @map("fx_rate_date") @db.Date
+  currency             String?               @db.VarChar(3)
   journalLines         JournalLine[]
   purchaseOrderLines   PurchaseOrderLine[]
   purchaseRequestLines PurchaseRequestLine[]

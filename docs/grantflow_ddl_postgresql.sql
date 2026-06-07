@@ -1564,3 +1564,29 @@ COMMENT ON COLUMN ap.payment.fx_rate_date IS
 -- SELECT COUNT(*) AS nb_tables FROM information_schema.tables
 --   WHERE table_schema IN ('auth','ref','procurement','ap','gl','co','reporting','audit');
 -- SELECT * FROM ref.gl_account ORDER BY code LIMIT 20;
+
+-- =========================================================================
+-- Sprint S3 / US-024 — budget_line multicurrency materialization
+-- =========================================================================
+-- Fige le taux de change au paramétrage de la ligne budgétaire (pattern
+-- SAP PSM / Oracle Grants) : l'équivalent XOF devient une référence
+-- comptable stable, indépendante des variations de taux ultérieures
+-- (contrôle interne, cf. ADR-005). Section additive idempotente — aucun
+-- DROP : triggers, CHECK et colonnes existantes de ref.budget_line restent
+-- intacts par construction.
+
+ALTER TABLE ref.budget_line ADD COLUMN IF NOT EXISTS budgeted_amount_xof BIGINT;
+ALTER TABLE ref.budget_line ADD COLUMN IF NOT EXISTS fx_rate NUMERIC(14,6);
+ALTER TABLE ref.budget_line ADD COLUMN IF NOT EXISTS fx_rate_date DATE;
+ALTER TABLE ref.budget_line ADD COLUMN IF NOT EXISTS currency VARCHAR(3);
+
+COMMENT ON COLUMN ref.budget_line.budgeted_amount_xof IS
+  'Équivalent XOF du montant budgété au taux figé au paramétrage. Source
+   de vérité pour les contrôles internes XOF (cf. ADR-005, US-024).';
+COMMENT ON COLUMN ref.budget_line.fx_rate IS
+  'Taux appliqué au paramétrage. 655.957 pour EUR (parité BCEAO).';
+COMMENT ON COLUMN ref.budget_line.fx_rate_date IS
+  'Date du taux appliqué (pour audit).';
+COMMENT ON COLUMN ref.budget_line.currency IS
+  'Devise du budget. NULL = devise du grant parent (rétrocompat).
+   Source de vérité dès Sprint S4 (Note Technique).';

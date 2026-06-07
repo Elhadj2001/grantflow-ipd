@@ -644,6 +644,9 @@ export class PurchaseRequestService {
         code: true,
         label: true,
         budgetedAmount: true,
+        // US-024 : équivalent XOF figé au paramétrage (référence stable).
+        budgetedAmountXof: true,
+        currency: true,
         grant: { select: { currency: true } },
       },
     });
@@ -696,10 +699,23 @@ export class PurchaseRequestService {
     const result: CheckBudgetLineDto[] = [];
     for (const blId of blIds) {
       const bl = blMap.get(blId);
-      // Budget converti en XOF depuis la devise du grant.
-      const budgetedXof = bl
-        ? (await this.fx.convertToXof(bl.budgetedAmount, bl.grant.currency, pr.requestedAt)).xofAmount
-        : 0;
+      // US-024 : on privilégie l'équivalent XOF figé au paramétrage
+      // (référence comptable stable). Fallback conversion à la volée pour
+      // les lignes non encore matérialisées (transition douce + backfill).
+      let budgetedXof = 0;
+      if (bl) {
+        if (bl.budgetedAmountXof != null) {
+          budgetedXof = Number(bl.budgetedAmountXof);
+        } else {
+          budgetedXof = (
+            await this.fx.convertToXof(
+              bl.budgetedAmount,
+              bl.currency ?? bl.grant.currency,
+              pr.requestedAt,
+            )
+          ).xofAmount;
+        }
+      }
       const alreadyConsumed = (prByBl.get(blId) ?? 0) + (poByBl.get(blId) ?? 0);
       const willConsume = willByBl.get(blId) ?? 0;
       const available = budgetedXof - alreadyConsumed - willConsume;

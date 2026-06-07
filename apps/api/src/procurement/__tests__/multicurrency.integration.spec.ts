@@ -208,6 +208,52 @@ describe('Multidevise × seuils — intégration (S2/US-014)', () => {
   });
 
   // ------------------------------------------------------------------
+  it('Test 6 (US-024) — checkBudget privilégie budgetedAmountXof figé', async () => {
+    prisma.purchaseRequest.findUnique.mockResolvedValue(
+      makePr({ currency: 'XOF', totalAmount: new Prisma.Decimal(10000) }, 10000) as never,
+    );
+    // Ligne matérialisée : XOF figé = 77M ; budgetedAmount brut (1 EUR)
+    // volontairement incohérent → prouve qu'on N'effectue PAS la conversion.
+    prisma.budgetLine.findMany.mockResolvedValue([
+      {
+        id: blId, code: 'L01', label: 'Consommables',
+        budgetedAmount: new Prisma.Decimal(1), currency: 'EUR',
+        budgetedAmountXof: 77_000_000n,
+        grant: { currency: 'EUR' },
+      },
+    ] as never);
+
+    const res = await svc.checkBudget(demandeur, prId);
+    expect(res.byLine[0].budgeted).toBe(77_000_000);
+    // fx jamais appelé pour convertir le budget EUR (uniquement la DA XOF).
+    expect(fxStub.convertToXof).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'EUR',
+      expect.anything(),
+    );
+  });
+
+  // ------------------------------------------------------------------
+  it('Test 7 (US-024) — fallback conversion à la volée si budgetedAmountXof NULL', async () => {
+    prisma.purchaseRequest.findUnique.mockResolvedValue(
+      makePr({ currency: 'XOF', totalAmount: new Prisma.Decimal(10000) }, 10000) as never,
+    );
+    prisma.budgetLine.findMany.mockResolvedValue([
+      {
+        id: blId, code: 'L01', label: 'Consommables',
+        budgetedAmount: new Prisma.Decimal(100000), currency: 'EUR',
+        budgetedAmountXof: null,
+        grant: { currency: 'EUR' },
+      },
+    ] as never);
+
+    const res = await svc.checkBudget(demandeur, prId);
+    // Fallback : 100 000 EUR × 655,957 = 65 595 700 XOF.
+    expect(res.byLine[0].budgeted).toBe(65_595_700);
+    expect(fxStub.convertToXof).toHaveBeenCalledWith(expect.anything(), 'EUR', expect.anything());
+  });
+
+  // ------------------------------------------------------------------
   it('Test 5 — agrégat Decimal de 3 DA : 100.10 + 100.20 + 100.30 = 300.60 exact (F10)', () => {
     // Reproduit le pattern de reduce Decimal natif d'US-013 (pas de float drift).
     const montants = [
