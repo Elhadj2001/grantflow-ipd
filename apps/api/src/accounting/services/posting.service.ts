@@ -9,6 +9,7 @@ import type {
   PurchaseOrder,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import {
   BankAccountWrongClassException,
   EntityNotFoundException,
@@ -109,7 +110,10 @@ export interface PostPaymentResult {
 export class PostingService {
   private readonly logger = new Logger(PostingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fx: ExchangeRateService,
+  ) {}
 
   /**
    * Crée l'écriture d'engagement comptable classe 8 pour un BC envoyé.
@@ -129,10 +133,16 @@ export class PostingService {
   ): Promise<JournalEntry & { lines: JournalLine[] }> {
     const period = await this.findOpenPeriodForDate(po.orderDate);
     const imputation = await this.resolveImputation(po);
-    // Montant d'engagement : simple recopie de totalHt (aucune arithmétique
-    // ici → pas d'enjeu F10). Converti en number au point d'écriture pour
-    // respecter le contrat historique des colonnes debit/credit.
-    const total = new Prisma.Decimal(po.totalHt).toNumber();
+    // F18 (US-020) : l'engagement classe 8 est stocké en XOF (devise
+    // fonctionnelle SYSCEBNL). On convertit totalHt depuis la devise du BC
+    // via ExchangeRateService — si po.currency = XOF, c'est un no-op identité
+    // (comportement historique préservé). On conserve aussi le montant
+    // transactionnel brut (debitCurrency/creditCurrency) et le taux
+    // (fx_rate/fx_rate_date) pour respecter la Règle d'or n°4 (CLAUDE.md §2).
+    const totalCurrency = new Prisma.Decimal(po.totalHt);
+    const conv = await this.fx.convertToXof(po.totalHt, po.currency, po.orderDate);
+    const totalXof = conv.xofAmount;
+    const isXof = po.currency === 'XOF';
     const supplier = await this.prisma.supplier.findUnique({
       where: { id: po.supplierId },
       select: { name: true },
@@ -171,9 +181,13 @@ export class PostingService {
             lineNumber: 1,
             accountCode: ACCOUNT_ENGAGEMENT_DONNE,
             label: `Engagement ${po.poNumber}`,
-            debit: total,
+            debit: totalXof,
             credit: 0,
             currency: po.currency,
+            debitCurrency: isXof ? null : totalCurrency,
+            creditCurrency: isXof ? null : 0,
+            fx_rate: conv.fxRate,
+            fx_rate_date: conv.fxRateDate,
             ...baseImputation,
           },
           {
@@ -182,8 +196,12 @@ export class PostingService {
             accountCode: ACCOUNT_CONTRE_ENGAGEMENT,
             label: `Contre-engagement ${po.poNumber}`,
             debit: 0,
-            credit: total,
+            credit: totalXof,
             currency: po.currency,
+            debitCurrency: isXof ? null : 0,
+            creditCurrency: isXof ? null : totalCurrency,
+            fx_rate: conv.fxRate,
+            fx_rate_date: conv.fxRateDate,
             ...baseImputation,
           },
         ],
@@ -201,7 +219,15 @@ export class PostingService {
       });
 
       this.logger.log(
-        { entryNumber, poId: po.id, total, currency: po.currency },
+        {
+          entryNumber,
+          poId: po.id,
+          totalXof,
+          currency: po.currency,
+          fxRate: conv.fxRate,
+          fxRateDate: conv.fxRateDate,
+          isIndicativeFallback: conv.isIndicativeFallback,
+        },
         'commitment entry posted',
       );
       return posted;
@@ -809,9 +835,15 @@ export class PostingService {
     // 3) Période fiscale ouverte à paymentDate (PERIOD_CLOSED si fermée)
     const period = await this.findOpenPeriodForDate(payment.paymentDate);
 
-    // Montant conservé en Decimal exact (écrit tel quel dans les colonnes
-    // Decimal debit/credit — pas de conversion float64, cf. F10).
-    const amount = new Prisma.Decimal(payment.amount);
+    // F18 (US-020) : le mouvement de trésorerie classe 5 est stocké en XOF
+    // (devise fonctionnelle). On convertit depuis la devise du paiement
+    // (= devise du compte bancaire, cf. contrôle PaymentCurrencyMismatch
+    // ci-dessus) ; XOF → no-op identité. On garde le montant transactionnel
+    // brut (debitCurrency/creditCurrency) + le taux (Règle d'or n°4).
+    const amountCurrency = new Prisma.Decimal(payment.amount);
+    const conv = await this.fx.convertToXof(payment.amount, payment.currency, payment.paymentDate);
+    const amountXof = new Prisma.Decimal(conv.xofAmount);
+    const isXof = payment.currency === 'XOF';
     const supplier = payment.invoice.supplier;
     const label =
       `Paiement ${supplier.code} - ${payment.invoice.invoiceNumber}`.slice(0, 256);
@@ -840,9 +872,13 @@ export class PostingService {
             accountCode: ACCOUNT_SUPPLIERS,
             auxiliaryCode: supplier.code,
             label: `Solde fournisseur ${supplier.code}`,
-            debit: amount,
+            debit: amountXof,
             credit: 0,
             currency: payment.currency,
+            debitCurrency: isXof ? null : amountCurrency,
+            creditCurrency: isXof ? null : 0,
+            fx_rate: conv.fxRate,
+            fx_rate_date: conv.fxRateDate,
           },
           {
             entryId: entry.id,
@@ -850,8 +886,12 @@ export class PostingService {
             accountCode: bankAccount.glAccountCode,
             label: `Banque ${bankAccount.code} - ${payment.invoice.invoiceNumber}`,
             debit: 0,
-            credit: amount,
+            credit: amountXof,
             currency: payment.currency,
+            debitCurrency: isXof ? null : 0,
+            creditCurrency: isXof ? null : amountCurrency,
+            fx_rate: conv.fxRate,
+            fx_rate_date: conv.fxRateDate,
           },
         ],
       });
@@ -862,11 +902,19 @@ export class PostingService {
       });
 
       this.logger.log(
-        { entryNumber, paymentId: payment.id, amount, bankAccount: bankAccount.code },
+        {
+          entryNumber,
+          paymentId: payment.id,
+          amountXof: conv.xofAmount,
+          currency: payment.currency,
+          fxRate: conv.fxRate,
+          isIndicativeFallback: conv.isIndicativeFallback,
+          bankAccount: bankAccount.code,
+        },
         'payment posted (BQ entry)',
       );
 
-      return { entryId: entry.id, entryNumber, amountXof: amount.toNumber() };
+      return { entryId: entry.id, entryNumber, amountXof: amountXof.toNumber() };
     });
   }
 

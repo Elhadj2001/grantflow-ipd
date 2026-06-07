@@ -1,6 +1,7 @@
 import { Prisma, InvoiceStatus, EntryStatus, JournalType, PoStatus } from '@prisma/client';
 import { PostingService } from '../services/posting.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import {
   EntityNotFoundException,
   ExchangeRateMissingException,
@@ -198,7 +199,13 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
       }),
       $executeRawUnsafe: jest.fn().mockResolvedValue(1),
     };
-    svc = new PostingService(prisma as unknown as PrismaService);
+    // US-020 (F18) : postInvoice fait sa propre conversion (lookup taux) et
+    // n'appelle pas ExchangeRateService → stub minimal suffisant pour la DI.
+    const fx = { convertToXof: jest.fn() };
+    svc = new PostingService(
+      prisma as unknown as PrismaService,
+      fx as unknown as ExchangeRateService,
+    );
   });
 
   // ============================================================

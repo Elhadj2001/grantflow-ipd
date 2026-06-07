@@ -1,6 +1,7 @@
 import { Prisma, JournalType, EntryStatus, InvoiceStatus } from '@prisma/client';
 import type { BankAccount, Invoice, Payment } from '@prisma/client';
 import { PostingService } from '../services/posting.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
 import {
   BankAccountWrongClassException,
@@ -115,7 +116,21 @@ describe('PostingService.postPayment', () => {
     prisma.fiscalPeriod.findMany.mockResolvedValue([openPeriod] as never);
     prisma.glAccount.findUnique.mockResolvedValue({ code: '521', class: '5' } as never);
     prisma.$executeRawUnsafe.mockResolvedValue(1 as never);
-    svc = new PostingService(prisma);
+    // US-020 (F18) : ExchangeRateService stub. Les tests de paiement sont en
+    // XOF → identité (xofAmount = montant, fxRate = 1).
+    const fx = {
+      convertToXof: jest.fn(
+        async (amount: number | { toString(): string }, currency: string) => {
+          const n = Number(amount);
+          const fxRateDate = new Date('2026-06-15');
+          if (currency === 'EUR') {
+            return { xofAmount: Math.round(n * 655.957), fxRate: 655.957, fxRateDate, isIndicativeFallback: false };
+          }
+          return { xofAmount: Math.round(n), fxRate: 1, fxRateDate, isIndicativeFallback: false };
+        },
+      ),
+    };
+    svc = new PostingService(prisma, fx as unknown as ExchangeRateService);
   });
 
   it('creates a balanced BQ entry : debit 401 + credit 521', async () => {
