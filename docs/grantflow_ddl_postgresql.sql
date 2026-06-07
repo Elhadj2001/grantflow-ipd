@@ -1590,3 +1590,44 @@ COMMENT ON COLUMN ref.budget_line.fx_rate_date IS
 COMMENT ON COLUMN ref.budget_line.currency IS
   'Devise du budget. NULL = devise du grant parent (rétrocompat).
    Source de vérité dès Sprint S4 (Note Technique).';
+
+-- =========================================================================
+-- Sprint S3 / US-021 — v_general_balance SYSCEBNL clarté XOF
+-- =========================================================================
+-- Depuis US-020/F18, journal_line.debit/credit sont stockés en XOF (devise
+-- de tenue SYSCEBNL) ; currency porte la devise transactionnelle et
+-- debit_currency/credit_currency le montant brut en devise étrangère.
+-- On expose des alias explicites *_xof (lever toute ambiguïté pour la balance
+-- / le grand livre / les états réglementaires) + une ventilation informative
+-- des devises transactionnelles ÉTRANGÈRES (currency <> 'XOF' ; la base XOF
+-- est exclue du tableau pour ne montrer que le multidevise réel).
+--
+-- CREATE OR REPLACE VIEW = idiome PostgreSQL de modification idempotente d'une
+-- vue (équivalent du IF NOT EXISTS des tables). Les 6 colonnes historiques
+-- (code/label/class/total_debit/total_credit/balance) sont CONSERVÉES dans le
+-- même ordre (rétrocompat) ; les 5 nouvelles sont ajoutées en fin (contrainte
+-- CREATE OR REPLACE). Aucune table recréée → triggers/CHECK intacts.
+
+CREATE OR REPLACE VIEW gl.v_general_balance AS
+SELECT
+    a.code,
+    a.label,
+    a.class,
+    SUM(jl.debit)              AS total_debit,
+    SUM(jl.credit)             AS total_credit,
+    SUM(jl.debit - jl.credit)  AS balance,
+    -- Alias explicites XOF (mêmes valeurs ; debit/credit SONT en XOF).
+    SUM(jl.debit)              AS total_debit_xof,
+    SUM(jl.credit)             AS total_credit_xof,
+    SUM(jl.debit - jl.credit)  AS balance_xof,
+    -- Ventilation devises transactionnelles étrangères (informatif).
+    array_agg(DISTINCT jl.currency)
+      FILTER (WHERE jl.currency IS NOT NULL AND jl.currency <> 'XOF')
+                               AS transaction_currencies,
+    COUNT(jl.id)               AS line_count
+FROM ref.gl_account a
+LEFT JOIN gl.journal_line jl  ON jl.account_code = a.code
+LEFT JOIN gl.journal_entry je ON je.id = jl.entry_id AND je.status = 'posted'
+WHERE a.is_movement
+GROUP BY a.code, a.label, a.class
+ORDER BY a.code;
