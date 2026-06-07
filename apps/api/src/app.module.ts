@@ -24,6 +24,7 @@ import { ReportingModule } from './reporting/reporting.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { PilotageModule } from './pilotage/pilotage.module';
 import { AdminUsersModule } from './admin/users/admin-users.module';
+import { GrantOfficeModule } from './grant_office/grant-office.module';
 
 const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -89,6 +90,7 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     ReportingModule,
     AccountingModule,
     PilotageModule,
+    GrantOfficeModule,
     // Administration (sprint F-ADMIN-USERS) — gestion des utilisateurs (hybride Keycloak + AppUser).
     AdminUsersModule,
     // À ajouter au fil des sprints :
