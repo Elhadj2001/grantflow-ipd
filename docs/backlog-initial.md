@@ -231,6 +231,8 @@ And le log Pino contient { ruleCode, verdict, prDraftPayload }
 | US-133 | En tant que développeur, je veux centraliser les 3 listes dupliquées de devises (`SUPPORTED_CURRENCIES`, `SUPPLIER_CURRENCIES`, `Currency`) dans `packages/shared/currency.ts`, afin d'unifier. | 2 | F24 |
 | US-134 | En tant que développeur, je veux harmoniser les bornes `pageSize` à 100 par défaut (sauf justification documentée), afin de retirer F24. | 2 | F24 |
 | US-135 | En tant que rédacteur, je veux formaliser rétrospectivement 8-10 ADRs supplémentaires correspondant aux décisions implicites prises depuis le début, afin de compléter le catalogue ADR (ADR-002, 004, 008, 010, 012, 013, 014, 015). | 13 | — |
+| US-139 | En tant que comptable, je veux que `v_general_balance` n'agrège QUE les écritures `posted`, afin que la balance ignore les brouillons. Le `LEFT JOIN … AND je.status='posted'` actuel laisse remonter les lignes `draft` (filtre inopérant en LEFT JOIN). Refactorer en `WHERE EXISTS` ou sous-requête. (S3bis ou S4) | 2 | US-021 |
+| US-140 | En tant qu'auditeur, je veux enforcer les invariants multidevise I1-I5 au niveau DB. Compléter `postInvoice` (lignes main/TVA/fournisseur/extournes) avec `fx_rate`/`fx_rate_date` ; backfiller les 4 lignes USD seed au `fx_rate` NULL ; ajouter le `CHECK chk_fx_consistency` (I1/I3/I4) à `gl.journal_line` ; enforcer I5 cross-row via constraint trigger. (S3bis ou S4) | 5 | F18, US-022 |
 
 ---
 
