@@ -2036,3 +2036,23 @@ export class IdpAdminOperationFailedException extends BusinessException {
     );
   }
 }
+
+/**
+ * US-049 (ADR-007) — la DA est refusée par ≥ 1 règle d'éligibilité bloquante.
+ * `blockedVerdicts` porte le détail (code + message) de chaque règle qui a
+ * refusé, pour restitution UI / audit.
+ */
+export class EligibilityValidationException extends BusinessException {
+  constructor(
+    public readonly blockedVerdicts: Array<{ code: string; message: string; details?: Record<string, unknown> }>,
+    prId?: string,
+  ) {
+    super(
+      ErrorCode.BUSINESS.ELIGIBILITY_VALIDATION_FAILED,
+      HttpStatus.BAD_REQUEST,
+      `Demande d'achat refusée par ${blockedVerdicts.length} règle(s) d'éligibilité : ` +
+        blockedVerdicts.map((v) => `${v.code} (${v.message})`).join(' ; '),
+      { prId, blockedCodes: blockedVerdicts.map((v) => v.code) },
+    );
+  }
+}

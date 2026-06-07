@@ -4,6 +4,8 @@ import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { PurchaseRequestService } from '../purchase-request.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
+import { EligibilityEngineService } from '../../grant_office/eligibility/eligibility-engine.service';
+import { EligibilityContextBuilder } from '../../grant_office/eligibility/eligibility-context-builder.service';
 import { InsufficientBudgetException } from '../../common/exceptions/business.exception';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 
@@ -58,6 +60,21 @@ describe('Multidevise × seuils — intégration (S2/US-014)', () => {
         PurchaseRequestService,
         { provide: PrismaService, useValue: prisma },
         { provide: ExchangeRateService, useValue: fxStub },
+        // US-049 : la gate d'éligibilité n'est pas exercée ici (Test 4 bloque
+        // au budget AVANT la gate, et les fixtures n'ont pas de nature de
+        // dépense → gate dormante). Stubs minimaux pour satisfaire la DI.
+        {
+          provide: EligibilityEngineService,
+          useValue: {
+            validate: jest.fn(async () => ({
+              ok: true,
+              blockedVerdicts: [],
+              warnings: [],
+              verdictsByRule: {},
+            })),
+          },
+        },
+        { provide: EligibilityContextBuilder, useValue: { build: jest.fn(async () => ({})) } },
       ],
     }).compile();
     svc = moduleRef.get(PurchaseRequestService);

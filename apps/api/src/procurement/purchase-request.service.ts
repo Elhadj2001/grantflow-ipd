@@ -12,6 +12,7 @@ import {
   CashLimitPerDayExceededException,
   CashLimitPerRequestExceededException,
   CashPaymentNotAllowedException,
+  EligibilityValidationException,
   EntityNotFoundException,
   GrantNotActiveException,
   InsufficientBudgetException,
@@ -20,6 +21,12 @@ import {
   PrNotOwnedException,
   ProjectGrantMismatchException,
 } from '../common/exceptions/business.exception';
+import { EligibilityEngineService } from '../grant_office/eligibility/eligibility-engine.service';
+import {
+  EligibilityContextBuilder,
+  type EligibilityPrInput,
+} from '../grant_office/eligibility/eligibility-context-builder.service';
+import type { WarningVerdict } from '../grant_office/eligibility/verdict';
 import { CreatePurchaseRequestDto } from './dto/create-pr.dto';
 import type { UpdatePurchaseRequestDto } from './dto/update-pr.dto';
 import type { PurchaseRequestQueryDto } from './dto/pr-query.dto';
@@ -82,6 +89,17 @@ export interface PrWithLines extends PurchaseRequest {
   lines: PurchaseRequestLine[];
 }
 
+/**
+ * Résultat de submit() (US-049). En plus de la DA soumise, transporte les
+ * `warnings` non bloquants remontés par l'EligibilityEngine (ex : anti-
+ * splitting) pour affichage côté UI. La liste est vide quand l'éligibilité
+ * n'est pas évaluée (DA sans nature de dépense renseignée — gate dormante).
+ */
+export interface SubmitPrResult {
+  pr: PurchaseRequest;
+  warnings: WarningVerdict[];
+}
+
 @Injectable()
 export class PurchaseRequestService {
   private readonly logger = new Logger(PurchaseRequestService.name);
@@ -89,6 +107,8 @@ export class PurchaseRequestService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fx: ExchangeRateService,
+    private readonly eligibilityEngine: EligibilityEngineService,
+    private readonly contextBuilder: EligibilityContextBuilder,
   ) {}
 
   // ------------------------------------------------------------------
@@ -497,10 +517,16 @@ export class PurchaseRequestService {
    *   1. status == 'draft'
    *   2. grant.status == 'active'
    *   3. budget suffisant sur CHAQUE ligne (PR pending + ce PR ≤ budgeted - engaged)
-   *   4. crée 1ère approval_step (le workflow vient au sprint 2.2)
-   *   5. status → 'submitted'
+   *   4. éligibilité métier (ADR-007, US-049) — bloque si une règle `blocked`,
+   *      collecte les `warning` non bloquants. Gate DORMANTE tant que la DA ne
+   *      porte pas de nature de dépense (voir runEligibilityGate).
+   *   5. crée 1ère approval_step (le workflow vient au sprint 2.2)
+   *   6. status → 'pending_pi' / 'pending_caissier'
+   *
+   * Retourne `{ pr, warnings }` (US-049) : les warnings d'éligibilité sont
+   * surfacés côté UI sans empêcher la soumission.
    */
-  async submit(actor: AuthenticatedUser, prId: string): Promise<PurchaseRequest> {
+  async submit(actor: AuthenticatedUser, prId: string): Promise<SubmitPrResult> {
     const pr = await this.prisma.purchaseRequest.findUnique({
       where: { id: prId },
       include: { lines: true, grant: { select: { status: true, projectId: true } } },
@@ -544,6 +570,12 @@ export class PurchaseRequestService {
       );
     }
 
+    // US-049 — Gate d'éligibilité métier (ADR-007, règle d'or n°8). Évaluée
+    // APRÈS le contrôle budgétaire (qui reste prioritaire) et AVANT la
+    // persistance. Peut lever EligibilityValidationException (verdicts
+    // `blocked`) ou retourner des `warnings` non bloquants.
+    const warnings = await this.runEligibilityGate(actor, pr);
+
     // Routage selon `requestType` :
     //   - standard      → PI (workflow PI/CG/DAF, sprint 2.2)
     //   - petty_cash    → CAISSIER direct (workflow simplifié, sprint 2.3)
@@ -552,8 +584,8 @@ export class PurchaseRequestService {
     const firstRole: 'PI' | 'CAISSIER' = isPetty ? 'CAISSIER' : 'PI';
     const nextStatus = isPetty ? PENDING_CAISSIER_STATUS : PENDING_PI_STATUS;
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.purchaseRequest.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.purchaseRequest.update({
         where: { id: prId },
         data: { status: nextStatus, updatedAt: new Date() },
       });
@@ -566,8 +598,54 @@ export class PurchaseRequestService {
           status: 'pending',
         },
       });
-      return updated;
+      return result;
     });
+
+    return { pr: updated, warnings };
+  }
+
+  /**
+   * US-049 — Exécute le moteur d'éligibilité (ADR-007) pour la DA soumise.
+   *
+   * Gate DORMANTE : la table `purchase_request` ne porte pas encore de nature
+   * de dépense (`expenseNatureCode`). Tant qu'elle n'est pas matérialisée, on
+   * lit la nature défensivement et on saute la validation si elle est absente,
+   * pour préserver le flux de submit existant (aucun warning, aucun blocage).
+   * Le branchement reste couvert par les tests unitaires via mocks.
+   *
+   * @throws EligibilityValidationException si ≥ 1 verdict `blocked`.
+   * @returns la liste des `warning` non bloquants (vide si gate dormante).
+   */
+  private async runEligibilityGate(
+    actor: AuthenticatedUser,
+    pr: PrWithLines & { grantId: string; currency: string; requestedBy: string; requestedAt: Date },
+  ): Promise<WarningVerdict[]> {
+    const expenseNatureCode = (pr as { expenseNatureCode?: string | null }).expenseNatureCode;
+    const firstBudgetLineId = pr.lines[0]?.budgetLineId;
+    if (!expenseNatureCode || !firstBudgetLineId) {
+      return [];
+    }
+
+    const prInput: EligibilityPrInput = {
+      id: pr.id,
+      grantId: pr.grantId,
+      budgetLineId: firstBudgetLineId,
+      totalAmount: pr.totalAmount,
+      currency: pr.currency,
+      expenseNatureCode,
+      requestedById: pr.requestedBy,
+      requestedAt: pr.requestedAt,
+    };
+
+    const ctx = await this.contextBuilder.build(prInput, {
+      id: actor.id,
+      roles: [...actor.roles],
+    });
+    const result = await this.eligibilityEngine.validate(ctx);
+    if (!result.ok) {
+      throw new EligibilityValidationException(result.blockedVerdicts, pr.id);
+    }
+    return result.warnings;
   }
 
   // ------------------------------------------------------------------

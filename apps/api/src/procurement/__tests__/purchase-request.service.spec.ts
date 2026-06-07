@@ -5,6 +5,7 @@ import { ExchangeRateService } from '../../referential/exchange-rate/exchange-ra
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import {
   BudgetLineNotInGrantException,
+  EligibilityValidationException,
   EntityNotFoundException,
   GrantNotActiveException,
   InsufficientBudgetException,
@@ -13,6 +14,8 @@ import {
   PrNotOwnedException,
   ProjectGrantMismatchException,
 } from '../../common/exceptions/business.exception';
+import type { EligibilityEngineService } from '../../grant_office/eligibility/eligibility-engine.service';
+import type { EligibilityContextBuilder } from '../../grant_office/eligibility/eligibility-context-builder.service';
 import type { CreatePurchaseRequestDto } from '../dto/create-pr.dto';
 import type { PurchaseRequestQueryDto } from '../dto/pr-query.dto';
 import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
@@ -26,6 +29,10 @@ describe('PurchaseRequestService', () => {
 
   let prisma: PrismaMock;
   let svc: PurchaseRequestService;
+  // US-049 : mocks de la gate d'éligibilité (ADR-007). Par défaut `validate`
+  // renvoie OK ; les tests dédiés reconfigurent `validate`/`build`.
+  let engine: { validate: jest.Mock };
+  let builder: { build: jest.Mock };
 
   // Projection typée du `where` passé au 1er appel `findMany`. mockDeep type
   // `mock.calls[0][0]` comme l'union d'args Prisma (potentiellement undefined
@@ -154,7 +161,24 @@ describe('PurchaseRequestService', () => {
         isIndicativeFallback: false,
       })),
     };
-    svc = new PurchaseRequestService(prisma, fx as unknown as ExchangeRateService);
+    // US-049 : par défaut, éligibilité OK (aucun blocage, aucun warning). La
+    // gate est de toute façon DORMANTE pour les DA sans `expenseNatureCode`
+    // (cas des fixtures existantes) → `build`/`validate` ne sont pas appelés.
+    engine = {
+      validate: jest.fn(async () => ({
+        ok: true,
+        blockedVerdicts: [],
+        warnings: [],
+        verdictsByRule: {},
+      })),
+    };
+    builder = { build: jest.fn(async () => ({}) as never) };
+    svc = new PurchaseRequestService(
+      prisma,
+      fx as unknown as ExchangeRateService,
+      engine as unknown as EligibilityEngineService,
+      builder as unknown as EligibilityContextBuilder,
+    );
   });
 
   // ------------------------------------------------------------------
@@ -578,7 +602,11 @@ describe('PurchaseRequestService', () => {
       prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' } as never);
       prisma.approvalStep.create.mockResolvedValue({} as never);
       const res = await svc.submit(demandeur, pr.id);
-      expect(res.status).toBe('pending_pi');
+      expect(res.pr.status).toBe('pending_pi');
+      expect(res.warnings).toEqual([]);
+      // Gate DORMANTE : DA sans `expenseNatureCode` → moteur non sollicité.
+      expect(builder.build).not.toHaveBeenCalled();
+      expect(engine.validate).not.toHaveBeenCalled();
       expect(prisma.approvalStep.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -590,6 +618,79 @@ describe('PurchaseRequestService', () => {
           }),
         }),
       );
+    });
+
+    // US-049 — Gate d'éligibilité (ADR-007). On force `expenseNatureCode` sur
+    // la DA pour activer la gate (sinon dormante). Le moteur étant mocké, le
+    // contenu du contexte importe peu — seul le branchement est sous test.
+    it('US-049 eligibility OK with nature → submit passes, engine consulted, no warnings', async () => {
+      const ln = line({ lineTotal: new Prisma.Decimal('100'), budgetLineId: blId1 });
+      prisma.purchaseRequest.findUnique.mockResolvedValue({
+        ...pr, lines: [ln], grant: { status: 'active', projectId }, expenseNatureCode: 'REAGENTS',
+      } as never);
+      prisma.budgetLine.findMany.mockResolvedValue([
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
+      ] as never);
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' } as never);
+      prisma.approvalStep.create.mockResolvedValue({} as never);
+
+      const res = await svc.submit(demandeur, pr.id);
+
+      expect(builder.build).toHaveBeenCalledTimes(1);
+      expect(engine.validate).toHaveBeenCalledTimes(1);
+      expect(res.pr.status).toBe('pending_pi');
+      expect(res.warnings).toEqual([]);
+    });
+
+    it('US-049 eligibility BLOCKED → throws EligibilityValidationException, no persistence', async () => {
+      const ln = line({ lineTotal: new Prisma.Decimal('100'), budgetLineId: blId1 });
+      prisma.purchaseRequest.findUnique.mockResolvedValue({
+        ...pr, lines: [ln], grant: { status: 'active', projectId }, expenseNatureCode: 'ALCOHOL',
+      } as never);
+      prisma.budgetLine.findMany.mockResolvedValue([
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
+      ] as never);
+      engine.validate.mockResolvedValueOnce({
+        ok: false,
+        blockedVerdicts: [
+          { kind: 'blocked', code: 'ELIG_NATURE_EXCLUDED', message: 'Nature exclue par la convention' },
+        ],
+        warnings: [],
+        verdictsByRule: {},
+      });
+
+      await expect(svc.submit(demandeur, pr.id)).rejects.toBeInstanceOf(
+        EligibilityValidationException,
+      );
+      // Aucune écriture : la gate bloque AVANT la transaction.
+      expect(prisma.purchaseRequest.update).not.toHaveBeenCalled();
+      expect(prisma.approvalStep.create).not.toHaveBeenCalled();
+    });
+
+    it('US-049 eligibility WARNING (non bloquant) → submit passes, warnings transportés', async () => {
+      const ln = line({ lineTotal: new Prisma.Decimal('100'), budgetLineId: blId1 });
+      prisma.purchaseRequest.findUnique.mockResolvedValue({
+        ...pr, lines: [ln], grant: { status: 'active', projectId }, expenseNatureCode: 'REAGENTS',
+      } as never);
+      prisma.budgetLine.findMany.mockResolvedValue([
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
+      ] as never);
+      prisma.purchaseRequest.update.mockResolvedValue({ ...pr, status: 'pending_pi' } as never);
+      prisma.approvalStep.create.mockResolvedValue({} as never);
+      engine.validate.mockResolvedValueOnce({
+        ok: true,
+        blockedVerdicts: [],
+        warnings: [
+          { kind: 'warning', code: 'ELIG_ANTI_SPLITTING', message: 'Fractionnement suspecté' },
+        ],
+        verdictsByRule: {},
+      });
+
+      const res = await svc.submit(demandeur, pr.id);
+
+      expect(res.pr.status).toBe('pending_pi');
+      expect(res.warnings).toHaveLength(1);
+      expect(res.warnings[0].code).toBe('ELIG_ANTI_SPLITTING');
     });
 
     it('rejects when project/grant mismatch detected late (data drift)', async () => {
