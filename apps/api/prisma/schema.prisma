@@ -6,7 +6,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["ap", "audit", "auth", "co", "gl", "procurement", "ref", "reporting"]
+  schemas  = ["ap", "audit", "auth", "co", "gl", "grant_office", "procurement", "ref", "reporting"]
 }
 
 model EventLog {
@@ -89,6 +89,8 @@ model AppUser {
   fiscalPeriodsReopened        FiscalPeriod[]        @relation("FiscalPeriodReopenedBy")
   journalEntriesPosted         JournalEntry[]
   periodCloseEvents            PeriodCloseEvent[]    @relation("PeriodCloseEventUser")
+  notesTechniquesDrafted       NoteTechnique[]       @relation("NoteTechniqueDraftedBy")
+  notesTechniquesValidated     NoteTechnique[]       @relation("NoteTechniqueValidatedBy")
   approvalSteps                ApprovalStep[]
   goodsReceiptsCancelled       GoodsReceipt[]        @relation("GrCancelledBy")
   goodsReceiptsCompleted       GoodsReceipt[]        @relation("GrCompletedBy")
@@ -277,6 +279,8 @@ model GrantAgreement {
   dedicatedFunds    DedicatedFundMovement[]
   overheadCalcs     OverheadCalculation[]
   journalLines      JournalLine[]
+  eligibilityRules  EligibilityRule[]
+  notesTechniques   NoteTechnique[]
   purchaseRequests  PurchaseRequest[]
   budgetLines       BudgetLine[]
   donor             Donor                   @relation(fields: [donorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -291,23 +295,24 @@ model GrantAgreement {
 }
 
 model BudgetLine {
-  id                   String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  grantId              String                @map("grant_id") @db.Uuid
-  code                 String
-  label                String
-  budgetedAmount       Decimal               @map("budgeted_amount") @db.Decimal(18, 2)
-  defaultAccount       String?               @map("default_account")
-  isOverheadEligible   Boolean               @default(true) @map("is_overhead_eligible")
-  isActive             Boolean               @default(true) @map("is_active")
-  budgetedAmountXof    BigInt?               @map("budgeted_amount_xof")
-  fxRate               Decimal?              @map("fx_rate") @db.Decimal(14, 6)
-  fxRateDate           DateTime?             @map("fx_rate_date") @db.Date
-  currency             String?               @db.VarChar(3)
-  journalLines         JournalLine[]
-  purchaseOrderLines   PurchaseOrderLine[]
-  purchaseRequestLines PurchaseRequestLine[]
-  defaultAccountRef    GlAccount?            @relation(fields: [defaultAccount], references: [code], onDelete: NoAction, onUpdate: NoAction)
-  grant                GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                       String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  grantId                  String                    @map("grant_id") @db.Uuid
+  code                     String
+  label                    String
+  budgetedAmount           Decimal                   @map("budgeted_amount") @db.Decimal(18, 2)
+  defaultAccount           String?                   @map("default_account")
+  isOverheadEligible       Boolean                   @default(true) @map("is_overhead_eligible")
+  isActive                 Boolean                   @default(true) @map("is_active")
+  budgetedAmountXof        BigInt?                   @map("budgeted_amount_xof")
+  fxRate                   Decimal?                  @map("fx_rate") @db.Decimal(14, 6)
+  fxRateDate               DateTime?                 @map("fx_rate_date") @db.Date
+  currency                 String?                   @db.VarChar(3)
+  journalLines             JournalLine[]
+  noteTechniqueBudgetLines NoteTechniqueBudgetLine[]
+  purchaseOrderLines       PurchaseOrderLine[]
+  purchaseRequestLines     PurchaseRequestLine[]
+  defaultAccountRef        GlAccount?                @relation(fields: [defaultAccount], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  grant                    GrantAgreement            @relation(fields: [grantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([grantId, code])
   @@map("budget_line")
@@ -1166,6 +1171,119 @@ model FinancialStatementLine {
   @@index([statementId], map: "idx_financial_statement_line_statement")
   @@map("financial_statement_line")
   @@schema("reporting")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model EligibilityRule {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  grantId          String         @map("grant_id") @db.Uuid
+  expenseNatureId  String         @map("expense_nature_id") @db.Uuid
+  maxPerRequestXof BigInt?        @map("max_per_request_xof")
+  maxPerYearXof    BigInt?        @map("max_per_year_xof")
+  excluded         Boolean        @default(false)
+  notes            String?
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  expenseNature    ExpenseNature  @relation(fields: [expenseNatureId], references: [id], onUpdate: NoAction)
+  grant            GrantAgreement @relation(fields: [grantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([grantId, expenseNatureId])
+  @@index([grantId], map: "idx_eligibility_rule_grant")
+  @@map("eligibility_rule")
+  @@schema("grant_office")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model ExpenseNature {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                String            @unique @db.VarChar(64)
+  label               String            @db.VarChar(255)
+  category            String            @db.VarChar(32)
+  defaultAccountClass String?           @map("default_account_class") @db.Char(1)
+  description         String?
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  eligibilityRules    EligibilityRule[]
+
+  @@map("expense_nature")
+  @@schema("grant_office")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model NoteTechnique {
+  id                           String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  grantId                      String                    @map("grant_id") @db.Uuid
+  version                      Int                       @default(1)
+  status                       String                    @default("draft") @db.VarChar(32)
+  draftedByUserId              String?                   @map("drafted_by_user_id") @db.Uuid
+  draftedAt                    DateTime                  @default(now()) @map("drafted_at") @db.Timestamptz(6)
+  submittedToDafAt             DateTime?                 @map("submitted_to_daf_at") @db.Timestamptz(6)
+  validatedByDafUserId         String?                   @map("validated_by_daf_user_id") @db.Uuid
+  validatedAt                  DateTime?                 @map("validated_at") @db.Timestamptz(6)
+  activatedAt                  DateTime?                 @map("activated_at") @db.Timestamptz(6)
+  budgetCode                   String                    @map("budget_code") @db.VarChar(64)
+  reportingIntermediateDates   DateTime[]                @default([]) @map("reporting_intermediate_dates") @db.Date
+  reportingFinalDate           DateTime                  @map("reporting_final_date") @db.Date
+  ownFundsContributionXof      BigInt                    @default(0) @map("own_funds_contribution_xof")
+  ownFundsContributionCurrency String?                   @map("own_funds_contribution_currency") @db.VarChar(3)
+  overheadRuleId               String?                   @map("overhead_rule_id") @db.Uuid
+  singleActorAuthorized        Boolean                   @default(false) @map("single_actor_authorized")
+  singleActorJustification     String?                   @map("single_actor_justification")
+  supersedesId                 String?                   @map("supersedes_id") @db.Uuid
+  notes                        String?
+  createdAt                    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                    DateTime                  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt                    DateTime?                 @map("deleted_at") @db.Timestamptz(6)
+  draftedByUser                AppUser?                  @relation("NoteTechniqueDraftedBy", fields: [draftedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grant                        GrantAgreement            @relation(fields: [grantId], references: [id], onUpdate: NoAction)
+  overheadRule                 OverheadRule?             @relation(fields: [overheadRuleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supersedes                   NoteTechnique?            @relation("NoteTechniqueSupersedes", fields: [supersedesId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supersededBy                 NoteTechnique[]           @relation("NoteTechniqueSupersedes")
+  validatedByDafUser           AppUser?                  @relation("NoteTechniqueValidatedBy", fields: [validatedByDafUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  budgetLines                  NoteTechniqueBudgetLine[]
+
+  @@unique([grantId, version])
+  @@index([grantId], map: "idx_note_technique_grant")
+  @@map("note_technique")
+  @@schema("grant_office")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model NoteTechniqueBudgetLine {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  noteTechniqueId String        @map("note_technique_id") @db.Uuid
+  budgetLineId    String        @map("budget_line_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  budgetLine      BudgetLine    @relation(fields: [budgetLineId], references: [id], onUpdate: NoAction)
+  noteTechnique   NoteTechnique @relation(fields: [noteTechniqueId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([noteTechniqueId, budgetLineId])
+  @@map("note_technique_budget_line")
+  @@schema("grant_office")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model OverheadRule {
+  id                      String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                    String          @unique @db.VarChar(128)
+  defaultRate             Decimal         @map("default_rate") @db.Decimal(5, 4)
+  appliesToSubcontracting Boolean         @default(true) @map("applies_to_subcontracting")
+  appliesToEquipment      Boolean         @default(true) @map("applies_to_equipment")
+  appliesToPersonnel      Boolean         @default(true) @map("applies_to_personnel")
+  appliesToMissions       Boolean         @default(true) @map("applies_to_missions")
+  appliesToConsumables    Boolean         @default(true) @map("applies_to_consumables")
+  createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime        @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt               DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  notesTechniques         NoteTechnique[]
+
+  @@map("overhead_rule")
+  @@schema("grant_office")
 }
 
 enum UserStatus {

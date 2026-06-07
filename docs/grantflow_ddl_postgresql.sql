@@ -1871,3 +1871,21 @@ CREATE INDEX IF NOT EXISTS idx_eligibility_rule_grant
   ON grant_office.eligibility_rule(grant_id);
 CREATE INDEX IF NOT EXISTS idx_expense_nature_category
   ON grant_office.expense_nature(category) WHERE deleted_at IS NULL;
+
+-- =========================================================================
+-- Sprint S4 / US-031 — note_technique active unicity
+-- =========================================================================
+-- Invariant métier (ADR-006) : au plus UNE Note Technique en status='active'
+-- par convention à un instant donné. Porté par un UNIQUE PARTIEL : les autres
+-- status (draft, pending_daf, validated_daf, superseded) restent libres en
+-- multiples (versions/historique). Colonne réelle = grant_id (FK vers
+-- ref.grant_agreement, cf. US-030).
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_note_technique_active_per_grant
+  ON grant_office.note_technique(grant_id)
+  WHERE status = 'active';
+
+COMMENT ON INDEX grant_office.uq_note_technique_active_per_grant IS
+  'Garantit qu''au plus une Note Technique est en status = ''active'' par
+   convention à un instant donné. Les autres status (draft, pending_daf,
+   validated_daf, superseded) ne sont pas concernés (cf. ADR-006).';
