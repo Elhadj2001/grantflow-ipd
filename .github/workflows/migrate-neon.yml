@@ -1,0 +1,127 @@
+name: Apply Neon migrations + redeploy Render
+
+# ---------------------------------------------------------------------
+# GRANTFLOW IPD — Migration-then-deploy pipeline
+#
+# Déclenché à chaque push sur main qui touche au schéma ou aux scripts.
+# Applique les migrations DDL idempotentes sur Neon prod, lance les
+# backfills, vérifie le schéma, puis déclenche le redéploiement Render.
+#
+# Pré-requis (à configurer une fois) :
+#   - GitHub Secret: DATABASE_URL  (DSN Neon prod, format
+#                                   postgresql://user:pass@host/db?sslmode=require)
+#   - GitHub Secret: RENDER_DEPLOY_HOOK_URL  (Deploy Hook de grantflow-api,
+#                                             optionnel — voir étape 2 du
+#                                             guide ci-dessous)
+#
+# Recommandation : désactiver autoDeploy côté Render pour rendre le flux
+# strictement séquentiel (migrations → deploy). Cf. docs/deploy/ci-cd.md.
+# ---------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/migrations/**'
+      - 'docs/grantflow_ddl_postgresql.sql'
+      - 'apps/api/scripts/**'
+      - 'apps/api/prisma/schema.prisma'
+      - '.github/workflows/migrate-neon.yml'
+  workflow_dispatch:
+    # Permet de re-déclencher manuellement depuis l'onglet Actions
+    # si besoin de rejouer (idempotent).
+
+jobs:
+  migrate:
+    name: Apply migrations + backfills sur Neon prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies (apps/api workspace)
+        run: |
+          npm ci --include=dev
+          # Vérifier que pg est dispo (sinon installer en isolated)
+          npm list pg --workspace=apps/api > /dev/null 2>&1 || \
+            npm install --workspace=apps/api --save-dev pg @types/pg
+
+      - name: Generate Prisma client (requis pour backfill scripts)
+        working-directory: apps/api
+        run: npx prisma generate
+
+      - name: Validate DATABASE_URL is set
+        run: |
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "::error::Secret DATABASE_URL absent. Configure-le dans GitHub Settings → Secrets."
+            exit 1
+          fi
+          # Masque le DSN dans les logs
+          echo "::add-mask::${{ secrets.DATABASE_URL }}"
+
+      - name: Apply migrations + backfills
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Forcer le mode non-interactif (skip confirmation prompt)
+          CI: true
+        run: |
+          # Le script demande confirmation interactive sur Neon prod.
+          # En CI, on bypass via input automatique.
+          echo "y" | npx ts-node scripts/apply-all-migrations.ts
+
+      - name: Trigger Render deploy (si Deploy Hook configuré)
+        if: success()
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_HOOK" ]; then
+            echo "::warning::Secret RENDER_DEPLOY_HOOK_URL absent. Render auto-deploy gère le redéploiement."
+            echo "Pour un flux strictement séquentiel, configure le secret (cf. docs/deploy/ci-cd.md)."
+            exit 0
+          fi
+          echo "→ Déclenchement redéploiement Render..."
+          response=$(curl -s -w "\n%{http_code}" -X POST "$RENDER_HOOK")
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | head -n-1)
+          if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+            echo "✓ Render deploy déclenché (HTTP $status)"
+            echo "  Voir l'avancement sur https://dashboard.render.com"
+          else
+            echo "::error::Render deploy hook a échoué (HTTP $status) : $body"
+            exit 1
+          fi
+
+      - name: Sanity check API after deploy
+        if: success()
+        run: |
+          # Attendre 3 min que Render redéploie, puis pinger /health
+          echo "→ Attente du redéploiement (3 min)..."
+          sleep 180
+          for i in 1 2 3; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" \
+              https://grantflow-api-kqmv.onrender.com/api/v1/health)
+            if [ "$status" = "200" ]; then
+              echo "✓ API saine (HTTP 200, essai $i)"
+              exit 0
+            fi
+            echo "  Essai $i : HTTP $status, retry dans 30s..."
+            sleep 30
+          done
+          echo "::warning::API ne répond pas après redéploiement. Vérifie les logs Render."
+          exit 0  # Warning only, ne pas faire échouer le workflow
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Migrations ou redéploiement échoués. Vérifie le rapport d'erreur ci-dessus."
+          echo "Les opérations sont idempotentes : tu peux re-déclencher ce workflow"
+          echo "depuis l'onglet Actions → 'Apply Neon migrations...' → 'Run workflow'."
