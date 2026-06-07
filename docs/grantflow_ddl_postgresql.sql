@@ -1631,3 +1631,40 @@ LEFT JOIN gl.journal_entry je ON je.id = jl.entry_id AND je.status = 'posted'
 WHERE a.is_movement
 GROUP BY a.code, a.label, a.class
 ORDER BY a.code;
+
+-- =========================================================================
+-- Sprint S3bis / US-139 — v_general_balance filtre posted correct
+-- =========================================================================
+-- Correctif du filtre `posted` : dans la version US-021, la condition
+-- `... AND je.status = 'posted'` portée par le LEFT JOIN était INOPÉRANTE
+-- (un LEFT JOIN conserve les lignes de gauche même si la droite ne matche
+-- pas → les écritures `draft` remontaient dans les agrégats, en violation
+-- du principe SYSCEBNL « seuls les engagements définitifs entrent dans la
+-- balance »). On retire la condition du JOIN et on l'applique en FILTER sur
+-- chaque agrégat (Option B) : les `draft` sont exclus ET tous les comptes
+-- mouvement restent affichés (COALESCE → 0 si aucune ligne posted).
+-- Colonnes inchangées (nom/ordre/type) → CREATE OR REPLACE valide.
+
+CREATE OR REPLACE VIEW gl.v_general_balance AS
+SELECT
+    a.code,
+    a.label,
+    a.class,
+    COALESCE(SUM(jl.debit)             FILTER (WHERE je.status = 'posted'), 0) AS total_debit,
+    COALESCE(SUM(jl.credit)            FILTER (WHERE je.status = 'posted'), 0) AS total_credit,
+    COALESCE(SUM(jl.debit - jl.credit) FILTER (WHERE je.status = 'posted'), 0) AS balance,
+    -- Alias explicites XOF (mêmes valeurs ; debit/credit SONT en XOF).
+    COALESCE(SUM(jl.debit)             FILTER (WHERE je.status = 'posted'), 0) AS total_debit_xof,
+    COALESCE(SUM(jl.credit)            FILTER (WHERE je.status = 'posted'), 0) AS total_credit_xof,
+    COALESCE(SUM(jl.debit - jl.credit) FILTER (WHERE je.status = 'posted'), 0) AS balance_xof,
+    -- Ventilation devises transactionnelles étrangères (informatif), posted only.
+    array_agg(DISTINCT jl.currency)
+      FILTER (WHERE je.status = 'posted' AND jl.currency IS NOT NULL AND jl.currency <> 'XOF')
+                               AS transaction_currencies,
+    COUNT(jl.id) FILTER (WHERE je.status = 'posted') AS line_count
+FROM ref.gl_account a
+LEFT JOIN gl.journal_line jl  ON jl.account_code = a.code
+LEFT JOIN gl.journal_entry je ON je.id = jl.entry_id
+WHERE a.is_movement
+GROUP BY a.code, a.label, a.class
+ORDER BY a.code;
