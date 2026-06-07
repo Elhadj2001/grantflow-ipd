@@ -290,6 +290,12 @@ export class PostingService {
           debit: l.credit,
           credit: l.debit,
           currency: l.currency,
+          // US-140 (I1) : l'extourne propage le taux figé de l'origine
+          // (debit↔credit inversés → debit_currency/credit_currency inversés).
+          debitCurrency: l.creditCurrency,
+          creditCurrency: l.debitCurrency,
+          fx_rate: l.fx_rate,
+          fx_rate_date: l.fx_rate_date,
           projectId: l.projectId,
           grantId: l.grantId,
           budgetLineId: l.budgetLineId,
@@ -470,6 +476,9 @@ export class PostingService {
           currency: invoice.currency,
           debitCurrency: invoice.currency === 'XOF' ? null : amountCurrency,
           creditCurrency: invoice.currency === 'XOF' ? null : 0,
+          // US-140 (I1) : taux figé propagé à TOUTES les lignes de la facture.
+          fx_rate: exchangeRate,
+          fx_rate_date: invoice.invoiceDate,
           ...imputation,
         });
         lineNumber += 1;
@@ -488,6 +497,8 @@ export class PostingService {
           currency: invoice.currency,
           debitCurrency: invoice.currency === 'XOF' ? null : totalVatCurrency,
           creditCurrency: invoice.currency === 'XOF' ? null : 0,
+          fx_rate: exchangeRate,
+          fx_rate_date: invoice.invoiceDate,
         });
         lineNumber += 1;
       }
@@ -505,6 +516,8 @@ export class PostingService {
         currency: invoice.currency,
         debitCurrency: invoice.currency === 'XOF' ? null : 0,
         creditCurrency: invoice.currency === 'XOF' ? null : totalTtcCurrency,
+        fx_rate: exchangeRate,
+        fx_rate_date: invoice.invoiceDate,
       });
 
       await tx.journalLine.createMany({ data: linesData });
@@ -673,6 +686,9 @@ export class PostingService {
           currency: l.currency,
           debitCurrency: l.creditCurrency ?? null,
           creditCurrency: l.debitCurrency ?? null,
+          // US-140 (I1) : propage le taux figé de la ligne d'origine.
+          fx_rate: l.fx_rate,
+          fx_rate_date: l.fx_rate_date,
           projectId: l.projectId,
           grantId: l.grantId,
           budgetLineId: l.budgetLineId,
@@ -723,6 +739,11 @@ export class PostingService {
             debit: l.credit,
             credit: l.debit,
             currency: l.currency,
+            // US-140 (I1) : propage le taux figé de l'engagement d'origine.
+            debitCurrency: l.creditCurrency,
+            creditCurrency: l.debitCurrency,
+            fx_rate: l.fx_rate,
+            fx_rate_date: l.fx_rate_date,
             projectId: l.projectId,
             grantId: l.grantId,
             budgetLineId: l.budgetLineId,
@@ -989,8 +1010,17 @@ export class PostingService {
       return line801 ? s.plus(line801.credit) : s;
     }, new Prisma.Decimal(0));
 
-    const totalHt = new Prisma.Decimal(po.totalHt);
-    const amountToReverse = new Prisma.Decimal(invoice.totalHt);
+    // US-140 (I1/F18) : l'extourne classe 8 offsette un engagement STOCKÉ EN
+    // XOF (US-020). On convertit donc le montant à extourner et le total au
+    // taux FIGÉ de l'engagement d'origine (1 si XOF/legacy → identité), et on
+    // conserve le brut transactionnel dans debit_currency/credit_currency.
+    const commitFxRate = original.lines[0]?.fx_rate ?? null;
+    const commitFxRateDate = original.lines[0]?.fx_rate_date ?? null;
+    const rate = commitFxRate ? new Prisma.Decimal(commitFxRate) : new Prisma.Decimal(1);
+    const isXof = po.currency === 'XOF';
+    const amountToReverseCurrency = new Prisma.Decimal(invoice.totalHt);
+    const amountToReverse = new Prisma.Decimal(this.roundXof(amountToReverseCurrency.times(rate)));
+    const totalHt = new Prisma.Decimal(this.roundXof(new Prisma.Decimal(po.totalHt).times(rate)));
     const cumulativeReversed = totalReversedSoFar.plus(amountToReverse);
     const cumulativeFraction = totalHt.greaterThan(0)
       ? cumulativeReversed.div(totalHt)
@@ -1020,6 +1050,10 @@ export class PostingService {
           debit: 0,
           credit: amountToReverse,
           currency: po.currency,
+          debitCurrency: isXof ? null : 0,
+          creditCurrency: isXof ? null : amountToReverseCurrency,
+          fx_rate: commitFxRate,
+          fx_rate_date: commitFxRateDate,
           ...imputation,
         },
         {
@@ -1030,6 +1064,10 @@ export class PostingService {
           debit: amountToReverse,
           credit: 0,
           currency: po.currency,
+          debitCurrency: isXof ? null : amountToReverseCurrency,
+          creditCurrency: isXof ? null : 0,
+          fx_rate: commitFxRate,
+          fx_rate_date: commitFxRateDate,
           ...imputation,
         },
       ],
