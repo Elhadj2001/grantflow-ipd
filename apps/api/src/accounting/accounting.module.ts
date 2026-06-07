@@ -5,6 +5,7 @@ import { DedicatedFundsService } from './services/dedicated-funds.service';
 import { AccrualService } from './services/accrual.service';
 import { PrepaymentService } from './services/prepayment.service';
 import { AccountingController } from './accounting.controller';
+import { ExchangeRateModule } from '../referential/exchange-rate/exchange-rate.module';
 
 /**
  * Module Accounting — façade des services comptables.
@@ -17,6 +18,9 @@ import { AccountingController } from './accounting.controller';
  * (procurement, ap, treasury, reporting…) sans tirer toute la couche GL.
  */
 @Module({
+  // US-020 (fix F18) : PostingService.createCommitmentEntry / postPayment
+  // convertissent les montants en XOF via ExchangeRateService.
+  imports: [ExchangeRateModule],
   controllers: [AccountingController],
   providers: [
     PostingService,

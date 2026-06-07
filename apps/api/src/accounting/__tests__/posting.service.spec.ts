@@ -1,6 +1,7 @@
 import { Prisma, JournalType, EntryStatus, PoStatus } from '@prisma/client';
 import type { PurchaseOrder } from '@prisma/client';
 import { PostingService } from '../services/posting.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
 import { useFakeDate, restoreRealDate } from '../../test-utils/fake-time';
 import { NoOpenFiscalPeriodException, EntityNotFoundException } from '../../common/exceptions/business.exception';
@@ -37,6 +38,11 @@ describe('PostingService', () => {
     accountCode: string;
     debit: number;
     credit: number;
+    currency: string;
+    debitCurrency: Prisma.Decimal | number | null;
+    creditCurrency: Prisma.Decimal | number | null;
+    fx_rate: number | null;
+    fx_rate_date: Date | null;
     projectId: string | null;
     grantId: string | null;
     budgetLineId: string | null;
@@ -110,7 +116,24 @@ describe('PostingService', () => {
     } as never);
     prisma.supplier.findUnique.mockResolvedValue({ name: 'ACME Lab Supplies' } as never);
     prisma.$executeRawUnsafe.mockResolvedValue(1 as never);
-    svc = new PostingService(prisma);
+    // US-020 (F18) : ExchangeRateService stub déterministe. XOF = identité ;
+    // EUR = parité fixe BCEAO 655,957 ; USD = taux indicatif 600 (fallback).
+    const fx = {
+      convertToXof: jest.fn(
+        async (amount: number | { toString(): string }, currency: string) => {
+          const n = Number(amount);
+          const fxRateDate = new Date('2026-06-15');
+          if (currency === 'EUR') {
+            return { xofAmount: Math.round(n * 655.957), fxRate: 655.957, fxRateDate, isIndicativeFallback: false };
+          }
+          if (currency === 'USD') {
+            return { xofAmount: Math.round(n * 600), fxRate: 600, fxRateDate, isIndicativeFallback: true };
+          }
+          return { xofAmount: Math.round(n), fxRate: 1, fxRateDate, isIndicativeFallback: false };
+        },
+      ),
+    };
+    svc = new PostingService(prisma, fx as unknown as ExchangeRateService);
   });
 
   // ------------------------------------------------------------------
@@ -124,6 +147,54 @@ describe('PostingService', () => {
       expect(lines).toHaveLength(2);
       expect(lines[0]).toMatchObject({ accountCode: '801', debit: 500000, credit: 0 });
       expect(lines[1]).toMatchObject({ accountCode: '802', debit: 0, credit: 500000 });
+    });
+
+    // ----- F18 (US-020) : engagement classe 8 multidevise -----
+    it('F18 — BC EUR converti en XOF (parité BCEAO 655,957) + taux stocké', async () => {
+      prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+      prisma.journalEntry.update.mockResolvedValue({ id: 'je-1', lines: [] } as never);
+      await svc.createCommitmentEntry(
+        makePo({ totalHt: new Prisma.Decimal('100000'), currency: 'EUR' }),
+        actor,
+      );
+      const lines = linesOf(prisma.journalLine.createMany.mock.calls);
+      // 100 000 EUR × 655,957 = 65 595 700 XOF
+      expect(lines[0]).toMatchObject({ accountCode: '801', debit: 65595700, credit: 0, currency: 'EUR' });
+      expect(lines[1]).toMatchObject({ accountCode: '802', debit: 0, credit: 65595700, currency: 'EUR' });
+      expect(lines[0].fx_rate).toBe(655.957);
+      expect(lines[0].fx_rate_date).toBeInstanceOf(Date);
+      // montant transactionnel brut conservé (Règle d'or n°4)
+      expect(Number(lines[0].debitCurrency)).toBe(100000);
+      expect(Number(lines[1].creditCurrency)).toBe(100000);
+    });
+
+    it('F18 — BC XOF : no-op identité (fx_rate=1, pas de debit/credit_currency)', async () => {
+      prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+      prisma.journalEntry.update.mockResolvedValue({ id: 'je-1', lines: [] } as never);
+      await svc.createCommitmentEntry(
+        makePo({ totalHt: new Prisma.Decimal('1000000'), currency: 'XOF' }),
+        actor,
+      );
+      const lines = linesOf(prisma.journalLine.createMany.mock.calls);
+      expect(lines[0]).toMatchObject({ accountCode: '801', debit: 1000000, credit: 0, currency: 'XOF' });
+      expect(lines[1]).toMatchObject({ accountCode: '802', debit: 0, credit: 1000000, currency: 'XOF' });
+      expect(lines[0].fx_rate).toBe(1);
+      expect(lines[0].debitCurrency).toBeNull();
+      expect(lines[1].creditCurrency).toBeNull();
+    });
+
+    it('F18 — BC USD converti via taux indicatif (stub 600)', async () => {
+      prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
+      prisma.journalEntry.update.mockResolvedValue({ id: 'je-1', lines: [] } as never);
+      await svc.createCommitmentEntry(
+        makePo({ totalHt: new Prisma.Decimal('1000'), currency: 'USD' }),
+        actor,
+      );
+      const lines = linesOf(prisma.journalLine.createMany.mock.calls);
+      // 1 000 USD × 600 = 600 000 XOF
+      expect(lines[0]).toMatchObject({ accountCode: '801', debit: 600000, credit: 0, currency: 'USD' });
+      expect(lines[0].fx_rate).toBe(600);
+      expect(Number(lines[0].debitCurrency)).toBe(1000);
     });
 
     it('formats entry number as OD-YYYY-NNNN', async () => {
