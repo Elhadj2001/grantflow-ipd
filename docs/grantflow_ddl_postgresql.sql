@@ -1668,3 +1668,65 @@ LEFT JOIN gl.journal_entry je ON je.id = jl.entry_id
 WHERE a.is_movement
 GROUP BY a.code, a.label, a.class
 ORDER BY a.code;
+
+-- =========================================================================
+-- Sprint S3bis / US-140 — chk_fx_consistency (invariants I1/I3/I4)
+-- =========================================================================
+-- Enforce au niveau BD (defense in depth) : toute ligne en devise étrangère
+-- DOIT porter un taux (fx_rate > 0) et sa date (fx_rate_date). Les lignes
+-- XOF natives sont exemptées (XOF = devise de tenue). Pré-requis : les
+-- lignes legacy étrangères ont été backfillées (apps/api/scripts/
+-- backfill-journal-line-fx-rate.ts) — sinon l'ADD CONSTRAINT échoue.
+-- Idempotent via DO block (ADD CONSTRAINT n'a pas d'IF NOT EXISTS).
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'chk_fx_consistency'
+      AND conrelid = 'gl.journal_line'::regclass
+  ) THEN
+    ALTER TABLE gl.journal_line
+      ADD CONSTRAINT chk_fx_consistency
+      CHECK (
+        currency = 'XOF'
+        OR (fx_rate IS NOT NULL AND fx_rate > 0 AND fx_rate_date IS NOT NULL)
+      );
+  END IF;
+END $$;
+
+-- =========================================================================
+-- Sprint S3bis / US-140 — I5 : une écriture ne mixe pas 2 devises étrangères
+-- =========================================================================
+-- Cas B (XOF-tolérant) retenu : une écriture peut contenir des lignes XOF
+-- (devise de tenue) ET des lignes d'UNE seule devise étrangère ; le mélange
+-- de PLUSIEURS devises étrangères (ex. EUR + USD) dans le même journal_entry
+-- est interdit. Le code de production (createCommitmentEntry, postInvoice,
+-- postPayment) produit des écritures mono-devise → cas A respecté de fait ;
+-- le trigger garantit l'invariant pour tout autre chemin (SQL direct, futur
+-- code). CONSTRAINT TRIGGER DEFERRABLE INITIALLY DEFERRED : validation en fin
+-- de transaction (permet l'insertion multi-lignes d'une même écriture).
+
+CREATE OR REPLACE FUNCTION gl.check_journal_entry_currency_consistency()
+RETURNS TRIGGER AS $$
+DECLARE
+  foreign_currency_count INT;
+BEGIN
+  SELECT COUNT(DISTINCT currency) INTO foreign_currency_count
+  FROM gl.journal_line
+  WHERE entry_id = NEW.entry_id
+    AND currency <> 'XOF';   -- XOF accepté en ventilation comptable
+  IF foreign_currency_count > 1 THEN
+    RAISE EXCEPTION 'Journal entry % mixes multiple foreign currencies (I5 violation)', NEW.entry_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_check_je_currency_consistency ON gl.journal_line;
+CREATE CONSTRAINT TRIGGER trg_check_je_currency_consistency
+  AFTER INSERT OR UPDATE OF currency, entry_id
+  ON gl.journal_line
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION gl.check_journal_entry_currency_consistency();

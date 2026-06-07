@@ -330,6 +330,13 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
       expect(Number(expense.debit)).toBeCloseTo(65595.7, 1);
       expect(Number(expense.debitCurrency)).toBe(100);
       expect(expense.currency).toBe('EUR');
+      // US-140 (I1) : fx_rate + fx_rate_date renseignés sur CHAQUE ligne EUR.
+      allLines
+        .filter((l: { currency: string }) => l.currency === 'EUR')
+        .forEach((l: { fx_rate: unknown; fx_rate_date: unknown }) => {
+          expect(Number(l.fx_rate)).toBeCloseTo(655.957, 3);
+          expect(l.fx_rate_date).toBeInstanceOf(Date);
+        });
     });
 
     it('rejects when no exchange rate found', async () => {
