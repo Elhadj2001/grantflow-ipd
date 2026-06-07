@@ -12,6 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiForbiddenResponse,
@@ -170,13 +171,20 @@ export class PurchaseRequestController {
   @Post(':id/submit')
   @Roles('DEMANDEUR', 'PI', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({
-    summary: 'Soumettre la DA (contrôle budgétaire bloquant + création approval_step)',
+    summary:
+      'Soumettre la DA (contrôle budgétaire + éligibilité bloquants, création approval_step)',
+    description:
+      "US-049 : la réponse est l'enveloppe { pr, warnings } — `warnings` porte les " +
+      "verdicts d'éligibilité non bloquants (ADR-007) à surfacer côté UI.",
   })
   @ApiOkResponse({ type: PurchaseRequestResponseDto })
   @ApiNotFoundResponse({ description: 'PR not found' })
   @ApiConflictResponse({
     description:
       'PR_NOT_EDITABLE (≠draft) / GRANT_NOT_ACTIVE / INSUFFICIENT_BUDGET avec détail des lignes',
+  })
+  @ApiBadRequestResponse({
+    description: 'ELIGIBILITY_VALIDATION_FAILED — la DA viole ≥ 1 règle bloquante (ADR-007)',
   })
   submit(
     @CurrentUser() user: AuthenticatedUser,

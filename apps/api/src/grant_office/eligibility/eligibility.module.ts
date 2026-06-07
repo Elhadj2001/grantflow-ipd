@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { ExchangeRateModule } from '../../referential/exchange-rate/exchange-rate.module';
 import { EligibilityEngineService } from './eligibility-engine.service';
+import { EligibilityContextBuilder } from './eligibility-context-builder.service';
 import { NatureAllowedRule } from './rules/nature-allowed.rule';
 import { DateWindowRule } from './rules/date-window.rule';
 import { LineNotExceededRule } from './rules/line-not-exceeded.rule';
@@ -16,9 +18,13 @@ import type { EligibilityRule } from './rules/rule.interface';
  * + l'orchestrateur EligibilityEngine (US-048). Le token ELIGIBILITY_RULES
  * agrège les règles via useFactory (Multi-Inject) — l'ORDRE n'a pas
  * d'importance, l'engine exécute tout en parallèle.
+ *
+ * US-049 : expose aussi EligibilityContextBuilder (charge le contexte depuis
+ * la BD + convertit en XOF) pour que PurchaseRequestService puisse brancher
+ * l'éligibilité au moment du submit. Nécessite ExchangeRateModule (conversion).
  */
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ExchangeRateModule],
   providers: [
     NatureAllowedRule,
     DateWindowRule,
@@ -41,7 +47,8 @@ import type { EligibilityRule } from './rules/rule.interface';
       ],
     },
     EligibilityEngineService,
+    EligibilityContextBuilder,
   ],
-  exports: [EligibilityEngineService],
+  exports: [EligibilityEngineService, EligibilityContextBuilder],
 })
 export class EligibilityModule {}

@@ -300,11 +300,31 @@ export function cancelPurchaseRequest(id: string, opts: CallOpts = {}): Promise<
   });
 }
 
+/**
+ * Verdict d'éligibilité non bloquant (ADR-007 / US-049) remonté par le
+ * moteur au moment de la soumission, à surfacer côté UI (ex : anti-splitting).
+ */
+export interface EligibilityWarning {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * US-049 — Réponse de submit : enveloppe { pr, warnings }. `warnings` porte
+ * les verdicts d'éligibilité non bloquants ; la liste est vide quand aucune
+ * règle d'éligibilité n'est évaluée (DA sans nature de dépense).
+ */
+export interface SubmitPurchaseRequestResult {
+  pr: PurchaseRequest;
+  warnings: EligibilityWarning[];
+}
+
 export function submitPurchaseRequest(
   id: string,
   opts: CallOpts = {},
-): Promise<PurchaseRequest> {
-  return apiFetch<PurchaseRequest>(`/purchase-requests/${id}/submit`, {
+): Promise<SubmitPurchaseRequestResult> {
+  return apiFetch<SubmitPurchaseRequestResult>(`/purchase-requests/${id}/submit`, {
     method: 'POST',
     json: {},
     accessToken: opts.accessToken,
