@@ -1,32 +1,38 @@
 import { Injectable, Logger, NotImplementedException } from '@nestjs/common';
+import type { EligibilityContext } from './eligibility-context';
+import type { Verdict } from './verdict';
 
 /**
  * EligibilityEngine — moteur CENTRALISÉ de validation des règles
- * d'éligibilité métier IPD (cf. ADR-007).
+ * d'éligibilité métier IPD issues du PPT IPD slide 7 (cf. ADR-007).
  *
- * Responsabilités FUTURES (Sprint S5+) — actuellement PLACEHOLDER :
- *  - Valider qu'une dépense (nature, montant XOF, date) est éligible pour
- *    une convention, à partir de grant_office.eligibility_rule et du
- *    catalogue grant_office.expense_nature.
- *  - Appliquer les plafonds (max_per_request_xof, max_per_year_xof) et le
- *    flag `excluded`.
- *  - Contrôler la fenêtre temporelle (dates de la convention / Note Technique).
- *  - Gérer la refacturation Pasteur Paris.
+ * Composition (US-040 pose les types ; règles & orchestration à venir) :
+ *  - contrat `EligibilityRule` (rules/rule.interface.ts) ;
+ *  - type `Verdict` (verdict.ts : ok / blocked / warning) ;
+ *  - `EligibilityContext` (eligibility-context.ts) ;
+ *  - 7 règles core : US-041 → US-047 ;
+ *  - orchestration `validate()` : US-048.
  *
  * Règle d'or n°8 (CLAUDE.md) : aucune validation d'éligibilité métier ne doit
- * exister hors de ce moteur. Zod valide la STRUCTURE ; ce moteur valide la
- * COHÉRENCE métier.
+ * exister hors de ce moteur. Zod valide la STRUCTURE ; ce moteur la COHÉRENCE.
+ *
+ * @see docs/adr/adr-007-eligibility-engine.md
  */
 @Injectable()
 export class EligibilityEngineService {
   private readonly logger = new Logger(EligibilityEngineService.name);
 
   /**
-   * PLACEHOLDER. Lèvera l'évaluation d'éligibilité une fois implémentée.
-   * @throws NotImplementedException tant que le moteur n'est pas livré.
+   * Évalue toutes les règles enregistrées contre le contexte fourni et
+   * retourne un Verdict agrégé. Implémentation US-048 (Sprint S5).
    */
-  validate(): never {
-    this.logger.warn({ event: 'eligibility_engine_not_implemented' }, 'EligibilityEngine.validate appelé (placeholder)');
-    throw new NotImplementedException('EligibilityEngine sera implémenté en Sprint S5+');
+  async validate(_context: EligibilityContext): Promise<Verdict> {
+    this.logger.warn(
+      { event: 'eligibility_engine_not_implemented' },
+      'EligibilityEngine.validate appelé (placeholder US-040)',
+    );
+    throw new NotImplementedException(
+      'EligibilityEngine.validate sera implémenté en US-048 (Sprint S5).',
+    );
   }
 }
