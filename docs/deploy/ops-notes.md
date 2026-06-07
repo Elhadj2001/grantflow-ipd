@@ -53,3 +53,38 @@ SELECT column_name FROM information_schema.columns
 **Note dette** : les 4 lignes `journal_line` USD seed ont `fx_rate` NULL ;
 leur backfill + le `CHECK chk_fx_consistency` sont planifiés en **US-140**
 (ne pas ajouter le CHECK avant ce backfill, sinon l'`ALTER` échoue).
+
+## Sprint S3bis — Migration Neon prod
+
+À appliquer **après** les migrations S3 (la colonne `gl.journal_line.fx_rate`
+doit déjà exister). Ordre impératif (le backfill précède le CHECK) :
+
+1. `docs/migrations/2026-06-07-sprint-s3bis-v-general-balance-posted-filter.sql`
+   (`CREATE OR REPLACE VIEW` — filtre `posted` corrigé, US-139)
+2. **Backfill** des lignes étrangères legacy AVANT le CHECK :
+   ```bash
+   npx ts-node -r dotenv/config apps/api/scripts/backfill-journal-line-fx-rate.ts
+   ```
+3. `docs/migrations/2026-06-07-sprint-s3bis-chk-fx-consistency.sql`
+   (`CHECK chk_fx_consistency` — I1/I3/I4, US-140)
+4. `docs/migrations/2026-06-07-sprint-s3bis-i5-currency-consistency-trigger.sql`
+   (constraint trigger I5, US-140)
+
+```bash
+psql "$DATABASE_URL" -f docs/migrations/2026-06-07-sprint-s3bis-v-general-balance-posted-filter.sql
+npx ts-node -r dotenv/config apps/api/scripts/backfill-journal-line-fx-rate.ts
+psql "$DATABASE_URL" -f docs/migrations/2026-06-07-sprint-s3bis-chk-fx-consistency.sql
+psql "$DATABASE_URL" -f docs/migrations/2026-06-07-sprint-s3bis-i5-currency-consistency-trigger.sql
+```
+
+**Pré-requis** : migrations S3 appliquées (colonne `fx_rate` présente).
+
+> ⚠️ **Avant `chk_fx_consistency`** : vérifier qu'aucune ligne étrangère ne
+> reste sans taux, sinon l'`ALTER ... ADD CONSTRAINT` échoue :
+> ```sql
+> SELECT count(*) FROM gl.journal_line WHERE currency <> 'XOF' AND fx_rate IS NULL;  -- doit être 0
+> ```
+
+**Idempotence** : vue via `CREATE OR REPLACE` ; CHECK via `DO`-block
+(`IF NOT EXISTS pg_constraint`) ; trigger via `CREATE OR REPLACE FUNCTION` +
+`DROP TRIGGER IF EXISTS` ; backfill ne touche que `fx_rate IS NULL`.
