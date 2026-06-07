@@ -25,6 +25,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 interface BalanceRow {
   code: string;
   total_debit_xof: string;
+  total_credit_xof: string;
   balance_xof: string;
   transaction_currencies: string[] | null;
   line_count: number;
@@ -58,12 +59,15 @@ async function main(): Promise<void> {
          INSERT INTO gl.journal_line (entry_id, line_number, account_code, debit, credit, currency, debit_currency)
          SELECT e.id, 1, 'ZZ1', 65595700, 0, 'EUR', 100000 FROM e
          UNION ALL
-         SELECT e.id, 2, 'ZZ1', 50000, 0, 'XOF', NULL FROM e`,
+         SELECT e.id, 2, 'ZZ1', 50000, 0, 'XOF', NULL FROM e
+         UNION ALL
+         SELECT e.id, 3, 'ZZ1', 0, 20000, 'XOF', NULL FROM e`,
       );
       rows = await tx.$queryRawUnsafe<BalanceRow[]>(
         `SELECT code,
-                total_debit_xof::text AS total_debit_xof,
-                balance_xof::text     AS balance_xof,
+                total_debit_xof::text  AS total_debit_xof,
+                total_credit_xof::text AS total_credit_xof,
+                balance_xof::text      AS balance_xof,
                 transaction_currencies,
                 line_count::int        AS line_count
          FROM gl.v_general_balance WHERE code = 'ZZ1'`,
@@ -78,8 +82,14 @@ async function main(): Promise<void> {
   assert(rows.length === 1, `attendu 1 ligne pour ZZ1, reçu ${rows.length}`);
   const r = rows[0];
   assert(Number(r.total_debit_xof) === 65_645_700, `total_debit_xof = ${r.total_debit_xof} (attendu 65645700)`);
-  assert(Number(r.balance_xof) === 65_645_700, `balance_xof = ${r.balance_xof} (attendu 65645700)`);
-  assert(Number(r.line_count) === 2, `line_count = ${r.line_count} (attendu 2)`);
+  assert(Number(r.total_credit_xof) === 20_000, `total_credit_xof = ${r.total_credit_xof} (attendu 20000)`);
+  // US-022 Phase 5 : cohérence arithmétique de la vue.
+  assert(
+    Number(r.balance_xof) === Number(r.total_debit_xof) - Number(r.total_credit_xof),
+    `balance_xof (${r.balance_xof}) != total_debit_xof - total_credit_xof`,
+  );
+  assert(Number(r.balance_xof) === 65_625_700, `balance_xof = ${r.balance_xof} (attendu 65625700)`);
+  assert(Number(r.line_count) === 3, `line_count = ${r.line_count} (attendu 3)`);
   const currencies = r.transaction_currencies ?? [];
   assert(currencies.includes('EUR'), `transaction_currencies doit contenir EUR (reçu ${JSON.stringify(currencies)})`);
   assert(!currencies.includes('XOF'), `transaction_currencies ne doit PAS contenir XOF (base) (reçu ${JSON.stringify(currencies)})`);
