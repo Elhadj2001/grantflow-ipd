@@ -92,6 +92,10 @@ describe('PurchaseRequestService', () => {
     total_amount_xof: null,
     fx_rate: null,
     fx_rate_date: null,
+    // US-054 : champs matérialisés PPT-5/6 (nullable/default, gate dormante ici).
+    expenseNatureCode: null,
+    pasteurParisReimbursed: false,
+    supplierInvoiceNumber: null,
   };
 
   function makePrWithLines(lines: PurchaseRequestLine[] = [], overrides: Partial<PurchaseRequest> = {}) {

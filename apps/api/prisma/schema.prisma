@@ -437,36 +437,39 @@ model CashSettlement {
 }
 
 model PurchaseRequest {
-  id               String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  prNumber         String                @unique @map("pr_number")
-  requestedBy      String                @map("requested_by") @db.Uuid
-  requestedAt      DateTime              @default(now()) @map("requested_at") @db.Timestamptz(6)
-  neededBy         DateTime?             @map("needed_by") @db.Date
-  status           PrStatus              @default(draft)
-  projectId        String                @map("project_id") @db.Uuid
-  grantId          String                @map("grant_id") @db.Uuid
-  costCenterId     String?               @map("cost_center_id") @db.Uuid
-  activityId       String?               @map("activity_id") @db.Uuid
-  totalAmount      Decimal               @default(0) @map("total_amount") @db.Decimal(18, 2)
-  currency         String                @default("XOF") @db.Char(3)
-  description      String?
-  requestType      PrType                @default(standard) @map("request_type")
-  rejectionReason  String?               @map("rejection_reason")
-  updatedAt        DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
-  cashBoxId        String?               @map("cash_box_id") @db.Uuid
-  total_amount_xof BigInt?
-  fx_rate          Decimal?              @db.Decimal(14, 6)
-  fx_rate_date     DateTime?             @db.Date
-  purchaseOrders   PurchaseOrder[]
-  poLinks          PurchaseOrderPr[]
-  activity         AnalyticalAxis?       @relation("PrActivity", fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  cashBox          CashBox?              @relation(fields: [cashBoxId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  costCenter       AnalyticalAxis?       @relation("PrCostCenter", fields: [costCenterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  grant            GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  project          Project               @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  requester        AppUser               @relation(fields: [requestedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  lines            PurchaseRequestLine[]
-  cashSettlement   CashSettlement?
+  id                       String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  prNumber                 String                @unique @map("pr_number")
+  requestedBy              String                @map("requested_by") @db.Uuid
+  requestedAt              DateTime              @default(now()) @map("requested_at") @db.Timestamptz(6)
+  neededBy                 DateTime?             @map("needed_by") @db.Date
+  status                   PrStatus              @default(draft)
+  projectId                String                @map("project_id") @db.Uuid
+  grantId                  String                @map("grant_id") @db.Uuid
+  costCenterId             String?               @map("cost_center_id") @db.Uuid
+  activityId               String?               @map("activity_id") @db.Uuid
+  totalAmount              Decimal               @default(0) @map("total_amount") @db.Decimal(18, 2)
+  currency                 String                @default("XOF") @db.Char(3)
+  description              String?
+  requestType              PrType                @default(standard) @map("request_type")
+  rejectionReason          String?               @map("rejection_reason")
+  updatedAt                DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+  cashBoxId                String?               @map("cash_box_id") @db.Uuid
+  total_amount_xof         BigInt?
+  fx_rate                  Decimal?              @db.Decimal(14, 6)
+  fx_rate_date             DateTime?             @db.Date
+  expenseNatureCode        String?               @map("expense_nature_code") @db.VarChar(64)
+  pasteurParisReimbursed   Boolean               @default(false) @map("pasteur_paris_reimbursed")
+  supplierInvoiceNumber    String?               @map("supplier_invoice_number") @db.VarChar(128)
+  purchaseOrders           PurchaseOrder[]
+  poLinks                  PurchaseOrderPr[]
+  activity                 AnalyticalAxis?       @relation("PrActivity", fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cashBox                  CashBox?              @relation(fields: [cashBoxId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  costCenter               AnalyticalAxis?       @relation("PrCostCenter", fields: [costCenterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grant                    GrantAgreement        @relation(fields: [grantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project                  Project               @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  requester                AppUser               @relation(fields: [requestedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines                    PurchaseRequestLine[]
+  cashSettlement           CashSettlement?
 
   @@index([status], map: "idx_pr_status")
   @@index([requestedBy], map: "idx_pr_requested_by")
