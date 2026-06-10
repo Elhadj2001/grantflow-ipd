@@ -7,6 +7,30 @@ import helmet from 'helmet';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
+// ---------------------------------------------------------------------
+// BigInt JSON serialization — patch global au boot.
+//
+// Prisma retourne les colonnes BIGINT (budget_line.budgeted_amount_xof,
+// note_technique.own_funds_contribution_xof, etc.) comme JavaScript BigInt
+// natif. `JSON.stringify` ne sait pas sérialiser un BigInt et lève
+// `TypeError: Do not know how to serialize a BigInt`.
+//
+// Ce patch installe une méthode `toJSON` sur BigInt.prototype qui
+// convertit en Number quand la valeur est dans la plage safe
+// (≤ Number.MAX_SAFE_INTEGER = 9 007 199 254 740 991, soit 9 quadrillions —
+// largement suffisant pour des montants XOF). Au-delà, on sérialise en
+// string pour préserver la précision (cas théorique, jamais atteint en
+// pratique IPD).
+//
+// Référence : ce comportement est documenté comme TODO dans US-024 et
+// US-033 (sérialisation locale au service). Patch global = plus
+// d'oubli par service.
+// ---------------------------------------------------------------------
+(BigInt.prototype as unknown as { toJSON: () => unknown }).toJSON = function () {
+  const asNumber = Number(this);
+  return Number.isSafeInteger(asNumber) ? asNumber : this.toString();
+};
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(PinoLogger));
