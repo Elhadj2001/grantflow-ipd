@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Header,
+  Headers,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -281,8 +282,9 @@ export class InvoiceController {
   post(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Headers('x-bypass-sod-reason') bypassReason?: string,
   ) {
-    return this.svc.post(user, id);
+    return this.svc.post(user, id, bypassReason);
   }
 
   @Post('invoices/:id/cancel-posting')

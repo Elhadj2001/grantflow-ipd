@@ -160,6 +160,37 @@ export class AuditLogService {
     return Object.keys(compact).length > 0 ? compact : { _opaque: true };
   }
 
+  /**
+   * Écrit un événement d'audit DOMAINE (hors pipeline HTTP) dans
+   * `audit.event_log` — ex. dérogation/break-glass SoD (G1/F3, ADR-009).
+   * Même garanties que les chemins HTTP : hash_chain calculé par le trigger
+   * PG, échec d'INSERT non bloquant (log + swallow).
+   */
+  recordDomainEvent(params: {
+    action: string;
+    entityType: string;
+    entityId: string | null;
+    actorId: string | null;
+    actorEmail?: string | null;
+    result?: AuditResult;
+    errorCode?: ErrorCodeValue | null;
+    payload?: Record<string, unknown>;
+  }): void {
+    this.persistSafe({
+      actorId: params.actorId,
+      actorEmail: params.actorEmail ?? null,
+      action: params.action,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      ipAddress: null,
+      userAgent: null,
+      requestId: null,
+      result: params.result ?? 'success',
+      errorCode: params.errorCode ?? null,
+      payloadAfter: params.payload ?? {},
+    });
+  }
+
   buildBaseContext(req: AuditRequest): AuditBaseContext {
     const url = req.originalUrl ?? req.url ?? '';
     const pathOnly = url.split('?')[0];

@@ -48,6 +48,7 @@ describe('GrantService', () => {
     notes: null,
     allowsCashPayment: true,
     createdAt: new Date('2024-01-15T00:00:00Z'),
+    singleActorAuthorized: false,
   };
 
   function baseQuery(overrides: Partial<GrantQueryDto> = {}): GrantQueryDto {

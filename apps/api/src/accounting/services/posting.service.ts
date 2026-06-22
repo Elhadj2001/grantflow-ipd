@@ -10,6 +10,7 @@ import type {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
+import { SegregationOfDutiesService } from '../../common/sod/segregation-of-duties.service';
 import {
   BankAccountWrongClassException,
   EntityNotFoundException,
@@ -113,6 +114,7 @@ export class PostingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fx: ExchangeRateService,
+    private readonly sod: SegregationOfDutiesService,
   ) {}
 
   /**
@@ -384,6 +386,7 @@ export class PostingService {
   async postInvoice(
     invoice: Invoice & { lines: Array<InvoiceLineForPosting> },
     actor: PostingActor,
+    sod?: { roles: readonly string[]; bypassReason?: string },
   ): Promise<PostInvoiceResult> {
     // 1) Pré-conditions
     if (invoice.status === InvoiceStatus.posted) {
@@ -412,6 +415,24 @@ export class PostingService {
       },
     });
     if (!po) throw new EntityNotFoundException('PurchaseOrder', { id: invoice.poId });
+
+    // G1/F3 (ADR-009) — séparation des tâches : le créateur du BC sous-jacent
+    // (`po.buyerId`) ne peut pas comptabiliser l'écriture de la facture. Pas
+    // de dérogation conventionnelle ici (découplage accounting/convention) —
+    // seul le break-glass SUPER_ADMIN (header X-Bypass-SoD-Reason) déroge.
+    if (po.buyerId) {
+      this.sod.enforce({
+        entityType: 'invoice',
+        entityId: invoice.id,
+        operation: 'post_invoice',
+        creatorAppUserId: po.buyerId,
+        actorAppUserId: actor.id,
+        actor: { id: actor.id, email: actor.email, roles: sod?.roles ?? [] },
+        singleActorAuthorized: false,
+        bypassReason: sod?.bypassReason,
+        context: { poId: invoice.poId },
+      });
+    }
 
     const supplier = await this.prisma.supplier.findUnique({
       where: { id: invoice.supplierId },

@@ -24,6 +24,7 @@ import {
 } from '../../common/exceptions/business.exception';
 import { isValidIban } from '../../referential/supplier/iban-bic.util';
 import { PostingService, type PostingActor } from '../../accounting/services/posting.service';
+import { SegregationOfDutiesService } from '../../common/sod/segregation-of-duties.service';
 import { IbanFraudService, type IbanAlert } from './iban-fraud.service';
 import { SepaService } from './sepa.service';
 import type {
@@ -67,6 +68,7 @@ export class PaymentRunService {
     private readonly posting: PostingService,
     private readonly ibanFraud: IbanFraudService,
     private readonly sepa: SepaService,
+    private readonly sod: SegregationOfDutiesService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -403,10 +405,31 @@ export class PaymentRunService {
    * Met à jour le statut de chaque facture (partially_paid / paid) en
    * fonction du cumul des paiements executed.
    */
-  async approve(actor: PostingActor, runId: string, comment?: string): Promise<PaymentRun> {
+  async approve(
+    actor: PostingActor,
+    runId: string,
+    comment?: string,
+    sod?: { roles: readonly string[]; bypassReason?: string },
+  ): Promise<PaymentRun> {
     const run = await this.ensureExists(runId);
     if (run.status !== 'prepared') {
       throw new PaymentRunNotApprovableException(runId, run.status);
+    }
+    // G1/F3 (ADR-009) — séparation des tâches : le préparateur du run ne peut
+    // pas l'approuver. Un run agrège des factures de plusieurs conventions :
+    // pas de dérogation conventionnelle ici (single_actor_authorized ambigu) —
+    // seul le break-glass SUPER_ADMIN (header X-Bypass-SoD-Reason) déroge.
+    if (run.preparedBy) {
+      this.sod.enforce({
+        entityType: 'payment_run',
+        entityId: runId,
+        operation: 'approve_payment_run',
+        creatorAppUserId: run.preparedBy,
+        actorAppUserId: actor.id,
+        actor: { id: actor.id, email: actor.email, roles: sod?.roles ?? [] },
+        singleActorAuthorized: false,
+        bypassReason: sod?.bypassReason,
+      });
     }
     // Sprint F4a — anti-fraude : refuse l'approbation tant que les alertes
     // IBAN ne sont pas toutes acknowledgées (séparation des tâches DAF).

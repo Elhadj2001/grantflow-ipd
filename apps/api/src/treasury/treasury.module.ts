@@ -6,6 +6,7 @@ import { PaymentRunService } from './services/payment-run.service';
 import { IbanFraudService } from './services/iban-fraud.service';
 import { SepaService } from './services/sepa.service';
 import { AccountingModule } from '../accounting/accounting.module';
+import { SodModule } from '../common/sod/sod.module';
 
 /**
  * Module Treasury :
@@ -16,7 +17,8 @@ import { AccountingModule } from '../accounting/accounting.module';
  * Le module dépend de AccountingModule pour `PostingService.postPayment`.
  */
 @Module({
-  imports: [AccountingModule],
+  // G1/F3 : SodModule pour la garde préparateur ≠ approbateur du run.
+  imports: [AccountingModule, SodModule],
   controllers: [BankAccountController, PaymentRunController],
   providers: [BankAccountService, PaymentRunService, IbanFraudService, SepaService],
   exports: [BankAccountService, PaymentRunService, IbanFraudService, SepaService],

@@ -3,6 +3,7 @@ import type { BankAccount, Invoice, Payment, PurchaseOrder } from '@prisma/clien
 import { PostingService } from '../services/posting.service';
 import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
+import { createSodMock } from '../../test-utils/sod-mock';
 import { useFakeDate, restoreRealDate } from '../../test-utils/fake-time';
 import { UnknownCurrencyException } from '../../common/exceptions/business.exception';
 
@@ -127,7 +128,7 @@ describe('PostingService — invariants multidevise (sentinelles US-022)', () =>
         },
       ),
     };
-    svc = new PostingService(prisma, fx as unknown as ExchangeRateService);
+    svc = new PostingService(prisma, fx as unknown as ExchangeRateService, createSodMock());
   });
 
   // ================= createCommitmentEntry =================

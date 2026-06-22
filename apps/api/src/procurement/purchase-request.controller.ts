@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -214,8 +215,9 @@ export class PurchaseRequestController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: ApproveDecisionDto,
+    @Headers('x-bypass-sod-reason') bypassReason?: string,
   ): Promise<ApprovalDecisionResponseDto> {
-    const res = await this.workflow.approveCurrentStep(user, id, dto.comment);
+    const res = await this.workflow.approveCurrentStep(user, id, dto.comment, bypassReason);
     return {
       prId: res.pr.id,
       status: res.pr.status,

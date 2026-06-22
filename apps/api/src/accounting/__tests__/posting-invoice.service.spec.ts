@@ -2,6 +2,7 @@ import { Prisma, InvoiceStatus, EntryStatus, JournalType, PoStatus } from '@pris
 import { PostingService } from '../services/posting.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
+import { createSodMock } from '../../test-utils/sod-mock';
 import {
   EntityNotFoundException,
   ExchangeRateMissingException,
@@ -63,6 +64,7 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
   };
 
   let prisma: PrismaMock;
+  let sod: ReturnType<typeof createSodMock>;
   let svc: PostingService;
 
   const invoiceId = 'inv00000-0000-0000-0000-000000000001';
@@ -202,9 +204,11 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
     // US-020 (F18) : postInvoice fait sa propre conversion (lookup taux) et
     // n'appelle pas ExchangeRateService → stub minimal suffisant pour la DI.
     const fx = { convertToXof: jest.fn() };
+    sod = createSodMock();
     svc = new PostingService(
       prisma as unknown as PrismaService,
       fx as unknown as ExchangeRateService,
+      sod,
     );
   });
 
@@ -244,6 +248,29 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
       const sumCredit = acLines.reduce((s: number, l: { credit: number }) => s + Number(l.credit), 0);
       expect(sumDebit).toBe(sumCredit);
       expect(sumDebit).toBe(118000);
+    });
+
+    it('G1/F3 — invoque la garde SoD (créateur du BC = posteur de l’écriture)', async () => {
+      // PO dont le buyer (créateur du BC) == l'acteur qui comptabilise → la
+      // garde reçoit le conflit (l'issue blocage/dérogation est couverte par
+      // segregation-of-duties.service.spec).
+      prisma.purchaseOrder.findUnique.mockResolvedValue({ ...makePo(), buyerId: actor.id } as never);
+      await svc.postInvoice(makeInvoice(), actor, { roles: ['COMPTABLE'], bypassReason: undefined });
+      expect(sod.enforce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityType: 'invoice',
+          operation: 'post_invoice',
+          creatorAppUserId: actor.id,
+          actorAppUserId: actor.id,
+          singleActorAuthorized: false,
+        }),
+      );
+    });
+
+    it('G1/F3 — ne sollicite pas la garde SoD quand le BC n’a pas de buyer', async () => {
+      // makePo() pose buyerId=null par défaut → pas de créateur identifiable.
+      await svc.postInvoice(makeInvoice(), actor);
+      expect(sod.enforce).not.toHaveBeenCalled();
     });
 
     it('uses 601 from budget_line.default_account', async () => {

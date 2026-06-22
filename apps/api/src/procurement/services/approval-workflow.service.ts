@@ -17,6 +17,7 @@ import {
   PrTypeMismatchException,
   RejectionReasonRequiredException,
 } from '../../common/exceptions/business.exception';
+import { SegregationOfDutiesService } from '../../common/sod/segregation-of-duties.service';
 
 const ENTITY_NAME = 'PurchaseRequest';
 const APPROVAL_ENTITY_TYPE = 'purchase_request';
@@ -84,6 +85,7 @@ export class ApprovalWorkflowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fx: ExchangeRateService,
+    private readonly sod: SegregationOfDutiesService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -94,6 +96,7 @@ export class ApprovalWorkflowService {
     actor: AuthenticatedUser,
     prId: string,
     comment?: string,
+    bypassReason?: string,
   ): Promise<ApprovalResult> {
     const pr = await this.loadPrForDecision(prId);
 
@@ -103,7 +106,31 @@ export class ApprovalWorkflowService {
       await this.assertPiOwnsProject(actor, pr.projectId);
     }
 
+    // `appUserId` est l'identité métier (auth.app_user.id) de l'acteur,
+    // résolue/tracée pour enregistrer `approverId` — réutilisée telle quelle
+    // pour la garde SoD (pas d'auto-provisioning supplémentaire ici).
     const appUserId = await this.resolveAppUserId(actor);
+
+    // G1/F3 (ADR-009) — séparation des tâches : le saisisseur de la DA
+    // (`requestedBy`) ne peut pas l'approuver. Dérogation conventionnelle
+    // (`single_actor_authorized`) ou break-glass SUPER_ADMIN via la garde.
+    if (pr.requestedBy === appUserId) {
+      const grant = await this.prisma.grantAgreement.findUnique({
+        where: { id: pr.grantId },
+        select: { singleActorAuthorized: true },
+      });
+      this.sod.enforce({
+        entityType: APPROVAL_ENTITY_TYPE,
+        entityId: pr.id,
+        operation: 'approve_pr',
+        creatorAppUserId: pr.requestedBy,
+        actorAppUserId: appUserId,
+        actor,
+        singleActorAuthorized: grant?.singleActorAuthorized ?? false,
+        bypassReason,
+        context: { grantId: pr.grantId, stepRole: pendingStep.approverRole },
+      });
+    }
 
     // Fix `fix-approval-workflow-currency-conversion` : les seuils
     // APPROVAL_THRESHOLD_CG / DAF sont exprimés en XOF. Sans conversion,

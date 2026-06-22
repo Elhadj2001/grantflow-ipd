@@ -3,6 +3,7 @@ import type { BankAccount, PaymentRun } from '@prisma/client';
 import { PaymentRunService } from '../payment-run.service';
 import { PostingService } from '../../../accounting/services/posting.service';
 import { createPrismaMock, type PrismaMock } from '../../../test-utils/prisma-mock';
+import { createSodMock } from '../../../test-utils/sod-mock';
 import { useFakeDate, restoreRealDate } from '../../../test-utils/fake-time';
 import {
   BankAccountInactiveException,
@@ -41,6 +42,7 @@ describe('PaymentRunService', () => {
 
   let prisma: PrismaMock;
   let posting: { postPayment: jest.Mock; listEntriesForPayment: jest.Mock };
+  let sod: ReturnType<typeof createSodMock>;
   let svc: PaymentRunService;
 
   // Projections typées des arguments lus sur `*.mock.calls` (les délégués
@@ -126,11 +128,13 @@ describe('PaymentRunService', () => {
       generate: jest.fn().mockReturnValue('<Document/>'),
       validateStructure: jest.fn().mockReturnValue({ valid: true, missing: [] }),
     };
+    sod = createSodMock();
     svc = new PaymentRunService(
       prisma,
       posting as unknown as PostingService,
       ibanFraud as unknown as import('../iban-fraud.service').IbanFraudService,
       sepa as unknown as import('../sepa.service').SepaService,
+      sod,
     );
   });
 
@@ -406,6 +410,33 @@ describe('PaymentRunService', () => {
       prisma.paymentRun.findUnique.mockResolvedValue(makeRun({ status: 'draft' }) as never);
       await expect(svc.approve(actor, 'run-1')).rejects.toBeInstanceOf(
         PaymentRunNotApprovableException,
+      );
+    });
+
+    it('G1/F3 — invoque la garde SoD (préparateur ≠ approbateur) avec préparateur/acteur', async () => {
+      // makeRun pose preparedBy = actor.id → conflit potentiel transmis à la garde.
+      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun as never);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.payment.findMany.mockResolvedValue([
+        {
+          id: 'p1', invoiceId: 'inv-1', amount: new Prisma.Decimal('118000'), currency: 'XOF',
+          invoice: { id: 'inv-1', invoiceNumber: 'F001', totalTtc: new Prisma.Decimal('118000'), supplier: { code: 'ACME', name: 'ACME' } },
+        },
+      ] as never);
+      posting.postPayment.mockResolvedValue({ entryId: 'je-1', entryNumber: 'BQ-2026-0001', amountXof: 118000 });
+      prisma.payment.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal('118000') } } as never);
+      prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({ ...preparedRun, status: 'executed' } as never);
+
+      await svc.approve(actor, 'run-1', undefined, { roles: ['DAF'], bypassReason: undefined });
+
+      expect(sod.enforce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityType: 'payment_run',
+          operation: 'approve_payment_run',
+          creatorAppUserId: actor.id,
+          actorAppUserId: actor.id,
+          singleActorAuthorized: false,
+        }),
       );
     });
 

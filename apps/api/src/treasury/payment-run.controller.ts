@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Header,
+  Headers,
   Param,
   ParseUUIDPipe,
   Post,
@@ -193,9 +194,12 @@ export class PaymentRunController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: ApprovePaymentRunDto,
+    @Headers('x-bypass-sod-reason') bypassReason?: string,
   ) {
     const actor = await this.resolveActor(user);
-    return this.svc.approve(actor, id, dto.comment);
+    // G1/F3 : rôles + motif break-glass propagés à la garde SoD du service
+    // (PostingActor ne porte pas les rôles).
+    return this.svc.approve(actor, id, dto.comment, { roles: user.roles, bypassReason });
   }
 
   @Post('payment-runs/:id/reject')

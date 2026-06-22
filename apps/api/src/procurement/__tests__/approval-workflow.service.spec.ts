@@ -16,6 +16,7 @@ import {
   PrTypeMismatchException,
   RejectionReasonRequiredException,
 } from '../../common/exceptions/business.exception';
+import { createSodMock } from '../../test-utils/sod-mock';
 import { useFakeDate, restoreRealDate } from '../../test-utils/fake-time';
 
 describe('ApprovalWorkflowService', () => {
@@ -41,9 +42,11 @@ describe('ApprovalWorkflowService', () => {
     appUser: { findUnique: jest.Mock; create: jest.Mock };
     cashBox: { findUnique: jest.Mock; update: jest.Mock };
     cashSettlement: { findUnique: jest.Mock; create: jest.Mock };
+    grantAgreement: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
   let fx: { convertToXof: jest.Mock };
+  let sod: ReturnType<typeof createSodMock>;
   let svc: ApprovalWorkflowService;
 
   const piId = 'pi000000-0000-0000-0000-000000000001';
@@ -135,6 +138,9 @@ describe('ApprovalWorkflowService', () => {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn(),
       },
+      grantAgreement: {
+        findUnique: jest.fn().mockResolvedValue({ singleActorAuthorized: false }),
+      },
       $transaction: jest.fn(async (cb: unknown) => {
         if (typeof cb === 'function') return (cb as (tx: unknown) => unknown)(prisma);
         return Promise.all(cb as unknown[]);
@@ -152,9 +158,11 @@ describe('ApprovalWorkflowService', () => {
         return { xofAmount: Number(amount), fxRate: 1, fxRateDate: new Date('2026-05-10'), isIndicativeFallback: false };
       }),
     };
+    sod = createSodMock();
     svc = new ApprovalWorkflowService(
       prisma as unknown as PrismaService,
       fx as unknown as ExchangeRateService,
+      sod,
     );
   });
 
@@ -196,6 +204,35 @@ describe('ApprovalWorkflowService', () => {
       const res = await svc.approveCurrentStep(cg, prId);
       expect(res.nextStepRole).toBe('DAF');
       expect(res.pr.status).toBe(PrStatus.pending_daf);
+    });
+
+    it('G1/F3 — saisisseur == approbateur : invoque la garde SoD (DA)', async () => {
+      // requestedBy = cgId → le CG approuve une DA qu'il a lui-même saisie.
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({ requestedBy: cgId, status: PrStatus.pending_cg, totalAmount: new Prisma.Decimal('10000000') }),
+      );
+      prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CONTROLEUR', stepOrder: 2 }));
+      prisma.purchaseRequest.update.mockResolvedValue(makePr({ status: PrStatus.pending_daf }));
+      await svc.approveCurrentStep(cg, prId);
+      expect(sod.enforce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          entityType: 'purchase_request',
+          operation: 'approve_pr',
+          creatorAppUserId: cgId,
+          actorAppUserId: cgId,
+          singleActorAuthorized: false,
+        }),
+      );
+    });
+
+    it('G1/F3 — saisisseur ≠ approbateur : la garde SoD n’est pas sollicitée', async () => {
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({ requestedBy: 'requester', status: PrStatus.pending_cg, totalAmount: new Prisma.Decimal('10000000') }),
+      );
+      prisma.approvalStep.findFirst.mockResolvedValue(makeStep({ approverRole: 'CONTROLEUR', stepOrder: 2 }));
+      prisma.purchaseRequest.update.mockResolvedValue(makePr({ status: PrStatus.pending_daf }));
+      await svc.approveCurrentStep(cg, prId);
+      expect(sod.enforce).not.toHaveBeenCalled();
     });
 
     it('DAF approves the last step → APPROVED', async () => {

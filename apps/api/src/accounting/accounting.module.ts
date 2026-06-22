@@ -6,6 +6,7 @@ import { AccrualService } from './services/accrual.service';
 import { PrepaymentService } from './services/prepayment.service';
 import { AccountingController } from './accounting.controller';
 import { ExchangeRateModule } from '../referential/exchange-rate/exchange-rate.module';
+import { SodModule } from '../common/sod/sod.module';
 
 /**
  * Module Accounting — façade des services comptables.
@@ -20,7 +21,8 @@ import { ExchangeRateModule } from '../referential/exchange-rate/exchange-rate.m
 @Module({
   // US-020 (fix F18) : PostingService.createCommitmentEntry / postPayment
   // convertissent les montants en XOF via ExchangeRateService.
-  imports: [ExchangeRateModule],
+  // G1/F3 : SodModule pour la garde créateur du BC ≠ posteur de l'écriture.
+  imports: [ExchangeRateModule, SodModule],
   controllers: [AccountingController],
   providers: [
     PostingService,

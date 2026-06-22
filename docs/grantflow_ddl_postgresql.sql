@@ -1889,3 +1889,22 @@ COMMENT ON INDEX grant_office.uq_note_technique_active_per_grant IS
   'Garantit qu''au plus une Note Technique est en status = ''active'' par
    convention à un instant donné. Les autres status (draft, pending_daf,
    validated_daf, superseded) ne sont pas concernés (cf. ADR-006).';
+
+-- =========================================================================
+-- G1 / F3 — Séparation des tâches : dérogation conventionnelle
+-- =========================================================================
+-- ADR-009 (règle d'or n°6) : le saisisseur d'une opération ne peut pas la
+-- valider. Dérogation légitime « acteur unique » au niveau de la convention
+-- (petite structure IPD où une seule personne cumule plusieurs rôles, validé
+-- conventionnellement par le DAF). Quand TRUE, la garde SoD transverse (DA,
+-- paiement, écriture) est désactivée pour cette convention, AVEC trace audit
+-- (event_log action=sod_derogation_convention). Rétrocompatible : DEFAULT FALSE.
+-- NB : un flag homonyme existe déjà sur grant_office.note_technique (US-030)
+-- pour la SoD de la Note Technique elle-même (US-053) ; celui-ci concerne la
+-- SoD opérationnelle transverse rattachée à la convention.
+
+ALTER TABLE ref.grant_agreement
+  ADD COLUMN IF NOT EXISTS single_actor_authorized BOOLEAN NOT NULL DEFAULT FALSE;
+
+COMMENT ON COLUMN ref.grant_agreement.single_actor_authorized IS
+  'Dérogation SoD conventionnelle (ADR-009) : si TRUE, le même acteur peut saisir ET valider les opérations de cette convention (DA, paiement, écriture), avec trace audit. DEFAULT FALSE = séparation des tâches stricte.';

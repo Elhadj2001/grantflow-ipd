@@ -15,6 +15,7 @@ import { AccountingModule } from '../accounting/accounting.module';
 import { InvoicingModule } from '../invoicing/invoicing.module';
 import { ExchangeRateModule } from '../referential/exchange-rate/exchange-rate.module';
 import { EligibilityModule } from '../grant_office/eligibility/eligibility.module';
+import { SodModule } from '../common/sod/sod.module';
 
 @Module({
   // Sprint F-INVOICE-SIM : import d'InvoicingModule pour réutiliser
@@ -26,7 +27,9 @@ import { EligibilityModule } from '../grant_office/eligibility/eligibility.modul
   // US-049 : EligibilityModule fournit EligibilityEngineService +
   // EligibilityContextBuilder pour brancher la validation d'éligibilité
   // (ADR-007) au moment du submit de la DA.
-  imports: [AccountingModule, InvoicingModule, ExchangeRateModule, EligibilityModule],
+  // G1/F3 : SodModule fournit la garde de séparation des tâches (ADR-009)
+  // utilisée par ApprovalWorkflowService au moment de l'approbation DA.
+  imports: [AccountingModule, InvoicingModule, ExchangeRateModule, EligibilityModule, SodModule],
   controllers: [PurchaseRequestController, PurchaseOrderController, GoodsReceiptController],
   providers: [
     PurchaseRequestService,

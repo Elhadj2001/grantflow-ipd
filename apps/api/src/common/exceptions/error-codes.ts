@@ -204,6 +204,8 @@ export const ErrorCode = {
      * manuellement ou purger l'AppUser orphelin.
      */
     USER_KEYCLOAK_ACCOUNT_NOT_FOUND: 'BUSINESS.USER_KEYCLOAK_ACCOUNT_NOT_FOUND',
+    /** G1 / F3 (ADR-009, règle d'or n°6) — séparation des tâches : saisisseur ≠ valideur. */
+    SEGREGATION_OF_DUTIES_VIOLATION: 'BUSINESS.SEGREGATION_OF_DUTIES_VIOLATION',
   },
   REF: {
     INVALID_GL_ACCOUNT: 'REF.INVALID_GL_ACCOUNT',

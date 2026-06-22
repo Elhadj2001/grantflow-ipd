@@ -511,7 +511,11 @@ export class InvoiceService {
    *  - Tous les comptes 6xx résolvables
    *  - Taux de change disponible si multidevise
    */
-  async post(actor: AuthenticatedUser, invoiceId: string): Promise<PostInvoiceResult> {
+  async post(
+    actor: AuthenticatedUser,
+    invoiceId: string,
+    bypassReason?: string,
+  ): Promise<PostInvoiceResult> {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: { lines: { orderBy: { lineNumber: 'asc' } } },
@@ -519,11 +523,13 @@ export class InvoiceService {
     if (!invoice) throw new EntityNotFoundException(ENTITY_NAME, { id: invoiceId });
     await this.assertCanRead(actor, invoice);
     const appUserId = await this.resolveAppUserId(actor);
-    return this.posting.postInvoice(invoice, {
-      id: appUserId,
-      email: actor.email,
-      fullName: actor.fullName,
-    });
+    // G1/F3 : rôles + motif break-glass propagés à la garde SoD de PostingService
+    // (PostingActor ne porte pas les rôles).
+    return this.posting.postInvoice(
+      invoice,
+      { id: appUserId, email: actor.email, fullName: actor.fullName },
+      { roles: actor.roles, bypassReason },
+    );
   }
 
   /**

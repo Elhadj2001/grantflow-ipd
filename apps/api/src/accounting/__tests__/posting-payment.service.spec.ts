@@ -3,6 +3,7 @@ import type { BankAccount, Invoice, Payment } from '@prisma/client';
 import { PostingService } from '../services/posting.service';
 import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock';
+import { createSodMock } from '../../test-utils/sod-mock';
 import {
   BankAccountWrongClassException,
   EntityNotFoundException,
@@ -130,7 +131,7 @@ describe('PostingService.postPayment', () => {
         },
       ),
     };
-    svc = new PostingService(prisma, fx as unknown as ExchangeRateService);
+    svc = new PostingService(prisma, fx as unknown as ExchangeRateService, createSodMock());
   });
 
   it('creates a balanced BQ entry : debit 401 + credit 521', async () => {

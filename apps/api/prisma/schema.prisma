@@ -275,6 +275,7 @@ model GrantAgreement {
   notes             String?
   allowsCashPayment Boolean                 @default(true) @map("allows_cash_payment")
   createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  singleActorAuthorized Boolean             @default(false) @map("single_actor_authorized")
   allocationTargets AllocationTarget[]
   dedicatedFunds    DedicatedFundMovement[]
   overheadCalcs     OverheadCalculation[]

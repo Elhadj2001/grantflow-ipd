@@ -2056,3 +2056,32 @@ export class EligibilityValidationException extends BusinessException {
     );
   }
 }
+
+/**
+ * G1 / F3 (ADR-009, règle d'or n°6) — séparation des tâches enforced par
+ * identité : le saisisseur d'une opération ne peut pas la valider/exécuter.
+ * 403 Forbidden.
+ *
+ * Dérogations légitimes (ne lèvent PAS cette exception) :
+ *  - convention `single_actor_authorized = true` → trace audit
+ *    `sod_derogation_convention` ;
+ *  - break-glass SUPER_ADMIN via header `X-Bypass-SoD-Reason` (motif requis)
+ *    → trace audit `sod_break_glass`.
+ */
+export class SegregationOfDutiesException extends BusinessException {
+  constructor(
+    public readonly operation: string,
+    public readonly actorId: string,
+    public readonly creatorId: string,
+    public readonly bypassAvailable = false,
+  ) {
+    super(
+      ErrorCode.BUSINESS.SEGREGATION_OF_DUTIES_VIOLATION,
+      HttpStatus.FORBIDDEN,
+      `Vous ne pouvez pas valider une pièce que vous avez vous-même saisie ` +
+        `(opération « ${operation} », créateur ${creatorId}).` +
+        (bypassAvailable ? ' Un SUPER_ADMIN peut déroger via l’en-tête X-Bypass-SoD-Reason.' : ''),
+      { operation, actorId, creatorId, bypassAvailable },
+    );
+  }
+}
