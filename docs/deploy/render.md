@@ -161,3 +161,48 @@ scripts/check-render-env-parity.sh   # doit afficher « PARITÉ OK » (exit 0)
 >
 > **Keycloak 24** : le reverse-proxy Render (TLS) est géré par
 > `KC_PROXY_HEADERS=xforwarded` (et non `KC_PROXY`, déprécié en v24).
+
+## 10. Migration de région Oregon → Frankfurt (latence)
+
+> **Pourquoi** : Neon est en `eu-central-1` ; les services Render historiques
+> sont en Oregon → **~150 ms RTT par requête DB**. La région est **immuable**
+> sur Render : il faut **recréer** les services (Apply Blueprint, qui porte
+> désormais `region: frankfurt`). Les URLs `*.onrender.com` changeront
+> (nouveaux suffixes) — d'où la liste de répercussions ci-dessous.
+
+**Procédure = checklist §9, avec ces spécificités d'ordre :**
+
+1. **Keycloak D'ABORD** (l'API en dépend) :
+   1. Apply Blueprint → nouveau service `grantflow-keycloak` (Frankfurt).
+   2. Saisir les secrets `sync:false` KC (§2bis de
+      `prod-restoration-2026-07-13.md`) — `KC_HOSTNAME` **vide** au 1er boot.
+   3. Le service obtient sa **NOUVELLE URL** → coller l'hôte (sans `https://`)
+      dans `KC_HOSTNAME` → **Save → redeploy Keycloak**.
+   4. ⚠️ **Piège du bug 5** : vérifier l'issuer **https** après boot :
+      `https://<nouvelle-URL-KC>/realms/grantflow/.well-known/openid-configuration`
+      → le champ `issuer` DOIT être en `https://`. (`KC_PROXY_HEADERS=xforwarded`
+      + `KC_HOSTNAME_STRICT_HTTPS=true` sont déjà dans le Blueprint — si
+      l'issuer sort en `http://`, c'est qu'une des deux manque au dashboard.)
+2. **API ENSUITE** :
+   1. Apply Blueprint → nouveau `grantflow-api` (Frankfurt).
+   2. Saisir les secrets `sync:false` (§3) avec **`KEYCLOAK_URL` = nouvelle
+      URL Keycloak** de l'étape 1.
+   3. Health-check : `API_URL=https://<nouvelle-URL-API> scripts/prod-health-check.sh`.
+3. **Répercussions d'URLs post-migration (exhaustif)** :
+
+   | Où | Quoi |
+   |---|---|
+   | Render `grantflow-api` | `KEYCLOAK_URL` = nouvelle URL KC (fait en 2.2) |
+   | Vercel (front) | `KEYCLOAK_ISSUER` = `https://<nouvelle-URL-KC>/realms/grantflow` **+** `NEXT_PUBLIC_API_URL` = `https://<nouvelle-URL-API>/api/v1` **+ redeploy** |
+   | Keycloak admin | Redirect URIs / Web Origins du client `grantflow-web` : inchangés (URL Vercel), mais re-vérifier après import realm (§6) |
+   | UptimeRobot | Les **2 monitors** → nouvelles URLs (`…/api/v1/health`, `…/health/ready`) |
+   | GitHub Secrets | `RENDER_DEPLOY_HOOK_URL` = **nouveau** Deploy Hook du nouveau `grantflow-api` |
+   | Scripts repo | `warmup-grantflow.sh/.ps1` + `prod-health-check.sh/.ps1` : passer les nouvelles URLs **par variables d'env** (les défauts codés pointent sur l'ancienne région) ; mettre à jour les défauts au commit suivant |
+   | Workflow CI | `migrate-neon.yml` : URL du sanity-check post-deploy à mettre à jour |
+4. **Décommissionnement** : suspendre puis supprimer les anciens services
+   Oregon **après** validation E2E (login → DA → logout) sur Frankfurt.
+
+> 💡 **Solution définitive (backlog, non faite ici)** : un **custom domain**
+> (ex. `api.grantflow.sn`, `auth.grantflow.sn`) rend les suffixes Render
+> invisibles — plus AUCUNE répercussion d'URL aux prochaines recréations :
+> seul le CNAME change. À planifier avec le domaine IPD.

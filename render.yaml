@@ -20,6 +20,11 @@ services:
     name: grantflow-api
     runtime: docker
     plan: free
+    # Migration latence 2026-07 : Frankfurt (eu) — Neon est en eu-central-1,
+    # Oregon ajoutait ~150ms RTT par requête DB. Région IMMUABLE sur Render →
+    # ce champ ne s'applique qu'aux services (re)créés via Apply Blueprint
+    # (cf. docs/deploy/render.md § Migration de région).
+    region: frankfurt
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
     healthCheckPath: /api/v1/health
@@ -106,6 +111,8 @@ services:
     name: grantflow-keycloak
     runtime: docker
     plan: free
+    # Frankfurt — même raison que grantflow-api (Neon eu-central-1).
+    region: frankfurt
     dockerfilePath: ./docker/keycloak/Dockerfile.cloud
     dockerContext: .
     healthCheckPath: /health/ready
