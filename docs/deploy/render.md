@@ -124,3 +124,40 @@ permettre le dev en // de la prod cloud).
 | Disque persistant Render free : 1 GB | Suffisant pour Keycloak + ses sessions | Surveiller la croissance |
 
 Pour la phase 2 (serveur IPD), voir [migration-to-ipd-cloud.md](./migration-to-ipd-cloud.md).
+
+## 9. Recréer un service via Blueprint : checklist (US-142)
+
+> Scénario vécu (restauration 2026-07-13) : un service Render supprimé/recréé
+> **change d'URL** (`grantflow-api-kqmv` → `grantflow-api-cvde`) **et perd ses
+> variables `sync:false`**. Suivre cette checklist pour repartir proprement.
+
+**Avant** : `render.yaml` déclare désormais **toutes** les variables
+BOOT-critiques (US-142). Vérifier la parité à tout moment :
+
+```bash
+scripts/check-render-env-parity.sh   # doit afficher « PARITÉ OK » (exit 0)
+```
+
+**Checklist recréation :**
+
+1. **Réveiller Neon** (`SELECT 1;`) et récupérer la connection string *pooled*.
+2. **Apply Blueprint** (Render → Blueprint → repo) : les clés sont recréées ;
+   Render redemande chaque `sync:false`.
+3. **Saisir les secrets `sync:false`** — `grantflow-api` :
+   `DATABASE_URL`, `KEYCLOAK_URL` (URL du service KC), `KEYCLOAK_CLIENT_SECRET`,
+   **`WEB_ORIGIN`** (URL Vercel du front — sinon CORS bloque le login),
+   `ANTHROPIC_API_KEY`/`S3_*`/`SMTP_*` (optionnels).
+4. **Saisir les secrets `sync:false`** — `grantflow-keycloak` :
+   `KEYCLOAK_ADMIN_PASSWORD`, `KC_HOSTNAME` (= hôte public du service KC, sans
+   `https://`), `KC_DB_URL` (JDBC Neon), `KC_DB_USERNAME`, `KC_DB_PASSWORD`.
+5. **Répercuter la nouvelle URL** partout où elle est codée : `KEYCLOAK_URL`
+   sur l'API, `WEB_ORIGIN` (si le front a changé), les monitors UptimeRobot,
+   les Redirect URIs Keycloak (§6), et `scripts/prod-health-check.*`.
+6. **Vérifier** : `scripts/prod-health-check.sh` (tout `[OK]`) puis §7.
+
+> Les variables non-secrètes (valeurs en clair dans `render.yaml` : `NODE_ENV`,
+> `KEYCLOAK_REALM`, `KC_HTTP_PORT`, `KC_HOSTNAME_STRICT`, `KC_PROXY_HEADERS`…)
+> sont recréées automatiquement par l'Apply Blueprint — rien à saisir.
+>
+> **Keycloak 24** : le reverse-proxy Render (TLS) est géré par
+> `KC_PROXY_HEADERS=xforwarded` (et non `KC_PROXY`, déprécié en v24).
