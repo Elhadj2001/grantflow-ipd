@@ -118,7 +118,7 @@ toujours des catégories identiques → **jamais bloquante via `submit()`**.
 Couvert par `eligibility-end-to-end.integration.spec.ts` (PPT-4 / PPT-4bis)
 et `eligibility-context-builder.service.spec.ts`.
 
-## Dette PPT-5/PPT-6 — champs non transportés par submit() (OUVERTE, constat US-057)
+## Dette PPT-5/PPT-6 — champs non transportés par submit() (RÉSOLUE au CLOSE-S6)
 
 Les règles `NotPasteurParisReimbursedRule` (PPT-5, US-045) et
 `NoCrossProjectDuplicateRule` (PPT-6, US-046) sont **enregistrées et exécutées**
@@ -134,12 +134,17 @@ Elles lisent toutefois leurs champs source **défensivement** sur `ctx.pr`
 2. `runEligibilityGate` (`purchase-request.service.ts`) ne transporte pas ces
    champs dans l'`EligibilityPrInput` du builder.
 
-**Résolution prévue** : au merge de la stack S6 (US-054 inclus), ajouter le
-transport des 2 champs dans `runEligibilityGate` → bascule automatique
-(PPT-5 = blocage, PPT-6 = warning) sans toucher aux règles. La mécanique
-réelle est déjà **prouvée** par les tests « preuve moteur » actifs
-(`eligibility-end-to-end.integration.spec.ts`, PPT-5/PPT-6) — aucune
-activation artificielle n'a été forcée (US-057).
+**Résolution (CLOSE-S6, 2026-07-16)** : la stack S6 fusionnée sur main réunit
+les colonnes US-054 et le builder US-056 ; `runEligibilityGate` transporte
+désormais `pasteurParisReimbursed` + `supplierInvoiceNumber` dans
+l'`EligibilityPrInput` → **PPT-5 bloque** (`ELIG_PASTEUR_PARIS_REIMBURSED`)
+et **PPT-6 émet un warning** (`ELIG_CROSS_PROJECT_DUPLICATE`) via `submit()`,
+sans modification des règles (lecture défensive inchangée). Couvert par
+`eligibility-end-to-end.integration.spec.ts` (PPT-5/PPT-5bis/PPT-6 + tableau
+de synthèse US-057). **Les 7 invariants PPT slide 7 sont désormais actifs
+end-to-end.** Reste opérationnel : backfill de `budget_line.category`
+(`scripts/backfill-budget-line-category.sql`) et peuplement des nouveaux
+champs par les DTO de création de DA (story UI à planifier).
 
 ## Alternatives considérées
 

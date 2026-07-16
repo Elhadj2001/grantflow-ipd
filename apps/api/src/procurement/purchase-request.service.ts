@@ -620,7 +620,9 @@ export class PurchaseRequestService {
     actor: AuthenticatedUser,
     pr: PrWithLines & { grantId: string; currency: string; requestedBy: string; requestedAt: Date },
   ): Promise<WarningVerdict[]> {
-    const expenseNatureCode = (pr as { expenseNatureCode?: string | null }).expenseNatureCode;
+    // US-054 : champs désormais matérialisés/typés sur le modèle Prisma
+    // (la lecture défensive par cast n'est plus nécessaire).
+    const expenseNatureCode = pr.expenseNatureCode;
     const firstBudgetLineId = pr.lines[0]?.budgetLineId;
     if (!expenseNatureCode || !firstBudgetLineId) {
       return [];
@@ -635,6 +637,11 @@ export class PurchaseRequestService {
       expenseNatureCode,
       requestedById: pr.requestedBy,
       requestedAt: pr.requestedAt,
+      // CLOSE-S6 — résolution de la dette PPT-5/6 (ADR-007) : transport des
+      // champs US-054 vers le contexte → les règles NotPasteurParisReimbursed
+      // et NoCrossProjectDuplicate s'activent via submit().
+      pasteurParisReimbursed: pr.pasteurParisReimbursed,
+      supplierInvoiceNumber: pr.supplierInvoiceNumber,
     };
 
     const ctx = await this.contextBuilder.build(prInput, {

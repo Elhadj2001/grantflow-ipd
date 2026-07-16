@@ -31,17 +31,13 @@ import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock'
  * preuve cliquable que GRANTFLOW IPD enforce ce qui était impossible à
  * enforce dans le couple Excel + Sage.
  *
- * NOTE matérialisation (US-049) — état Sprint S6 :
- *   - PPT-4 (ligne↔nature)   : ✅ RÉSOLU (US-055 + US-056) — le builder lit
- *     ref.budget_line.category en DIRECT (fallback proxy si NULL) → blocage
- *     réel via submit() (cf. test PPT-4 + PPT-4bis).
- *   - PPT-5 (Pasteur Paris)  : pr.pasteurParisReimbursed non transporté par
- *     runEligibilityGate (lecture défensive US-045) — TODO US-057.
- *   - PPT-6 (doublon facture): pr.supplierInvoiceNumber idem (US-046) —
- *     TODO US-057.
- * Pour PPT-5/6, on (a) documente le no-op courant via submit() et (b) PROUVE
- * la mécanique de blocage/warning en invoquant le VRAI moteur sur un
- * contexte matérialisé.
+ * NOTE matérialisation (US-049) — état CLOSE-S6 : ✅ 7/7 ACTIFS via submit().
+ *   - PPT-4 (ligne↔nature)   : résolu US-055 + US-056 (lecture directe de
+ *     ref.budget_line.category, fallback proxy si NULL).
+ *   - PPT-5 (Pasteur Paris) & PPT-6 (doublon facture) : résolus CLOSE-S6 —
+ *     colonnes matérialisées US-054 transportées par runEligibilityGate vers
+ *     le contexte (blocage PPT-5 / warning PPT-6 réels via submit()).
+ * Les preuves moteur historiques sont conservées en complément.
  */
 describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', () => {
   let service: PurchaseRequestService;
@@ -343,14 +339,15 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
       expect(res.pr.status).toBe('pending_pi');
     });
 
-    it('PPT-5 — « Imputer une dépense remboursée Pasteur Paris » : preuve moteur (flag non transporté par submit — TODO S6)', async () => {
-      // (a) Via submit() : pr.pasteurParisReimbursed n'est pas transporté par
-      //     runEligibilityGate → no-op → la DA passe (documenté).
+    it('PPT-5 — « Imputer une dépense remboursée Pasteur Paris » : BLOQUE via submit() (CLOSE-S6, gate ACTIVÉE)', async () => {
+      // (a) Via submit() : pr.pasteurParisReimbursed (colonne US-054) est
+      //     désormais TRANSPORTÉ par runEligibilityGate → blocage réel.
       const id = configureSubmit({ prExtra: { pasteurParisReimbursed: true } });
-      const res = await service.submit(demandeur, id);
-      expect(res.pr.status).toBe('pending_pi');
+      const err = await captureBlock(service.submit(demandeur, id));
+      expect(err.blockedVerdicts.map((v) => v.code)).toContain('ELIG_PASTEUR_PARIS_REIMBURSED');
+      expect(prisma.purchaseRequest.update).not.toHaveBeenCalled();
 
-      // (b) Preuve de la mécanique réelle : contexte avec le flag matérialisé.
+      // (b) Preuve moteur conservée : contexte avec le flag matérialisé.
       prisma.fiscalPeriod.findFirst.mockResolvedValue({ id: 'fp-1', code: '2026-06' } as never);
       const ctx = makeContext();
       (ctx.pr as { pasteurParisReimbursed?: boolean }).pasteurParisReimbursed = true;
@@ -359,16 +356,21 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
       expect(verdict.blockedVerdicts.map((v) => v.code)).toContain('ELIG_PASTEUR_PARIS_REIMBURSED');
     });
 
-    it('PPT-6 — « Imputer la même facture sur plusieurs projets » : preuve moteur (n° facture non transporté par submit — TODO S6)', async () => {
-      // (a) Via submit() : pr.supplierInvoiceNumber non transporté → no-op →
-      //     la DA passe sans warning (documenté).
+    it('PPT-5bis — flag pasteurParisReimbursed=false : la DA passe (cas conforme)', async () => {
+      const id = configureSubmit({ prExtra: { pasteurParisReimbursed: false } });
+      const res = await service.submit(demandeur, id);
+      expect(res.pr.status).toBe('pending_pi');
+    });
+
+    it('PPT-6 — « Imputer la même facture sur plusieurs projets » : WARNING via submit() (CLOSE-S6, gate ACTIVÉE)', async () => {
+      // (a) Via submit() : pr.supplierInvoiceNumber (colonne US-054) est
+      //     désormais TRANSPORTÉ → warning NON bloquant surfacé, DA persistée.
       const id = configureSubmit({ prExtra: { supplierInvoiceNumber: 'INV-DUP' }, invoiceDupes: 2 });
       const res = await service.submit(demandeur, id);
       expect(res.pr.status).toBe('pending_pi');
-      expect(res.warnings).toEqual([]);
+      expect(res.warnings.map((w) => w.code)).toContain('ELIG_CROSS_PROJECT_DUPLICATE');
 
-      // (b) Preuve de la mécanique réelle : contexte avec n° de facture +
-      //     doublon en base → warning NON bloquant.
+      // (b) Preuve moteur conservée : contexte avec n° de facture + doublon.
       prisma.fiscalPeriod.findFirst.mockResolvedValue({ id: 'fp-1', code: '2026-06' } as never);
       prisma.invoice.findMany.mockResolvedValue([
         { id: 'inv-A', invoiceNumber: 'INV-DUP' },
@@ -452,11 +454,9 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
     });
 
     it('COMBO-3 — warning sans blocage : doublon facture inter-projet (preuve moteur, DA persistable)', async () => {
-      // Le canal warning de submit() est déjà prouvé non bloquant par COMBO-1
-      // (warnings flue dans { pr, warnings } sans empêcher la persistance).
-      // Ici on prouve qu'un doublon facture produit un WARNING (pas un
-      // blocage) via le vrai moteur — donc la DA RESTERA persistable une fois
-      // pr.supplierInvoiceNumber matérialisé (TODO S6).
+      // CLOSE-S6 : le parcours COMPLET via submit() est désormais couvert par
+      // PPT-6 (warning surfacé + DA persistée). On conserve ici la preuve
+      // moteur pure (2 doublons → 1 warning, 0 blocage).
       prisma.fiscalPeriod.findFirst.mockResolvedValue({ id: 'fp-1', code: '2026-06' } as never);
       prisma.invoice.findMany.mockResolvedValue([
         { id: 'inv-A', invoiceNumber: 'INV-DUP' },
@@ -562,10 +562,10 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
 
   // ====================================================================
   // US-057 — Synthèse « parcours DA complet » : une DA conforme passe
-  // TOUTES les règles PPT actives via submit() ; une DA violant chaque
-  // règle ACTIVE est rejetée avec le bon code. PPT-5/6 sont exclues du
-  // tableau : règles exécutées par l'engine mais no-op via submit()
-  // (champs non transportés — cf. ADR-007 § Dette PPT-5/6).
+  // TOUTES les règles PPT via submit() ; une DA violant chaque règle
+  // BLOQUANTE est rejetée avec le bon code. CLOSE-S6 : PPT-5 ajoutée au
+  // tableau (transport US-054 branché). PPT-6 est un WARNING non bloquant
+  // → couverte par son test dédié, pas par ce tableau de blocages.
   // ====================================================================
   describe('US-057 — synthèse parcours DA (règles PPT actives via submit)', () => {
     it('DA conforme → passe toutes les règles actives (pending_pi, 0 warning)', async () => {
@@ -619,6 +619,11 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
           natureCategory: 'functioning',
           budgetLineCategory: 'equipment',
         },
+      },
+      {
+        ppt: 'PPT-5 dépense remboursée Pasteur Paris (CLOSE-S6)',
+        expectedCode: 'ELIG_PASTEUR_PARIS_REIMBURSED',
+        cfg: { prExtra: { pasteurParisReimbursed: true } },
       },
       {
         ppt: 'PPT-7 période fiscale close',

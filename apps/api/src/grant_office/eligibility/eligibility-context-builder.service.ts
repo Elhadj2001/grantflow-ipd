@@ -14,6 +14,13 @@ export interface EligibilityPrInput {
   expenseNatureCode: string;
   requestedById: string;
   requestedAt?: Date;
+  /**
+   * CLOSE-S6 — champs matérialisés US-054, transportés par runEligibilityGate
+   * et propagés tels quels dans ctx.pr (spread) : active PPT-5
+   * (NotPasteurParisReimbursedRule) et PPT-6 (NoCrossProjectDuplicateRule).
+   */
+  pasteurParisReimbursed?: boolean;
+  supplierInvoiceNumber?: string | null;
 }
 
 /**
