@@ -27,6 +27,10 @@ describe('AppModule (smoke / DI)', () => {
     process.env.KEYCLOAK_URL = 'http://localhost:8080';
     process.env.KEYCLOAK_REALM = 'grantflow';
     process.env.KEYCLOAK_CLIENT_ID = 'grantflow-api';
+    // Fix CI runs #220/#221 : KeycloakAdminService (F-ADMIN-USERS) fait aussi
+    // getOrThrow('KEYCLOAK_CLIENT_SECRET') — en local le .env le fournit, en
+    // CI (pas de .env) le graphe DI plantait. Stub non-secret.
+    process.env.KEYCLOAK_CLIENT_SECRET = 'smoke-test-secret';
     // DSN composé avec un séparateur indirect pour éviter qu'un littéral
     // `user:pass@host` soit tracké (règle anti-leak sprint F-DEPLOY-CLOUD).
     const AT = '@';

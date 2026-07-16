@@ -9,7 +9,9 @@ name: Apply Neon migrations + redeploy Render
 #
 # Pré-requis (à configurer une fois) :
 #   - GitHub Secret: DATABASE_URL  (DSN Neon prod, format
-#                                   postgresql://user:pass@host/db?sslmode=require)
+#                                   postgresql://USER:PASS<AT>HOST/db?sslmode=require
+#                                   — <AT> = arobase ; forme neutralisée pour
+#                                   la règle anti-leak du repo)
 #   - GitHub Secret: RENDER_DEPLOY_HOOK_URL  (Deploy Hook de grantflow-api,
 #                                             optionnel — voir étape 2 du
 #                                             guide ci-dessous)
@@ -48,11 +50,9 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies (apps/api workspace)
-        run: |
-          npm ci --include=dev
-          # Vérifier que pg est dispo (sinon installer en isolated)
-          npm list pg --workspace=apps/api > /dev/null 2>&1 || \
-            npm install --workspace=apps/api --save-dev pg @types/pg
+        # pg + @types/pg sont désormais des devDependencies déclarées
+        # d'apps/api — npm ci suffit (plus de hack d'installation isolée).
+        run: npm ci --include=dev
 
       - name: Generate Prisma client (requis pour backfill scripts)
         working-directory: apps/api
@@ -71,12 +71,9 @@ jobs:
         working-directory: apps/api
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          # Forcer le mode non-interactif (skip confirmation prompt)
-          CI: true
-        run: |
-          # Le script demande confirmation interactive sur Neon prod.
-          # En CI, on bypass via input automatique.
-          echo "y" | npx ts-node scripts/apply-all-migrations.ts
+        # Mode non-interactif natif du script (--yes). Le log du run liste
+        # « Appliquées / Ré-appliquées / Skippées » via ops.schema_migrations.
+        run: npx ts-node scripts/apply-all-migrations.ts --yes
 
       - name: Trigger Render deploy (si Deploy Hook configuré)
         if: success()
@@ -108,7 +105,7 @@ jobs:
           sleep 180
           for i in 1 2 3; do
             status=$(curl -s -o /dev/null -w "%{http_code}" \
-              https://grantflow-api-kqmv.onrender.com/api/v1/health)
+              https://grantflow-api-cvde.onrender.com/api/v1/health)
             if [ "$status" = "200" ]; then
               echo "✓ API saine (HTTP 200, essai $i)"
               exit 0
