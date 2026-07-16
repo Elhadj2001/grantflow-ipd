@@ -23,7 +23,7 @@
 | `KEYCLOAK_CLIENT_ID` | 🔴 BOOT | `grantflow-api` | à saisir en dur : `grantflow-api` | jwt.strategy.ts:33, keycloak-admin.service.ts:74 |
 | `KEYCLOAK_CLIENT_SECRET` | 🔴 BOOT | `grantflow-api-dev-secret-2026` | **secret** — Keycloak admin → clients → grantflow-api → Credentials | keycloak-admin.service.ts:75 |
 | `DATABASE_URL` | 🔴 BOOT (Prisma) | (composée depuis POSTGRES_*) | **secret** — Neon dashboard → Connection string (pooled) | prisma/schema.prisma:8 |
-| `WEB_ORIGIN` | 🟠 FONCTIONNEL | `http://localhost:3000` (défaut) | **à restaurer** (URL Vercel du front, ex. `https://grantflow-ipd.vercel.app`) — **absent de render.yaml** | main.ts:43 (CORS) |
+| `WEB_ORIGIN` | 🟠 FONCTIONNEL | `http://localhost:3000` (défaut) | **secret/env** (URL Vercel du front) — désormais déclarée `sync:false` dans render.yaml (US-142) | main.ts:43 (CORS) |
 | `KEYCLOAK_CLIENT_SECRET` (Admin REST) | 🔴 (idem ci-dessus) | — | même variable, réutilisée pour l'Admin API | keycloak-admin.service.ts:75 |
 | `NODE_ENV` | 🟢 | `development` | `production` | render.yaml:85 |
 | `API_PORT` / `PORT` | 🟢 | `4000` | `4000` (Render injecte `PORT`) | main.ts:70 |
@@ -55,8 +55,10 @@
 `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`, `DATABASE_URL`.
 
 **1 variable 🟠 FONCTIONNELLE** indispensable au login cross-origin :
-`WEB_ORIGIN` (⚠ absente de `render.yaml` — bien penser à la saisir à la main,
-sinon CORS bloque le front Vercel même si l'API boote).
+`WEB_ORIGIN` (désormais déclarée `sync:false` dans `render.yaml` — US-142 ;
+sa valeur reste à saisir au dashboard, sinon CORS bloque le front Vercel).
+Parité render.yaml ↔ inventaire vérifiable via
+`scripts/check-render-env-parity.sh`.
 
 **Bloc S3_\* volontairement omis** à ce stade (cf. debug R2) → l'API démarre en
 mode `dev-multi-bucket` (endPoint=localhost). Conséquence : **upload PDF de BC

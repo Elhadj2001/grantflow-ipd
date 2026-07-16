@@ -40,6 +40,12 @@ services:
         value: grantflow-api
       - key: KEYCLOAK_CLIENT_SECRET
         sync: false
+      # ----- CORS front (Vercel) — BOOT-FONCTIONNEL --------------
+      # WEB_ORIGIN : origine autorisée par le CORS de l'API (main.ts).
+      # Absente = défaut localhost:3000 → le front Vercel est bloqué même
+      # si l'API boote (US-142). Valeur = URL publique du front Vercel.
+      - key: WEB_ORIGIN
+        sync: false           # ex. https://grantflow-ipd.vercel.app
       # ----- JWT (signature next-auth côté API si réutilisé) -----
       - key: JWT_SECRET
         generateValue: true
@@ -134,6 +140,17 @@ services:
         value: "true"
       - key: KC_HTTP_ENABLED
         value: "true"
+      # KC_HOSTNAME_STRICT=false : autorise Keycloak à dériver l'hôte des
+      # en-têtes proxy (déclaré explicitement en plus du flag CLI
+      # --hostname-strict=false pour l'alignement inventaire, US-142).
+      - key: KC_HOSTNAME_STRICT
+        value: "false"
+      # Reverse-proxy Render (terminaison TLS) : Keycloak doit faire confiance
+      # aux en-têtes X-Forwarded-* pour générer des URLs https correctes.
+      # Keycloak 24 : KC_PROXY est DÉPRÉCIÉ → on utilise KC_PROXY_HEADERS
+      # (forme recommandée). Ne PAS remettre KC_PROXY (warning au boot).
+      - key: KC_PROXY_HEADERS
+        value: xforwarded
       # Render expose le port via $PORT — Keycloak lit KC_HTTP_PORT.
       - key: KC_HTTP_PORT
         value: "8080"
