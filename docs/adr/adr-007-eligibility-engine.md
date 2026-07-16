@@ -118,6 +118,29 @@ toujours des catégories identiques → **jamais bloquante via `submit()`**.
 Couvert par `eligibility-end-to-end.integration.spec.ts` (PPT-4 / PPT-4bis)
 et `eligibility-context-builder.service.spec.ts`.
 
+## Dette PPT-5/PPT-6 — champs non transportés par submit() (OUVERTE, constat US-057)
+
+Les règles `NotPasteurParisReimbursedRule` (PPT-5, US-045) et
+`NoCrossProjectDuplicateRule` (PPT-6, US-046) sont **enregistrées et exécutées**
+par l'`EligibilityEngine` à chaque `submit()` (token `ELIGIBILITY_RULES`).
+Elles lisent toutefois leurs champs source **défensivement** sur `ctx.pr`
+(`pasteurParisReimbursed`, `supplierInvoiceNumber`) et sont **no-op via
+`submit()`** tant que :
+
+1. les colonnes matérialisées par **US-054**
+   (`procurement.purchase_request.pasteur_paris_reimbursed` /
+   `supplier_invoice_number`, DDL + Prisma) ne sont pas fusionnées dans la
+   lignée courante ; et
+2. `runEligibilityGate` (`purchase-request.service.ts`) ne transporte pas ces
+   champs dans l'`EligibilityPrInput` du builder.
+
+**Résolution prévue** : au merge de la stack S6 (US-054 inclus), ajouter le
+transport des 2 champs dans `runEligibilityGate` → bascule automatique
+(PPT-5 = blocage, PPT-6 = warning) sans toucher aux règles. La mécanique
+réelle est déjà **prouvée** par les tests « preuve moteur » actifs
+(`eligibility-end-to-end.integration.spec.ts`, PPT-5/PPT-6) — aucune
+activation artificielle n'a été forcée (US-057).
+
 ## Alternatives considérées
 
 - **Validation éparpillée** (statu quo) — rejetée. Multipliation des règles dans les services, maintenance dégradée, risque d'oubli sur les nouveaux endpoints.
