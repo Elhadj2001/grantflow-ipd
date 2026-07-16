@@ -46,9 +46,10 @@ function pickPrimaryRole(roles: GrantflowRole[]): (typeof ROLE_PRIORITY)[number]
 }
 
 /**
- * Header de l'app authentifiée — fond aqua IPD (#4FC3D9), 56px de haut.
- * Sprint F1.1 : ajout d'un badge rôle principal à côté du nom.
- * Sprint F1.2 : re-charte aqua (pasteur → ipd).
+ * Header de l'app authentifiée — charte 2025 : aminci (48px) et passé au
+ * navy officiel #052A62 (le logo de marque vit désormais dans la sidebar).
+ * Conservé (vs bloc user en bas de sidebar comme la référence) car il porte
+ * le logout fédéré OIDC + le badge rôle, avec la session threadée serveur.
  */
 export function AppHeader({ session }: AppHeaderProps) {
   const fullName = session.fullName || session.user?.email || 'Utilisateur';
@@ -63,25 +64,22 @@ export function AppHeader({ session }: AppHeaderProps) {
   const primaryRole = pickPrimaryRole(session.roles ?? []);
 
   return (
-    <header className="h-14 bg-ipd text-white flex items-center justify-between px-4 shadow-sm">
-      <div className="flex items-center gap-2 font-bold tracking-tight">
-        <span
-          aria-hidden
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-white text-ipd-darker font-bold"
-        >
-          G
+    <header className="flex h-12 items-center justify-between bg-ipd-navy px-4 text-white shadow-douce">
+      <div className="flex items-center gap-2 font-titre font-bold tracking-tight">
+        <span className="text-[15px]">GRANTFLOW</span>
+        <span className="hidden text-[11px] font-normal uppercase tracking-[.14em] text-ipd-nav-muet sm:inline">
+          Procure-to-Account
         </span>
-        <span className="text-base">IPD GRANTFLOW</span>
       </div>
 
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label="Menu utilisateur"
-          className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-ipd-dark/40 focus:outline-none focus:ring-2 focus:ring-white/60"
+          className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/60"
         >
           <span
             aria-hidden
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-ipd-darker text-sm font-semibold"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-ipd-bleu text-sm font-semibold text-white"
           >
             {initials}
           </span>
