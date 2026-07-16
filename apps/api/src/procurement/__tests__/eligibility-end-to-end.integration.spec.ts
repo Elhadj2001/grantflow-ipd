@@ -31,18 +31,17 @@ import { createPrismaMock, type PrismaMock } from '../../test-utils/prisma-mock'
  * preuve cliquable que GRANTFLOW IPD enforce ce qui était impossible à
  * enforce dans le couple Excel + Sage.
  *
- * NOTE matérialisation (US-049) — trois invariants ne peuvent PAS encore se
- * déclencher *via submit()* car le champ source n'est pas matérialisé /
- * transporté :
- *   - PPT-4 (ligne↔nature)   : le builder pose budgetLine.category =
- *     expenseNature.category (proxy documenté US-049) → toujours cohérent.
+ * NOTE matérialisation (US-049) — état Sprint S6 :
+ *   - PPT-4 (ligne↔nature)   : ✅ RÉSOLU (US-055 + US-056) — le builder lit
+ *     ref.budget_line.category en DIRECT (fallback proxy si NULL) → blocage
+ *     réel via submit() (cf. test PPT-4 + PPT-4bis).
  *   - PPT-5 (Pasteur Paris)  : pr.pasteurParisReimbursed non transporté par
- *     runEligibilityGate (lecture défensive US-045).
- *   - PPT-6 (doublon facture): pr.supplierInvoiceNumber idem (US-046).
- * Pour ces trois cas, on (a) documente le no-op courant via submit() et (b)
- * PROUVE la mécanique de blocage/warning en invoquant le VRAI moteur sur un
- * contexte matérialisé. TODO Sprint S6 : matérialiser les champs → bascule
- * automatique en blocage/warning via submit().
+ *     runEligibilityGate (lecture défensive US-045) — TODO US-057.
+ *   - PPT-6 (doublon facture): pr.supplierInvoiceNumber idem (US-046) —
+ *     TODO US-057.
+ * Pour PPT-5/6, on (a) documente le no-op courant via submit() et (b) PROUVE
+ * la mécanique de blocage/warning en invoquant le VRAI moteur sur un
+ * contexte matérialisé.
  */
 describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', () => {
   let service: PurchaseRequestService;
@@ -82,6 +81,11 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
     requestedAt?: string;
     expenseNatureCode?: string;
     natureCategory?: string;
+    /**
+     * US-056 : catégorie portée par ref.budget_line.category (US-055).
+     * null (défaut) = donnée historique → fallback proxy nature (US-049).
+     */
+    budgetLineCategory?: string | null;
     grantStart?: string;
     grantEnd?: string;
     activeNoteTechnique?: boolean;
@@ -162,6 +166,8 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
       id: blId,
       budgetedAmountXof: budgetedXof,
       currency: 'XOF',
+      // US-056 : null (défaut) = ligne historique → fallback proxy nature.
+      category: cfg.budgetLineCategory ?? null,
     } as never);
     prisma.expenseNature.findUnique.mockResolvedValue({
       id: natureId,
@@ -309,23 +315,32 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
       expect(prisma.purchaseRequest.update).not.toHaveBeenCalled();
     });
 
-    it('PPT-4 — « Imputer sur la mauvaise ligne » : preuve moteur (gate dormante via proxy budget_line.category — TODO S6)', async () => {
-      // (a) Via submit() : le builder pose budgetLine.category =
-      //     expenseNature.category (proxy US-049) → toujours cohérent →
-      //     aucune incohérence détectée aujourd'hui. On documente le no-op.
-      const id = configureSubmit({ expenseNatureCode: 'LAB_EQUIPMENT_PCR', natureCategory: 'equipment' });
+    it('PPT-4 — « Imputer sur la mauvaise ligne » : BLOQUE via submit() (US-055+US-056, gate ACTIVÉE)', async () => {
+      // Ligne budgétaire category='equipment' (ref.budget_line.category,
+      // US-055) + nature 'functioning' → lecture DIRECTE par le builder
+      // (US-056) → LineNatureCoherentRule bloque END-TO-END.
+      const id = configureSubmit({
+        expenseNatureCode: 'OFFICE_SUPPLIES',
+        natureCategory: 'functioning',
+        budgetLineCategory: 'equipment',
+      });
+
+      const err = await captureBlock(service.submit(demandeur, id));
+      expect(err.blockedVerdicts.map((v) => v.code)).toContain('ELIG_LINE_NATURE_INCOHERENT');
+      expect(prisma.purchaseRequest.update).not.toHaveBeenCalled();
+    });
+
+    it('PPT-4bis — budget_line.category NULL (donnée historique) : fallback proxy US-049, la DA passe', async () => {
+      // Rétrocompat : ligne pré-US-055 (category NULL) → le builder retombe
+      // sur la catégorie de la nature (toujours cohérente → jamais bloquant),
+      // avec WARN us049_proxy_fallback_used. Comportement identique à avant.
+      const id = configureSubmit({
+        expenseNatureCode: 'LAB_EQUIPMENT_PCR',
+        natureCategory: 'equipment',
+        budgetLineCategory: null,
+      });
       const res = await service.submit(demandeur, id);
       expect(res.pr.status).toBe('pending_pi');
-
-      // (b) Preuve de la mécanique réelle : contexte matérialisé où la ligne
-      //     est 'functioning' et la nature 'equipment' → la VRAIE règle bloque.
-      prisma.fiscalPeriod.findFirst.mockResolvedValue({ id: 'fp-1', code: '2026-06' } as never);
-      const ctx = makeContext();
-      ctx.budgetLine.category = 'functioning';
-      ctx.expenseNature = { id: natureId, code: 'LAB_EQUIPMENT_PCR', category: 'equipment' };
-      const verdict = await engine.validate(ctx);
-      expect(verdict.ok).toBe(false);
-      expect(verdict.blockedVerdicts.map((v) => v.code)).toContain('ELIG_LINE_NATURE_INCOHERENT');
     });
 
     it('PPT-5 — « Imputer une dépense remboursée Pasteur Paris » : preuve moteur (flag non transporté par submit — TODO S6)', async () => {
