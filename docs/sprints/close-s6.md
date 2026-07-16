@@ -66,8 +66,12 @@ matérialisés au croisement des lignées 054 × 055-057, fait au close).
    `supplier_invoice_number` — la gate reste dormante pour les DA qui n'en ont
    pas (story UI/DTO à planifier, avec rôle GO dédié US-058).
 4. **Réserve Docker locale** (cf. Migrations) — à lever au prochain démarrage.
-5. **Résidu NextAuth Vercel** (crash « Configuration ») — traité côté user,
-   hors périmètre API.
+5. ~~**Résidu NextAuth Vercel** (crash « Configuration »)~~ — **RÉSOLU le
+   2026-07-16**. Cause : Keycloak derrière le proxy Render retournait un
+   issuer `http://` (mismatch avec le `KEYCLOAK_ISSUER` https côté Vercel).
+   Fix : `KC_PROXY_HEADERS=xforwarded` + `KC_HOSTNAME_STRICT_HTTPS` sur
+   `grantflow-keycloak`. Login E2E Vercel→Keycloak→app confirmé.
+   Détail : post-mortem `docs/deploy/prod-restoration-2026-07-13.md` (bug 5).
 
 ## Annexe — incident prod 2026-07-13
 

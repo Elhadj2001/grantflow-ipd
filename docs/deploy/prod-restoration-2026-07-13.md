@@ -5,8 +5,9 @@
 > **URL API actuelle** : `https://grantflow-api-cvde.onrender.com` (le suffixe
 > a changé de `kqmv` → `cvde` : le service a été recréé — mettre à jour tout
 > outillage qui code l'URL en dur, dont `scripts/prod-health-check.*`).
-> Résidu hors périmètre : crash NextAuth « Configuration » sur Vercel (traité
-> séparément côté front).
+> **Complément 2026-07-16** : le dernier résidu (crash NextAuth
+> « Configuration » sur Vercel, bug 5 du post-mortem) est **RÉSOLU** —
+> login E2E Vercel→Keycloak→app confirmé. Cascade entièrement soldée.
 
 > Post-mortem + procédure de restauration après ~2 mois d'inactivité.
 > **Actions dashboard (Render / Neon / Vercel / Cloudflare / UptimeRobot) =
@@ -17,15 +18,22 @@
 
 ## 1. Post-mortem (symptômes → cause racine)
 
-| Symptôme | Cause racine |
-|---|---|
-| Render `grantflow-api` : deploy failed (Exited status 1), `TypeError: Configuration key "KEYCLOAK_URL" does not exist` | Variables 🔴 BOOT perdues sur le service → `JwtStrategy` (getOrThrow) crashe au démarrage |
-| `StorageService` boot en `dev-multi-bucket`, endPoint=localhost | Tous les `S3_*` supprimés (debug R2 antérieur) → fallback MinIO |
-| UptimeRobot ne ping plus | Monitors auto-pausés après N échecs consécutifs (service down) |
-| Neon lente / injoignable au 1er accès | Free tier suspendu après inactivité → réveil au 1er `DATABASE_URL` |
+| # | Symptôme | Cause racine | Fix |
+|---|---|---|---|
+| 1 | Render `grantflow-api` : deploy failed (Exited status 1), `TypeError: Configuration key "KEYCLOAK_URL" does not exist` | Variables 🔴 BOOT perdues sur le service → `JwtStrategy` (getOrThrow) crashe au démarrage | Re-saisie des vars (§2) |
+| 2 | `StorageService` boot en `dev-multi-bucket`, endPoint=localhost | Tous les `S3_*` supprimés (debug R2 antérieur) → fallback MinIO | Différé (§5, upload BC KO assumé) |
+| 3 | UptimeRobot ne ping plus | Monitors auto-pausés après N échecs consécutifs (service down) | Resume + URLs mises à jour (§4) |
+| 4 | Neon lente / injoignable au 1er accès | Free tier suspendu après inactivité → réveil au 1er `DATABASE_URL` | `SELECT 1;` + rotation password |
+| 5 | Vercel : crash NextAuth « Configuration » au login (**résolu 2026-07-16**) | Keycloak derrière le proxy Render (terminaison TLS) générait un **issuer `http://`** dans son discovery OIDC → mismatch strict avec le `KEYCLOAK_ISSUER` `https://` configuré côté Vercel → NextAuth refuse la configuration | `KC_PROXY_HEADERS=xforwarded` (déclaré dans render.yaml depuis US-142) + `KC_HOSTNAME_STRICT_HTTPS` sur `grantflow-keycloak` → issuer https cohérent. Login E2E Vercel→Keycloak→app confirmé |
 
 **Cause première** : perte des variables d'environnement 🔴 BOOT sur
-`grantflow-api` (KEYCLOAK_*, DATABASE_URL) + 🟠 `WEB_ORIGIN`.
+`grantflow-api` (KEYCLOAK_*, DATABASE_URL) + 🟠 `WEB_ORIGIN` ; aggravée par la
+recréation du service Keycloak **sans** les réglages proxy (bug 5 — l'issuer
+OIDC dépend des en-têtes `X-Forwarded-*`, invisibles tant qu'on ne teste pas
+le login de bout en bout).
+
+> 💡 `KC_HOSTNAME_STRICT_HTTPS` a été posé au dashboard : penser à le déclarer
+> aussi dans `render.yaml` au prochain passage sur US-142+ (parité Blueprint).
 
 **Prévention future** : `render.yaml` (Blueprint) redéclare les clés, mais les
 valeurs `sync:false` doivent être re-saisies au dashboard. Envisager un
