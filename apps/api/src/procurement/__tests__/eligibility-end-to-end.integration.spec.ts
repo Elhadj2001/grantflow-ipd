@@ -554,9 +554,89 @@ describe('EligibilityEngine integration — PPT IPD slide 7 coverage (US-050)', 
 
       expect(ctx.activeNoteTechnique).toBeNull();
       expect(ctx.pr.totalAmountXof).toBe(100_000); // converti XOF (identité)
-      // Proxy documenté US-049 : budgetLine.category = expenseNature.category.
+      // US-056 : mock sans `category` → fallback proxy nature (rétrocompat).
       expect(ctx.budgetLine.category).toBe('functioning');
       expect(ctx.expenseNature.category).toBe('functioning');
+    });
+  });
+
+  // ====================================================================
+  // US-057 — Synthèse « parcours DA complet » : une DA conforme passe
+  // TOUTES les règles PPT actives via submit() ; une DA violant chaque
+  // règle ACTIVE est rejetée avec le bon code. PPT-5/6 sont exclues du
+  // tableau : règles exécutées par l'engine mais no-op via submit()
+  // (champs non transportés — cf. ADR-007 § Dette PPT-5/6).
+  // ====================================================================
+  describe('US-057 — synthèse parcours DA (règles PPT actives via submit)', () => {
+    it('DA conforme → passe toutes les règles actives (pending_pi, 0 warning)', async () => {
+      const id = configureSubmit({
+        expenseNatureCode: 'OFFICE_SUPPLIES',
+        natureCategory: 'functioning',
+        budgetLineCategory: 'functioning', // lecture directe US-056, cohérente
+        requestedAt: '2026-06-15',
+        eligibilityRules: [
+          { expenseNatureId: natureId, maxPerRequestXof: 1_000_000n, maxPerYearXof: null, excluded: false },
+        ],
+      });
+      const res = await service.submit(demandeur, id);
+      expect(res.pr.status).toBe('pending_pi');
+      expect(res.warnings).toEqual([]);
+    });
+
+    const VIOLATIONS: Array<{ ppt: string; expectedCode: string; cfg: SubmitCfg }> = [
+      {
+        ppt: 'PPT-1 nature exclue',
+        expectedCode: 'ELIG_NATURE_NOT_ALLOWED',
+        cfg: {
+          expenseNatureCode: 'PERSONNEL_INTERNATIONAL',
+          natureCategory: 'personnel',
+          eligibilityRules: [
+            { expenseNatureId: natureId, maxPerRequestXof: null, maxPerYearXof: null, excluded: true },
+          ],
+        },
+      },
+      {
+        ppt: 'PPT-2 hors fenêtre convention',
+        expectedCode: 'ELIG_DATE_OUT_OF_WINDOW',
+        cfg: { requestedAt: '2025-12-31', grantStart: '2026-01-01', grantEnd: '2026-12-31' },
+      },
+      {
+        ppt: 'PPT-3 plafond par requête dépassé',
+        expectedCode: 'ELIG_LINE_BUDGET_EXCEEDED',
+        cfg: {
+          totalAmount: 5_000_000,
+          lineTotal: 5_000_000,
+          eligibilityRules: [
+            { expenseNatureId: natureId, maxPerRequestXof: 1_000_000n, maxPerYearXof: null, excluded: false },
+          ],
+        },
+      },
+      {
+        ppt: 'PPT-4 ligne↔nature incohérentes (US-056)',
+        expectedCode: 'ELIG_LINE_NATURE_INCOHERENT',
+        cfg: {
+          expenseNatureCode: 'OFFICE_SUPPLIES',
+          natureCategory: 'functioning',
+          budgetLineCategory: 'equipment',
+        },
+      },
+      {
+        ppt: 'PPT-7 période fiscale close',
+        expectedCode: 'ELIG_PERIOD_CLOSED',
+        cfg: {
+          requestedAt: '2025-12-15',
+          grantStart: '2025-01-01',
+          grantEnd: '2026-12-31',
+          periodOpen: false,
+        },
+      },
+    ];
+
+    it.each(VIOLATIONS)('$ppt → rejet $expectedCode, DA non persistée', async ({ expectedCode, cfg }) => {
+      const id = configureSubmit(cfg);
+      const err = await captureBlock(service.submit(demandeur, id));
+      expect(err.blockedVerdicts.map((v) => v.code)).toContain(expectedCode);
+      expect(prisma.purchaseRequest.update).not.toHaveBeenCalled();
     });
   });
 });
