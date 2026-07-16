@@ -4,6 +4,7 @@ import {
   EntityNotFoundException,
   NoteTechniqueInvalidTransitionException,
   NoteTechniqueRejectionReasonRequiredException,
+  SegregationOfDutiesException,
 } from '../../common/exceptions/business.exception';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import type { CreateNoteTechniqueDto } from './dto/create-note-technique.dto';
@@ -29,6 +30,9 @@ const NT_STATUS = {
 
 /** Longueur minimale d'un motif de rejet DAF (traçabilité de la correction). */
 const MIN_REJECTION_REASON_LENGTH = 20;
+
+/** Longueur minimale d'un motif de break-glass SoD SUPER_ADMIN (ADR-009). */
+const SOD_BYPASS_MIN_REASON_LENGTH = 20;
 
 /**
  * CRUD basique des Notes Techniques (ADR-006). SCAFFOLDING US-033 :
@@ -166,11 +170,28 @@ export class NoteTechniqueService {
    * DAF valide la Note Technique : `pending_daf → validated_daf`.
    * Pose `validated_by_daf_user_id` + `validated_at`.
    */
-  async validateAsDaf(id: string, actor: AuthenticatedUser) {
+  /**
+   * DAF valide la Note Technique : `pending_daf → validated_daf`.
+   *
+   * US-053 (ADR-009, règle d'or n°6) — séparation des tâches : le rédacteur
+   * (`drafted_by_user_id`) ne peut pas valider. Dérogations légitimes :
+   *  - convention `single_actor_authorized = true` (DDL US-030) ;
+   *  - break-glass SUPER_ADMIN via `bypassReason` (≥ 20 car.), journalisé.
+   *
+   * @param bypassReason motif optionnel de dérogation SUPER_ADMIN (header
+   *   `X-Bypass-SoD-Reason`).
+   */
+  async validateAsDaf(id: string, actor: AuthenticatedUser, bypassReason?: string) {
     const existing = await this.requireNote(id);
     this.assertStatus(existing, NT_STATUS.PENDING_DAF, NT_STATUS.VALIDATED_DAF);
 
+    // `drafted_by_user_id` stocke un AppUser.id (cf. create()), pas le sub
+    // Keycloak (`actor.id`). On résout l'identité métier de l'acteur UNE fois
+    // et on l'utilise à la fois pour le contrôle SoD (AppUser.id vs AppUser.id,
+    // sinon faux négatif — drift AppUser.id ≠ Keycloak.sub) ET pour l'écriture.
     const validatedByDafUserId = await this.resolveAppUserId(actor);
+    this.assertSegregationOfDuties(existing, actor, validatedByDafUserId, bypassReason);
+
     const nt = await this.prisma.noteTechnique.update({
       where: { id },
       data: {
@@ -281,6 +302,48 @@ export class NoteTechniqueService {
     if (nt.status !== expected) {
       throw new NoteTechniqueInvalidTransitionException(nt.id, nt.status, target);
     }
+  }
+
+  /**
+   * US-053 — garde de séparation des tâches (ADR-009) : le rédacteur d'une NT
+   * ne peut pas la valider. Lève `SegregationOfDutiesException` (403) sauf
+   * dérogation légitime (convention `single_actor_authorized` ou break-glass
+   * SUPER_ADMIN avec motif ≥ 20 caractères, journalisé `event=sod_bypass`).
+   *
+   * @param actorAppUserId AppUser.id résolu de l'acteur (à comparer au
+   *   rédacteur `drafted_by_user_id`, lui aussi un AppUser.id).
+   */
+  private assertSegregationOfDuties(
+    nt: { id: string; draftedByUserId: string | null; singleActorAuthorized: boolean },
+    actor: AuthenticatedUser,
+    actorAppUserId: string | null,
+    bypassReason?: string,
+  ): void {
+    const draftedBy = nt.draftedByUserId;
+    // Pas de conflit si rédacteur inconnu ou distinct de l'acteur.
+    if (!draftedBy || draftedBy !== actorAppUserId) return;
+
+    // Dérogation 1 — la convention autorise un acteur unique (DDL US-030).
+    if (nt.singleActorAuthorized) return;
+
+    // Dérogation 2 — break-glass SUPER_ADMIN avec motif suffisant.
+    const isSuperAdmin = actor.roles.includes('SUPER_ADMIN');
+    if (isSuperAdmin && bypassReason && bypassReason.trim().length >= SOD_BYPASS_MIN_REASON_LENGTH) {
+      this.logger.warn(
+        {
+          event: 'sod_bypass',
+          operation: 'note_technique_validate',
+          noteId: nt.id,
+          actorId: actor.id,
+          creatorId: draftedBy,
+          bypassReason: bypassReason.trim(),
+        },
+        `SoD bypass on Note Technique validate by SUPER_ADMIN ${actor.id}`,
+      );
+      return;
+    }
+
+    throw new SegregationOfDutiesException('valider', actor.id, draftedBy, isSuperAdmin);
   }
 
   /** Journalise une transition de workflow (Pino structuré). */

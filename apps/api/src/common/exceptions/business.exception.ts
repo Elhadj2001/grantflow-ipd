@@ -2088,3 +2088,30 @@ export class NoteTechniqueRejectionReasonRequiredException extends BusinessExcep
     );
   }
 }
+
+/**
+ * US-053 (ADR-009, règle d'or n°6) — séparation des tâches enforced par
+ * identité : le créateur d'une opération ne peut pas la valider. 403.
+ *
+ * Dérogations légitimes (ne lèvent PAS cette exception) :
+ *  - convention `single_actor_authorized = true` sur la Note Technique ;
+ *  - break-glass SUPER_ADMIN via header `X-Bypass-SoD-Reason` (motif ≥ 20 car.),
+ *    journalisé `event=sod_bypass`.
+ */
+export class SegregationOfDutiesException extends BusinessException {
+  constructor(
+    public readonly operation: string,
+    public readonly actorId: string,
+    public readonly creatorId: string,
+    public readonly bypassAvailable = false,
+  ) {
+    super(
+      ErrorCode.BUSINESS.SEGREGATION_OF_DUTIES_VIOLATION,
+      HttpStatus.FORBIDDEN,
+      `L'utilisateur ${actorId} ne peut pas ${operation} une opération qu'il a lui-même initiée ` +
+        `(créateur: ${creatorId}).` +
+        (bypassAvailable ? ' SUPER_ADMIN peut bypasser via X-Bypass-SoD-Reason.' : ''),
+      { operation, actorId, creatorId, bypassAvailable },
+    );
+  }
+}

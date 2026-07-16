@@ -56,13 +56,24 @@ describe('NoteTechniqueController — transitions REST (US-052)', () => {
     expect((err as NoteTechniqueInvalidTransitionException).getStatus()).toBe(409);
   });
 
-  it('Test 3 — POST :id/validate délègue à validateAsDaf et relaie le retour', async () => {
+  it('Test 3 — POST :id/validate délègue à validateAsDaf (sans header → bypass undefined)', async () => {
     const nt = { id: 'nt-1', status: 'validated_daf' };
     service.validateAsDaf.mockResolvedValue(nt as never);
 
     const res = await ctrl.validateAsDaf('nt-1', ACTOR);
 
-    expect(service.validateAsDaf).toHaveBeenCalledWith('nt-1', ACTOR);
+    expect(service.validateAsDaf).toHaveBeenCalledWith('nt-1', ACTOR, undefined);
+    expect(res).toBe(nt);
+  });
+
+  it('Test 8 — POST :id/validate propage le header X-Bypass-SoD-Reason (US-053)', async () => {
+    const nt = { id: 'nt-1', status: 'validated_daf' };
+    service.validateAsDaf.mockResolvedValue(nt as never);
+    const bypass = 'Break-glass : clôture bailleur urgente, unique valideur disponible.';
+
+    const res = await ctrl.validateAsDaf('nt-1', ACTOR, bypass);
+
+    expect(service.validateAsDaf).toHaveBeenCalledWith('nt-1', ACTOR, bypass);
     expect(res).toBe(nt);
   });
 

@@ -6,6 +6,7 @@ import {
   EntityNotFoundException,
   NoteTechniqueInvalidTransitionException,
   NoteTechniqueRejectionReasonRequiredException,
+  SegregationOfDutiesException,
 } from '../../common/exceptions/business.exception';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import type { CreateNoteTechniqueDto } from './dto/create-note-technique.dto';
@@ -286,5 +287,96 @@ describe('NoteTechniqueService — transitions workflow (US-051)', () => {
     expect(payload.to).toBe('pending_daf');
     expect(payload.actorId).toBe('u1');
     logSpy.mockRestore();
+  });
+});
+
+/**
+ * US-053 — Séparation des tâches sur validateAsDaf (ADR-009, règle d'or n°6).
+ * Le rédacteur (drafted_by_user_id, un AppUser.id) ne peut pas valider :
+ * on compare l'AppUser.id résolu de l'acteur au rédacteur. Dérogations :
+ * convention single_actor_authorized OU break-glass SUPER_ADMIN (motif ≥ 20).
+ */
+describe('NoteTechniqueService.validateAsDaf — Segregation of Duties (US-053)', () => {
+  let prisma: PrismaMock;
+  let svc: NoteTechniqueService;
+
+  const SUPER_ADMIN: AuthenticatedUser = {
+    id: 'sa-sub',
+    email: 'sa@ipd.sn',
+    fullName: 'Super Admin',
+    roles: ['SUPER_ADMIN'],
+  };
+  const VALID_BYPASS = 'Break-glass : clôture bailleur urgente, unique valideur disponible ce jour.';
+
+  beforeEach(() => {
+    prisma = createPrismaMock();
+    svc = new NoteTechniqueService(prisma as unknown as PrismaService);
+  });
+
+  it('SoD-1 — valideur ≠ rédacteur → OK (cas nominal)', async () => {
+    prisma.noteTechnique.findFirst.mockResolvedValue(
+      ntRow({ status: 'pending_daf', draftedByUserId: 'go-app-id' }) as never,
+    );
+    prisma.appUser.findUnique.mockResolvedValue({ id: 'daf-app-id' } as never); // acteur ≠ rédacteur
+    prisma.noteTechnique.update.mockResolvedValue(ntRow({ status: 'validated_daf' }) as never);
+
+    const res = await svc.validateAsDaf('nt-1', actor);
+
+    expect(res.status).toBe('validated_daf');
+    expect(prisma.noteTechnique.update).toHaveBeenCalled();
+  });
+
+  it('SoD-2 — rédacteur valide lui-même, sans dérogation → SegregationOfDutiesException', async () => {
+    prisma.noteTechnique.findFirst.mockResolvedValue(
+      ntRow({ status: 'pending_daf', draftedByUserId: 'same-app-id', singleActorAuthorized: false }) as never,
+    );
+    prisma.appUser.findUnique.mockResolvedValue({ id: 'same-app-id' } as never); // acteur = rédacteur
+
+    await expect(svc.validateAsDaf('nt-1', actor)).rejects.toBeInstanceOf(SegregationOfDutiesException);
+    expect(prisma.noteTechnique.update).not.toHaveBeenCalled();
+  });
+
+  it('SoD-3 — rédacteur valide lui-même MAIS single_actor_authorized=true → OK', async () => {
+    prisma.noteTechnique.findFirst.mockResolvedValue(
+      ntRow({ status: 'pending_daf', draftedByUserId: 'same-app-id', singleActorAuthorized: true }) as never,
+    );
+    prisma.appUser.findUnique.mockResolvedValue({ id: 'same-app-id' } as never);
+    prisma.noteTechnique.update.mockResolvedValue(ntRow({ status: 'validated_daf' }) as never);
+
+    const res = await svc.validateAsDaf('nt-1', actor);
+
+    expect(res.status).toBe('validated_daf');
+  });
+
+  it("SoD-4 — rédacteur SUPER_ADMIN avec bypass valide → OK + log warn 'sod_bypass'", async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    prisma.noteTechnique.findFirst.mockResolvedValue(
+      ntRow({ status: 'pending_daf', draftedByUserId: 'sa-app-id', singleActorAuthorized: false }) as never,
+    );
+    prisma.appUser.findUnique.mockResolvedValue({ id: 'sa-app-id' } as never); // acteur = rédacteur
+    prisma.noteTechnique.update.mockResolvedValue(ntRow({ status: 'validated_daf' }) as never);
+
+    const res = await svc.validateAsDaf('nt-1', SUPER_ADMIN, VALID_BYPASS);
+
+    expect(res.status).toBe('validated_daf');
+    const payload = warnSpy.mock.calls.find(
+      (c) => (c[0] as { event?: string })?.event === 'sod_bypass',
+    )?.[0] as { operation?: string; bypassReason?: string; actorId?: string };
+    expect(payload).toBeDefined();
+    expect(payload.operation).toBe('note_technique_validate');
+    expect(payload.bypassReason).toBe(VALID_BYPASS);
+    warnSpy.mockRestore();
+  });
+
+  it('SoD-5 — rédacteur SUPER_ADMIN avec bypass < 20 chars → SegregationOfDutiesException', async () => {
+    prisma.noteTechnique.findFirst.mockResolvedValue(
+      ntRow({ status: 'pending_daf', draftedByUserId: 'sa-app-id', singleActorAuthorized: false }) as never,
+    );
+    prisma.appUser.findUnique.mockResolvedValue({ id: 'sa-app-id' } as never);
+
+    await expect(svc.validateAsDaf('nt-1', SUPER_ADMIN, 'trop court')).rejects.toBeInstanceOf(
+      SegregationOfDutiesException,
+    );
+    expect(prisma.noteTechnique.update).not.toHaveBeenCalled();
   });
 });

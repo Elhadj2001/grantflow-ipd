@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -9,7 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
@@ -86,13 +87,25 @@ export class NoteTechniqueController {
   @HttpCode(200)
   @Roles('DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Valider la Note Technique (pending_daf → validated_daf).' })
+  @ApiHeader({
+    name: 'X-Bypass-SoD-Reason',
+    required: false,
+    description:
+      'Break-glass SUPER_ADMIN (ADR-009) : motif ≥ 20 caractères pour valider une NT ' +
+      'que l’on a soi-même rédigée. Journalisé event=sod_bypass.',
+  })
   @ApiResponse({ status: 200, description: 'NT validée par le DAF.' })
+  @ApiResponse({
+    status: 403,
+    description: 'Séparation des tâches : le rédacteur ne peut pas valider (ADR-009).',
+  })
   @ApiResponse({ status: 409, description: 'Transition impossible depuis le statut actuel.' })
   validateAsDaf(
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Headers('x-bypass-sod-reason') bypassReason?: string,
   ) {
-    return this.service.validateAsDaf(id, user);
+    return this.service.validateAsDaf(id, user, bypassReason);
   }
 
   @Post(':id/reject')
