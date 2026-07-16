@@ -15,7 +15,7 @@
 #>
 $ErrorActionPreference = 'SilentlyContinue'
 
-$ApiUrl   = if ($env:API_URL) { $env:API_URL } else { 'https://grantflow-api-kqmv.onrender.com' }
+$ApiUrl   = if ($env:API_URL) { $env:API_URL } else { 'https://grantflow-api-cvde.onrender.com' }
 $KcUrl    = $env:KC_URL
 $KcRealm  = if ($env:KC_REALM) { $env:KC_REALM } else { 'grantflow' }
 $KcClient = if ($env:KC_CLIENT_ID) { $env:KC_CLIENT_ID } else { 'grantflow-api' }

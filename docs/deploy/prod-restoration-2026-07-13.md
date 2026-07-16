@@ -1,5 +1,13 @@
 # Restauration prod GRANTFLOW IPD — 2026-07-13
 
+> **RÉSOLU le 2026-07-13** : prod restaurée E2E (grantflow-api Live +
+> grantflow-keycloak Live + UptimeRobot 100 % + rotation password Neon).
+> **URL API actuelle** : `https://grantflow-api-cvde.onrender.com` (le suffixe
+> a changé de `kqmv` → `cvde` : le service a été recréé — mettre à jour tout
+> outillage qui code l'URL en dur, dont `scripts/prod-health-check.*`).
+> Résidu hors périmètre : crash NextAuth « Configuration » sur Vercel (traité
+> séparément côté front).
+
 > Post-mortem + procédure de restauration après ~2 mois d'inactivité.
 > **Actions dashboard (Render / Neon / Vercel / Cloudflare / UptimeRobot) =
 > manuelles (user).** Claude Code fournit les valeurs exactes ; il n'a pas
