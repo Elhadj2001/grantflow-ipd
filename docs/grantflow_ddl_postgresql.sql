@@ -1889,3 +1889,39 @@ COMMENT ON INDEX grant_office.uq_note_technique_active_per_grant IS
   'Garantit qu''au plus une Note Technique est en status = ''active'' par
    convention à un instant donné. Les autres status (draft, pending_daf,
    validated_daf, superseded) ne sont pas concernés (cf. ADR-006).';
+
+-- =========================================================================
+-- Sprint S6 / US-054 — purchase_request champs matérialisés pour PPT-5/6
+-- =========================================================================
+-- Matérialise sur procurement.purchase_request les champs nécessaires aux
+-- invariants PPT IPD slide 7 restés dormants après US-049/US-050 :
+--   - expense_nature_code      : active la gate d'éligibilité au submit
+--                                (US-049 lit ce champ défensivement) ;
+--   - pasteur_paris_reimbursed : PPT-5, NotPasteurParisReimbursedRule (US-045) ;
+--   - supplier_invoice_number  : PPT-6, NoCrossProjectDuplicateRule (US-046).
+-- Rétrocompatible : colonnes NULLABLE ou DEFAULT — aucune ligne existante
+-- n'est impactée. PAS de FK stricte sur expense_nature_code : lien LOGIQUE
+-- vers grant_office.expense_nature.code, validé applicativement par
+-- l'EligibilityEngine (ADR-007) — flexibilité catalogue assumée.
+
+ALTER TABLE procurement.purchase_request
+  ADD COLUMN IF NOT EXISTS expense_nature_code VARCHAR(64);
+ALTER TABLE procurement.purchase_request
+  ADD COLUMN IF NOT EXISTS pasteur_paris_reimbursed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE procurement.purchase_request
+  ADD COLUMN IF NOT EXISTS supplier_invoice_number VARCHAR(128);
+
+COMMENT ON COLUMN procurement.purchase_request.expense_nature_code IS
+  'Code de la nature de dépense (référence logique grant_office.expense_nature.code). NULL = nature non spécifiée (compat héritage).';
+COMMENT ON COLUMN procurement.purchase_request.pasteur_paris_reimbursed IS
+  'TRUE si la dépense est déjà remboursée par Institut Pasteur Paris (PPT slide 7 — exclusion). EligibilityRule NotPasteurParisReimbursedRule (US-045).';
+COMMENT ON COLUMN procurement.purchase_request.supplier_invoice_number IS
+  'Numéro de facture fournisseur associé (pour détection PPT-6 cross-project duplicate, US-046).';
+
+CREATE INDEX IF NOT EXISTS idx_pr_supplier_invoice_number
+  ON procurement.purchase_request(supplier_invoice_number)
+  WHERE supplier_invoice_number IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_pr_pasteur_paris_reimbursed
+  ON procurement.purchase_request(pasteur_paris_reimbursed)
+  WHERE pasteur_paris_reimbursed = TRUE;
