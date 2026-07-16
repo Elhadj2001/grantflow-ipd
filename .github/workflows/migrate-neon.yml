@@ -105,7 +105,7 @@ jobs:
           sleep 180
           for i in 1 2 3; do
             status=$(curl -s -o /dev/null -w "%{http_code}" \
-              https://grantflow-api-cvde.onrender.com/api/v1/health)
+              https://grantflow-api-udmd.onrender.com/api/v1/health)
             if [ "$status" = "200" ]; then
               echo "✓ API saine (HTTP 200, essai $i)"
               exit 0

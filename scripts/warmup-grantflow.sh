@@ -22,7 +22,7 @@ set -euo pipefail
 
 # ----- URLs (surchargables par variables d'env — migration de région :
 #        API_HEALTH_URL=https://... ./scripts/warmup-grantflow.sh) -----
-API_HEALTH_URL="${API_HEALTH_URL:-https://grantflow-api-cvde.onrender.com/api/v1/health}"
+API_HEALTH_URL="${API_HEALTH_URL:-https://grantflow-api-udmd.onrender.com/api/v1/health}"
 KEYCLOAK_HEALTH_URL="${KEYCLOAK_HEALTH_URL:-https://grantflow-keycloak.onrender.com/health/ready}"
 WEB_URL="${WEB_URL:-https://grantflow-ipd-web.vercel.app}"
 

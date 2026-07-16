@@ -2,9 +2,11 @@
 
 > **RÉSOLU le 2026-07-13** : prod restaurée E2E (grantflow-api Live +
 > grantflow-keycloak Live + UptimeRobot 100 % + rotation password Neon).
-> **URL API actuelle** : `https://grantflow-api-cvde.onrender.com` (le suffixe
-> a changé de `kqmv` → `cvde` : le service a été recréé — mettre à jour tout
-> outillage qui code l'URL en dur, dont `scripts/prod-health-check.*`).
+> **URL API actuelle** : `https://grantflow-api-udmd.onrender.com` (Frankfurt,
+> migration 2026-07 — historique des suffixes : `kqmv` → `cvde` → `udmd`).
+> Keycloak : `https://grantflow-keycloak.onrender.com` (nom libéré, sans
+> suffixe). Mettre à jour tout outillage qui code l'URL en dur — les scripts
+> `prod-health-check.*` / `warmup-*` acceptent des overrides par env.
 > **Complément 2026-07-16** : le dernier résidu (crash NextAuth
 > « Configuration » sur Vercel, bug 5 du post-mortem) est **RÉSOLU** —
 > login E2E Vercel→Keycloak→app confirmé. Cascade entièrement soldée.

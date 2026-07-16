@@ -17,7 +17,7 @@
 # ----- URLs (surchargables par variables d'environnement) -----
 # Migration de region Render : passer les nouvelles URLs SANS editer ce
 # fichier :  $env:API_HEALTH_URL="https://..." ; .\scripts\warmup-grantflow.ps1
-$ApiHealthUrl      = if ($env:API_HEALTH_URL)      { $env:API_HEALTH_URL }      else { "https://grantflow-api-cvde.onrender.com/api/v1/health" }
+$ApiHealthUrl      = if ($env:API_HEALTH_URL)      { $env:API_HEALTH_URL }      else { "https://grantflow-api-udmd.onrender.com/api/v1/health" }
 $KeycloakHealthUrl = if ($env:KEYCLOAK_HEALTH_URL) { $env:KEYCLOAK_HEALTH_URL } else { "https://grantflow-keycloak.onrender.com/health/ready" }
 $WebUrl            = if ($env:WEB_URL)             { $env:WEB_URL }             else { "https://grantflow-ipd-web.vercel.app" }
 

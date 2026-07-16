@@ -18,7 +18,7 @@
 # =====================================================================
 set -u
 
-API_URL="${API_URL:-https://grantflow-api-cvde.onrender.com}"
+API_URL="${API_URL:-https://grantflow-api-udmd.onrender.com}"
 KC_URL="${KC_URL:-}"
 KC_REALM="${KC_REALM:-grantflow}"
 KC_CLIENT_ID="${KC_CLIENT_ID:-grantflow-api}"
