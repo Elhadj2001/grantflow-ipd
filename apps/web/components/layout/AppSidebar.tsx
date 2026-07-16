@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -8,6 +9,8 @@ import {
   Building2,
   Calculator,
   CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
   FileBarChart,
   FolderKanban,
   HandCoins,
@@ -48,212 +51,299 @@ interface SidebarNavItem extends NavItem {
   visible?: (perms: ReturnType<typeof usePermissions>) => boolean;
 }
 
-const NAV: SidebarNavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+interface NavGroup {
+  /** Titre du groupe (null = pas de titre, ex. Dashboard seul en tête). */
+  titre: string | null;
+  items: SidebarNavItem[];
+}
+
+/**
+ * Navigation GRANTFLOW inchangée (mêmes hrefs, matchPrefixes et gating par
+ * rôle qu'avant la refonte) — simplement GROUPÉE façon charte 2025.
+ */
+const GROUPES: NavGroup[] = [
   {
-    href: '/procurement/purchase-requests',
-    label: 'Achats',
-    icon: ShoppingCart,
-    // Sprint F-DASHBOARD : matchPrefix resserré aux vraies sous-pages d'Achats
-    // (DA / BC / GR). Avant, `/procurement` couvrait aussi reception-rapide et
-    // inventaire-scan qui sont maintenant des items distincts ci-dessous.
-    matchPrefixes: [
-      '/procurement/purchase-requests',
-      '/procurement/purchase-orders',
-      '/procurement/goods-receipts',
+    titre: null,
+    items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }],
+  },
+  {
+    titre: 'Opérations',
+    items: [
+      {
+        href: '/procurement/purchase-requests',
+        label: 'Achats',
+        icon: ShoppingCart,
+        // Sprint F-DASHBOARD : matchPrefix resserré aux vraies sous-pages
+        // d'Achats (DA / BC / GR).
+        matchPrefixes: [
+          '/procurement/purchase-requests',
+          '/procurement/purchase-orders',
+          '/procurement/goods-receipts',
+        ],
+      },
+      {
+        // Workflow Réception (tablette/mobile) — MAGASINIER / SUPER_ADMIN.
+        href: '/procurement/reception-rapide',
+        label: 'Réception',
+        icon: Truck,
+        matchPrefix: '/procurement/reception-rapide',
+        visible: (p) => p.canReceive(),
+      },
+      {
+        // Scan d'inventaire — même gating que Réception.
+        href: '/procurement/inventaire-scan',
+        label: 'Inventaire / Scan',
+        icon: Package,
+        matchPrefix: '/procurement/inventaire-scan',
+        visible: (p) => p.canReceive(),
+      },
     ],
   },
   {
-    // Sprint F-DASHBOARD : expose le workflow Réception (tablette/mobile)
-    // construit dans F-PROCUREMENT mais jusqu'ici non relié au menu principal.
-    // Visible uniquement MAGASINIER / SUPER_ADMIN (canReceive).
-    href: '/procurement/reception-rapide',
-    label: 'Réception',
-    icon: Truck,
-    matchPrefix: '/procurement/reception-rapide',
-    visible: (p) => p.canReceive(),
+    titre: 'Finance',
+    items: [
+      {
+        href: '/accounting/invoices',
+        label: 'Comptabilité',
+        icon: Calculator,
+        matchPrefix: '/accounting/invoices',
+      },
+      {
+        // Sprint F5b-b : clôture mensuelle — rôles finance internes.
+        href: '/accounting/periods',
+        label: 'Clôture',
+        icon: CalendarCheck,
+        matchPrefix: '/accounting/periods',
+        visible: (p) => p.canViewClosure(),
+      },
+      {
+        href: '/treasury/payment-runs',
+        label: 'Trésorerie',
+        icon: Wallet,
+        matchPrefix: '/treasury',
+      },
+    ],
   },
   {
-    // Page liée à la Réception : scan d'inventaire (consultation / mouvements
-    // stock). Même rôle gating que Réception — un magasinier qui réceptionne
-    // doit pouvoir scanner l'inventaire.
-    href: '/procurement/inventaire-scan',
-    label: 'Inventaire / Scan',
-    icon: Package,
-    matchPrefix: '/procurement/inventaire-scan',
-    visible: (p) => p.canReceive(),
+    titre: 'Pilotage & reporting',
+    items: [
+      {
+        // Sprint F-PILOTAGE — CG/DAF/SA (portefeuille) et PI (Mes Projets).
+        href: '/pilotage',
+        label: 'Pilotage',
+        icon: Target,
+        matchPrefix: '/pilotage',
+        visible: (p) => p.canViewGrantPortfolio() || p.canViewMyProjects(),
+      },
+      {
+        // Reporting bailleur (F5a) — templates + donor-reports.
+        href: '/reporting',
+        label: 'Reporting',
+        icon: FileBarChart,
+        matchPrefixes: ['/reporting/templates', '/reporting/donor-reports'],
+        visible: (p) => p.canViewReporting(),
+      },
+      {
+        // États financiers SYSCEBNL (F5b-b).
+        href: '/reporting/statements',
+        label: 'États financiers',
+        icon: BookOpenCheck,
+        matchPrefix: '/reporting/statements',
+        visible: (p) => p.canViewReporting() || p.canCreateStatement(),
+      },
+    ],
   },
   {
-    href: '/accounting/invoices',
-    label: 'Comptabilité',
-    icon: Calculator,
-    // Matche /accounting/invoices/* — la sous-section clôture a son propre item.
-    matchPrefix: '/accounting/invoices',
+    titre: 'Référentiels',
+    items: [
+      {
+        href: '/referential/suppliers',
+        label: 'Fournisseurs',
+        icon: Building2,
+        matchPrefix: '/referential/suppliers',
+        visible: (p) => p.canManageSuppliers(),
+      },
+      {
+        href: '/referential/donors',
+        label: 'Bailleurs',
+        icon: HandCoins,
+        matchPrefix: '/referential/donors',
+        visible: (p) => p.canManageDonors(),
+      },
+      {
+        href: '/referential/projects',
+        label: 'Projets',
+        icon: FolderKanban,
+        matchPrefix: '/referential/projects',
+        visible: (p) => p.canManageProjects(),
+      },
+    ],
   },
   {
-    // Sprint F5b-b : clôture mensuelle — workflow périodes / FNP / CCA-PCA / fonds dédiés.
-    // Réservé rôles finance internes (canViewClosure). Le BAILLEUR ne voit pas
-    // cette entrée — workflow purement interne.
-    href: '/accounting/periods',
-    label: 'Clôture',
-    icon: CalendarCheck,
-    matchPrefix: '/accounting/periods',
-    visible: (p) => p.canViewClosure(),
-  },
-  {
-    href: '/treasury/payment-runs',
-    label: 'Trésorerie',
-    icon: Wallet,
-    matchPrefix: '/treasury',
-  },
-  {
-    // Pilotage : sprint F-PILOTAGE — visible pour CG/DAF/SUPER_ADMIN
-    // (portefeuille) et PI (Mes Projets). L'entrée pointe sur /pilotage,
-    // qui redirige côté client vers /conventions (CG) ou /my-projects (PI).
-    href: '/pilotage',
-    label: 'Pilotage',
-    icon: Target,
-    matchPrefix: '/pilotage',
-    visible: (p) => p.canViewGrantPortfolio() || p.canViewMyProjects(),
-  },
-  {
-    // Reporting bailleur : sprint F5a — visible CG / DAF / BAILLEUR / SA.
-    // Point d'entrée par défaut : templates (CG/DAF). Le BAILLEUR sera
-    // redirigé vers /donor-reports (vue filtrée sent only) par la page index.
-    href: '/reporting',
-    label: 'Reporting',
-    icon: FileBarChart,
-    // Couvre templates + donor-reports + /reporting nu (index redirect).
-    // /reporting/statements a son propre item ci-dessous.
-    matchPrefixes: ['/reporting/templates', '/reporting/donor-reports'],
-    visible: (p) => p.canViewReporting(),
-  },
-  {
-    // Sprint F5b-b : états financiers SYSCEBNL (TER/BILAN/RESULTAT/FONDS_DEDIES).
-    // Visible si l'utilisateur peut générer (COMPTABLE/CG/DAF/SA) ou
-    // consulter en tant que BAILLEUR (locked uniquement, filtre serveur).
-    href: '/reporting/statements',
-    label: 'États financiers',
-    icon: BookOpenCheck,
-    matchPrefix: '/reporting/statements',
-    visible: (p) => p.canViewReporting() || p.canCreateStatement(),
-  },
-  {
-    // Sprint F5b-c : référentiel Fournisseurs (CRUD).
-    // Visible pour ACHETEUR / CONTROLEUR / DAF / SUPER_ADMIN — gating
-    // identique à @Roles backend POST /suppliers.
-    href: '/referential/suppliers',
-    label: 'Fournisseurs',
-    icon: Building2,
-    matchPrefix: '/referential/suppliers',
-    visible: (p) => p.canManageSuppliers(),
-  },
-  {
-    // Sprint F-REF-BAILLEURS-PROJETS : référentiel Bailleurs (CRUD).
-    // Visible pour CONTROLEUR / DAF / SUPER_ADMIN — gating identique à
-    // @Roles backend POST /donors.
-    href: '/referential/donors',
-    label: 'Bailleurs',
-    icon: HandCoins,
-    matchPrefix: '/referential/donors',
-    visible: (p) => p.canManageDonors(),
-  },
-  {
-    // Sprint F-REF-BAILLEURS-PROJETS : référentiel Projets (CRUD).
-    // Visible pour CONTROLEUR / DAF / SUPER_ADMIN — gating identique à
-    // @Roles backend POST /projects.
-    href: '/referential/projects',
-    label: 'Projets',
-    icon: FolderKanban,
-    matchPrefix: '/referential/projects',
-    visible: (p) => p.canManageProjects(),
-  },
-  {
-    // Sprint F-ADMIN-USERS : gestion des utilisateurs.
-    // Visible uniquement pour SUPER_ADMIN / DAF — aligné sur @Roles
-    // backend AdminUsersController.
-    href: '/admin/users',
-    label: 'Utilisateurs',
-    icon: Users,
-    matchPrefix: '/admin/users',
-    visible: (p) => p.canManageUsers(),
+    titre: 'Administration',
+    items: [
+      {
+        href: '/admin/users',
+        label: 'Utilisateurs',
+        icon: Users,
+        matchPrefix: '/admin/users',
+        visible: (p) => p.canManageUsers(),
+      },
+    ],
   },
 ];
 
+const REPLIE_KEY = 'grantflow.sidebar.replie';
+
 /**
- * Sidebar fixe à gauche, 240px, fond cream. Sprint F1.1 — ajout du bloc
- * SystemStatus en bas (ping /health toutes les 30 s). Le header de marque
- * (logo + GRANTFLOW) sera ajouté en F-ADMIN-USERS (commit logo dédié).
+ * Sidebar charte 2025 — dégradé navy, logo blanc IPD, repliable
+ * (w-60 ↔ w-[68px], icône seule replié). Item actif : liseré bleu inset
+ * (shadow-actif) + fond bleu translucide. La navigation et le filtrage par
+ * rôle sont inchangés.
  */
 export function AppSidebar() {
   const pathname = usePathname();
   const perms = usePermissions();
-  const items = NAV.filter((it) => (it.visible ? it.visible(perms) : true));
+  const [replie, setReplie] = useState(false);
+
+  // Préférence persistée (lecture post-hydratation → pas de mismatch SSR).
+  useEffect(() => {
+    try {
+      setReplie(window.localStorage.getItem(REPLIE_KEY) === '1');
+    } catch {
+      /* stockage indisponible : préférence non persistée */
+    }
+  }, []);
+  const basculer = () => {
+    setReplie((v) => {
+      try {
+        window.localStorage.setItem(REPLIE_KEY, v ? '0' : '1');
+      } catch {
+        /* noop */
+      }
+      return !v;
+    });
+  };
+
   return (
     <aside
       data-testid="app-sidebar"
-      className="hidden md:flex w-60 shrink-0 flex-col border-r border-slate-200 bg-cream"
+      className={cn(
+        'hidden md:flex min-w-0 flex-none flex-col overflow-hidden',
+        'bg-gradient-to-b from-ipd-navy to-ipd-navy-2 text-ipd-hero-texte',
+        'transition-[width] duration-200',
+        replie ? 'w-[68px]' : 'w-60',
+      )}
     >
-      <div className="flex h-[104px] items-center gap-2.5 border-b border-slate-200 px-4">
-        <Image
-          src="/logo-ipd.png"
-          alt="Institut Pasteur de Dakar"
-          width={64}
-          height={64}
-          className="h-16 w-auto object-contain"
-          priority
-        />
-        <span className="text-base font-bold tracking-tight text-ipd-darker">GRANTFLOW</span>
+      {/* Marque + bouton de repli */}
+      <div
+        className={cn(
+          'flex border-b border-white/10 px-3 py-4',
+          replie ? 'flex-col items-center gap-3' : 'items-center gap-2',
+        )}
+      >
+        {replie ? (
+          <Image
+            src="/img/icone_ipd_blanc.png"
+            alt="Institut Pasteur de Dakar"
+            width={32}
+            height={32}
+            className="h-8 w-8"
+            priority
+          />
+        ) : (
+          <Image
+            src="/img/logo_ipd_blanc.png"
+            alt="Institut Pasteur de Dakar"
+            width={150}
+            height={34}
+            className="h-[30px] w-auto"
+            priority
+          />
+        )}
+        <button
+          onClick={basculer}
+          aria-expanded={!replie}
+          aria-label={replie ? 'Déployer le menu' : 'Réduire le menu'}
+          title={replie ? 'Déployer le menu' : 'Réduire le menu'}
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-[8px] text-ipd-nav-texte hover:bg-white/10 hover:text-white',
+            replie ? '' : 'ml-auto',
+          )}
+        >
+          {replie ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
       </div>
-      <nav className="flex-1 py-4">
-        <ul className="space-y-1 px-2">
-          {items.map((item) => {
-            const prefixes = item.matchPrefixes ?? [item.matchPrefix ?? item.href];
-            const active =
-              pathname === item.href ||
-              prefixes.some((p) => pathname === p || pathname.startsWith(p + '/'));
-            const Icon = item.icon;
-            const baseClasses =
-              'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors border-l-4 border-transparent';
 
-            if (item.disabled) {
-              return (
-                <li key={item.href}>
-                  <span
-                    aria-disabled="true"
-                    title="Disponible dans un sprint suivant"
-                    className={cn(baseClasses, 'cursor-not-allowed text-slate-muted opacity-50')}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden p-2.5">
+        {GROUPES.map((groupe) => {
+          const items = groupe.items.filter((it) => (it.visible ? it.visible(perms) : true));
+          if (items.length === 0) return null;
+          return (
+            <div key={groupe.titre ?? 'racine'}>
+              {groupe.titre &&
+                (replie ? (
+                  <div className="my-2 border-t border-white/10" aria-hidden="true" />
+                ) : (
+                  <div className="px-3 pb-1 pt-3 font-titre text-[11px] font-bold uppercase tracking-[.12em] text-ipd-nav-muet">
+                    {groupe.titre}
+                  </div>
+                ))}
+              {items.map((item) => {
+                const prefixes = item.matchPrefixes ?? [item.matchPrefix ?? item.href];
+                const active =
+                  pathname === item.href ||
+                  prefixes.some((p) => pathname === p || pathname.startsWith(p + '/'));
+                const Icon = item.icon;
+                const baseClasses = cn(
+                  'flex items-center gap-3 rounded-[9px] py-2.5 font-titre text-[13.5px] transition-colors',
+                  replie ? 'justify-center px-0' : 'px-3',
+                );
+
+                if (item.disabled) {
+                  return (
+                    <span
+                      key={item.href}
+                      aria-disabled="true"
+                      title="Disponible dans un sprint suivant"
+                      className={cn(baseClasses, 'cursor-not-allowed text-ipd-nav-texte/50')}
+                    >
+                      <Icon className="h-4 w-4 flex-none" />
+                      {!replie && item.label}
+                    </span>
+                  );
+                }
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    aria-current={active ? 'page' : undefined}
+                    title={replie ? item.label : undefined}
+                    className={cn(
+                      baseClasses,
+                      active
+                        ? 'bg-ipd-bleu/30 font-medium text-white shadow-actif'
+                        : 'text-ipd-nav-texte hover:bg-white/10 hover:text-white',
+                    )}
                   >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </span>
-                </li>
-              );
-            }
-
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    baseClasses,
-                    active
-                      ? 'bg-ipd-50 text-ipd-darker border-l-ipd'
-                      : 'text-slate-text hover:bg-ipd-50/60 hover:text-ipd-darker',
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+                    <Icon className="h-4 w-4 flex-none" />
+                    {!replie && item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
-      <div className="border-t border-slate-200 px-4 py-3 space-y-2">
-        <SystemStatus />
-        <div className="text-xs text-slate-muted">v0.11.1 — Sprint F1.1</div>
+
+      <div className="border-t border-white/10 px-4 py-3">
+        {!replie && (
+          <div className="space-y-2">
+            <SystemStatus />
+            <div className="text-xs text-ipd-nav-muet">v0.12.0 — Charte 2025</div>
+          </div>
+        )}
       </div>
     </aside>
   );

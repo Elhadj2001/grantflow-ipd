@@ -19,17 +19,18 @@ export interface AnalyticalDonutProps {
   className?: string;
 }
 
-// Palette IPD-cohérente, traversant la roue chromatique en restant
-// désaturée pour éviter la lutte avec la charte aqua institutionnelle.
+// Palette charte 2025 (couleurs secondaires « soutien des principales —
+// graphiques, icônes », cf. docs/design/CHARTE_OFFICIELLE_2025.md) +
+// accents fonctionnels, en restant désaturée.
 const PALETTE = [
-  '#1B7A8E', // ipd-darker
-  '#2BA0B8', // ipd-dark
-  '#4FC3D9', // ipd
-  '#1E3A5F', // navy
-  '#7B5BD8',
-  '#D17C2E',
-  '#9DA9B7',
-  '#46A36D',
+  '#052A62', // navy
+  '#0089D0', // bleu IPD
+  '#86B4DD', // bleu clair
+  '#BFB8B0', // taupe
+  '#1B6E3A', // vert fonctionnel
+  '#C9881A', // ambre fonctionnel
+  '#4A5566', // ardoise
+  '#E3E0D8', // beige clair
 ];
 
 /**

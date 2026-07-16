@@ -11,7 +11,7 @@ import { useGrantBreakdown } from '@/hooks/use-pilotage';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { BreakdownDimension } from '@/lib/api/pilotage';
 import type { Grant } from '@/lib/api/referential';
-import { AnalyticalDonut } from '@/components/pilotage/AnalyticalDonut';
+import { AnalyticalDonut } from '@/components/pilotage/AnalyticalDonut.lazy';
 import { cn } from '@/lib/utils';
 
 type RowDim = 'grant' | 'account' | 'cost_center' | 'period';

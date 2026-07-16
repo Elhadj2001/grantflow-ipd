@@ -15,37 +15,73 @@ const config: Config = {
     },
     extend: {
       colors: {
-        // ===== Charte IPD — aqua doux (institutionnel) =====
-        // Brand color #4FC3D9. Voir docs et CLAUDE.md pour les
-        // règles d'usage (AA contrast) :
-        //   bg-ipd        → grandes surfaces (header, hero, login aside)
-        //   bg-ipd-dark   → boutons primaires (texte blanc lisible)
-        //   text-ipd-darker → texte de marque sur fond clair
-        //   border-ipd    → ring focus, séparateurs
-        //   bg-ipd-50/100 → fonds très doux (items actifs, hover)
+        // ===== Charte officielle IPD 2025 (bleu #0089D0) =====
+        // Source : docs/design/CHARTE_OFFICIELLE_2025.md (tokens du projet
+        // « Enregistrement Fact et Paie »). Aucun hex de marque dans les
+        // composants : uniquement ces tokens. Règles AA : cf. CLAUDE.md §4.
         ipd: {
-          DEFAULT: '#4FC3D9',
-          dark: '#2BA0B8',
-          darker: '#1B7A8E',
-          light: '#7AD3E4',
-          50: '#ECF9FC',
-          100: '#D9F2F8',
-          900: '#0E5060',
+          // -- Tokens charte (référence) --
+          bleu: '#0089D0',
+          'bleu-dk': '#0070AD',
+          'bleu-fonce': '#055A8C',
+          'bleu-clair': '#86B4DD',
+          navy: '#052A62',
+          'navy-2': '#03204A',
+          beige: '#E3E0D8',
+          taupe: '#BFB8B0',
+          gris: '#D7D8DB',
+          'gris-clair': '#F2F3F5',
+          ink: '#000000',
+          'bordure-carte': '#E5E1D8',
+          muet: '#5B6675',
+          'tab-entete': '#8A93A2',
+          'tab-fond': '#FAFAF8',
+          // Accents fonctionnels (hors charte de marque)
+          vert: '#1B6E3A',
+          ambre: '#C9881A',
+          rouge: '#9A1F1F',
+          // Teintes douces (fonds/bordures des badges + bandeaux)
+          'bleu-tint': '#E6F2FB',
+          'bleu-pale': '#F7FBFE',
+          'bleu-bordure': '#E0EEF9',
+          'bleu-bordure-info': '#CFE6F6',
+          'vert-tint': '#DCF3E3',
+          'ambre-tint': '#FBEFD3',
+          'ambre-fonce': '#8A5A00',
+          'ambre-bordure': '#F0DCAE',
+          'rouge-tint': '#FBDDDD',
+          'rouge-bordure': '#F0B4B4',
+          ardoise: '#4A5566',
+          ligne: '#F0F1F1',
+          // Sidebar / hero (dégradé navy)
+          'hero-texte': '#EAF2FB',
+          'hero-sous': '#CFE0F3',
+          'nav-texte': '#CDDDEF',
+          'nav-muet': '#7FA3CF',
+          // -- Alias LEGACY (classes historiques bg-ipd / bg-ipd-dark /
+          // text-ipd-darker / bg-ipd-50…) remappés sur la charte 2025 :
+          // toute page non encore balayée adopte le bleu officiel. --
+          DEFAULT: '#0089D0',
+          dark: '#0070AD',
+          darker: '#055A8C',
+          light: '#86B4DD',
+          50: '#E6F2FB',
+          100: '#E0EEF9',
+          900: '#03204A',
         },
         navy: {
-          DEFAULT: '#1E3A5F',
-          light: '#2D5485',
-          dark: '#142847',
+          DEFAULT: '#052A62',
+          light: '#0E3F86',
+          dark: '#03204A',
         },
-        cream: '#FAFAF7',
         slate: {
           text: '#1F2937',
-          muted: '#6B7280',
+          muted: '#5B6675',
         },
         state: {
-          success: '#16A34A',
-          warning: '#F59E0B',
-          error: '#DC2626',
+          success: '#1B6E3A',
+          warning: '#C9881A',
+          error: '#9A1F1F',
         },
         // ===== shadcn/ui design tokens (HSL via CSS vars) =====
         border: 'hsl(var(--border))',
@@ -86,9 +122,22 @@ const config: Config = {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        carte: '12px',
+        btn: '10px',
+      },
+      boxShadow: {
+        douce: '0 1px 3px rgba(5,42,98,.06)',
+        carte: '0 6px 24px rgba(5,42,98,.12)',
+        btn: '0 2px 8px rgba(0,137,208,.28)',
+        'btn-h': '0 4px 14px rgba(0,137,208,.32)',
+        login: '0 24px 70px rgba(0,0,0,.42)',
+        actif: 'inset 3px 0 0 #0089D0',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        // Lato = corps par défaut (font-sans hérité partout), Poppins = titres.
+        sans: ['var(--font-lato)', 'system-ui', 'sans-serif'],
+        titre: ['var(--font-poppins)', 'sans-serif'],
+        corps: ['var(--font-lato)', 'sans-serif'],
       },
       keyframes: {
         'accordion-down': {

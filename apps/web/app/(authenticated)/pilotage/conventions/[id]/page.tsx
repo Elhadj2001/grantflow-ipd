@@ -4,13 +4,13 @@ import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Pencil } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { PeriodBarChart } from '@/components/pilotage/PeriodBarChart.lazy';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/common/PageHeader';
 import { GrantHeader } from '@/components/pilotage/GrantHeader';
 import { BudgetVarianceTable } from '@/components/pilotage/BudgetVarianceTable';
 import { GrantTimeline } from '@/components/pilotage/GrantTimeline';
-import { AnalyticalDonut } from '@/components/pilotage/AnalyticalDonut';
+import { AnalyticalDonut } from '@/components/pilotage/AnalyticalDonut.lazy';
 import { DedicatedFundsCard } from '@/components/pilotage/DedicatedFundsCard';
 import { OverheadCard } from '@/components/pilotage/OverheadCard';
 import type { GrantBadgeStatus } from '@/components/pilotage/GrantStatusBadge';
@@ -22,7 +22,6 @@ import {
   useGrantTransactions,
 } from '@/hooks/use-pilotage';
 import { usePermissions } from '@/hooks/use-permissions';
-import { formatAmount } from '@/lib/api/pilotage';
 import { BudgetLineEditor } from '@/components/referential/BudgetLineEditor';
 
 const PERIOD_PRESETS = [
@@ -239,18 +238,7 @@ export default function GrantDetailPage() {
                 Évolution mensuelle des dépenses
               </h3>
               <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={breakdownPeriod.entries}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="key" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      formatter={(value: number) => formatAmount(value, currency)}
-                      cursor={{ fill: 'rgba(43, 160, 184, 0.08)' }}
-                    />
-                    <Bar dataKey="amount" fill="#2BA0B8" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <PeriodBarChart entries={breakdownPeriod.entries} currency={currency} />
               </div>
             </div>
           )}

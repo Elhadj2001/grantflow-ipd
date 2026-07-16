@@ -16,7 +16,7 @@ const TableHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <thead
     ref={ref}
-    className={cn('sticky top-0 z-10 bg-cream/95 backdrop-blur [&_tr]:border-b', className)}
+    className={cn('sticky top-0 z-10 bg-ipd-tab-fond/95 backdrop-blur [&_tr]:border-b', className)}
     {...props}
   />
 ));
@@ -35,7 +35,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        'border-b transition-colors hover:bg-cream/50 data-[state=selected]:bg-muted',
+        'border-b transition-colors hover:bg-ipd-bleu-pale data-[state=selected]:bg-muted',
         className,
       )}
       {...props}

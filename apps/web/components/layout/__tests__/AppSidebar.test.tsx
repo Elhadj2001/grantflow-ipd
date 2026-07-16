@@ -74,7 +74,7 @@ describe('AppSidebar', () => {
     render(<AppSidebar />);
     const dashboardLink = screen.getByText('Dashboard').closest('a');
     expect(dashboardLink).toHaveAttribute('aria-current', 'page');
-    expect(dashboardLink?.className).toMatch(/border-l-ipd/);
+    expect(dashboardLink?.className).toMatch(/shadow-actif/);
   });
 
   it('Reporting activé en F5a — lien vers /reporting', () => {
@@ -205,7 +205,7 @@ describe('AppSidebar', () => {
     render(<AppSidebar />);
     const link = screen.getByText('Trésorerie').closest('a');
     expect(link).toHaveAttribute('aria-current', 'page');
-    expect(link?.className).toMatch(/border-l-ipd/);
+    expect(link?.className).toMatch(/shadow-actif/);
   });
 
   it('marks Comptabilité active when on a /accounting/* path (sprint F3)', () => {
@@ -213,7 +213,7 @@ describe('AppSidebar', () => {
     render(<AppSidebar />);
     const link = screen.getByText('Comptabilité').closest('a');
     expect(link).toHaveAttribute('aria-current', 'page');
-    expect(link?.className).toMatch(/border-l-ipd/);
+    expect(link?.className).toMatch(/shadow-actif/);
   });
 
   it('marks Achats active when on a /procurement/* path', () => {
@@ -221,7 +221,7 @@ describe('AppSidebar', () => {
     render(<AppSidebar />);
     const achatsLink = screen.getByText('Achats').closest('a');
     expect(achatsLink).toHaveAttribute('aria-current', 'page');
-    expect(achatsLink?.className).toMatch(/border-l-ipd/);
+    expect(achatsLink?.className).toMatch(/shadow-actif/);
   });
 
   it('does not mark Dashboard active when on a different path', () => {
@@ -399,7 +399,7 @@ describe('AppSidebar', () => {
     render(<AppSidebar />);
     const link = screen.getByText('Utilisateurs').closest('a');
     expect(link).toHaveAttribute('aria-current', 'page');
-    expect(link?.className).toMatch(/border-l-ipd/);
+    expect(link?.className).toMatch(/shadow-actif/);
   });
 
   // -----------------------------------------------------------------

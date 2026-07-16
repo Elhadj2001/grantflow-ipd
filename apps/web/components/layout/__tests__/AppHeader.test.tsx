@@ -44,7 +44,7 @@ describe('AppHeader', () => {
 
   it('renders logo + fullName', () => {
     render(<AppHeader session={fakeSession} />);
-    expect(screen.getByText('IPD GRANTFLOW')).toBeInTheDocument();
+    expect(screen.getByText('GRANTFLOW')).toBeInTheDocument();
     expect(screen.getByText('Amadou Niang')).toBeInTheDocument();
   });
 

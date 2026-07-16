@@ -3,17 +3,22 @@
 @tailwind utilities;
 
 /* =====================================================================
- *  shadcn/ui — design tokens (mode clair seulement pour sprint F1.x)
- *  Charte IPD officielle = aqua / teal institutionnelle.
- *    primary   = ipd (#4FC3D9)    HSL = 190 62% 58%
- *    ring      = ipd-dark (#2BA0B8) HSL = 190 62% 45% (focus visible)
- *    accent    = ipd-50 (#ECF9FC) HSL = 190 70% 95%
- *    secondary = navy (#1E3A5F)   HSL = 213 53% 25% (inchangé)
+ *  Charte officielle IPD 2025 — cf. docs/design/CHARTE_OFFICIELLE_2025.md
+ *  Bleu IPD #0089D0 (primaire) · Navy #052A62 · fonds #F2F3F5.
+ *  Typo : Poppins (titres, Bold / sous-titres Light) + Lato (corps).
+ *
+ *  Tokens shadcn/ui remappés sur la charte :
+ *    primary   = ipd-bleu   #0089D0  → 201 100% 41%
+ *    ring      = ipd-bleu-dk #0070AD → 201 100% 34% (focus AA)
+ *    accent    = bleu-tint  #E6F2FB  → 206 72% 94%
+ *    secondary = navy       #052A62  → 216 90% 20%
  * ===================================================================== */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    color-scheme: light;
+
+    --background: 220 12% 95%;          /* gris très clair #F2F3F5 */
     --foreground: 222 47% 11%;          /* slate-text #1F2937 */
 
     --card: 0 0% 100%;
@@ -22,24 +27,24 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 190 62% 58%;             /* ipd #4FC3D9 */
+    --primary: 201 100% 41%;            /* ipd-bleu #0089D0 */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 213 53% 25%;           /* navy #1E3A5F */
+    --secondary: 216 90% 20%;           /* navy #052A62 */
     --secondary-foreground: 0 0% 100%;
 
-    --muted: 60 13% 97%;                /* cream #FAFAF7 */
-    --muted-foreground: 220 9% 46%;     /* slate-muted #6B7280 */
+    --muted: 220 12% 95%;               /* gris-clair #F2F3F5 */
+    --muted-foreground: 215 13% 41%;    /* muet #5B6675 */
 
-    --accent: 190 70% 95%;              /* ipd-50 #ECF9FC */
-    --accent-foreground: 190 62% 30%;   /* ipd-darker pour AA sur fond pâle */
+    --accent: 206 72% 94%;              /* bleu-tint #E6F2FB */
+    --accent-foreground: 202 93% 28%;   /* bleu-fonce #055A8C (AA sur tint) */
 
-    --destructive: 0 73% 51%;           /* state.error #DC2626 */
+    --destructive: 0 66% 36%;           /* rouge #9A1F1F */
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 190 62% 45%;                /* ipd-dark pour focus visible AA */
+    --border: 225 5% 85%;               /* gris #D7D8DB */
+    --input: 225 5% 85%;
+    --ring: 201 100% 34%;               /* bleu-dk #0070AD (focus visible AA) */
 
     --radius: 0.5rem;
   }
@@ -50,9 +55,75 @@
     @apply border-border;
   }
   html {
-    font-family: var(--font-sans), system-ui, sans-serif;
+    font-family: var(--font-lato), system-ui, sans-serif;
   }
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* Titres charte : Poppins Bold, navy. */
+  h1, h2, h3, h4 {
+    font-family: var(--font-poppins), sans-serif;
+    font-weight: 700;
+    color: #052a62;
+    letter-spacing: -0.015em;
+  }
+}
+
+/* =====================================================================
+ *  Badges de statut GRANTFLOW — teintes douces charte (mapping des
+ *  statuts DA / BC / GR / factures / paiements). Usage :
+ *    <span className="ipd-badge st-pending-pi">En attente PI</span>
+ * ===================================================================== */
+@layer components {
+  .ipd-badge {
+    @apply inline-block rounded-full font-titre font-semibold;
+    font-size: 12.5px;
+    padding: 4px 12px;
+  }
+  /* — Brouillons / neutres — */
+  .st-draft            { background: #f2f3f5; color: #052a62; }
+  .st-cancelled        { background: #f2f3f5; color: #4a5566; }
+  .st-closed           { background: #f2f3f5; color: #4a5566; }
+  .st-settled          { background: #f2f3f5; color: #4a5566; }
+  /* — En attente (workflow) — */
+  .st-submitted        { background: #fbefd3; color: #8a5a00; }
+  .st-pending-pi       { background: #fbefd3; color: #8a5a00; }
+  .st-pending-cg       { background: #fbefd3; color: #8a5a00; }
+  .st-pending-daf      { background: #fbefd3; color: #8a5a00; }
+  .st-pending-caissier { background: #fbefd3; color: #8a5a00; }
+  /* — Validés / succès — */
+  .st-approved         { background: #dcf3e3; color: #1b6e3a; }
+  .st-paid             { background: #dcf3e3; color: #1b6e3a; }
+  .st-complete         { background: #dcf3e3; color: #1b6e3a; }
+  .st-received         { background: #dcf3e3; color: #1b6e3a; }
+  /* — Informationnels (bleu) — */
+  .st-sent             { background: #e6f2fb; color: #055a8c; }
+  .st-acknowledged     { background: #e6f2fb; color: #055a8c; }
+  .st-converted        { background: #e6f2fb; color: #055a8c; }
+  .st-captured         { background: #e6f2fb; color: #055a8c; }
+  .st-matched          { background: #e6f2fb; color: #055a8c; }
+  .st-posted           { background: #e6f2fb; color: #055a8c; }
+  .st-invoiced         { background: #e6f2fb; color: #055a8c; }
+  .st-partially-paid   { background: #e6f2fb; color: #055a8c; }
+  .st-partially-received { background: #e6f2fb; color: #055a8c; }
+  .st-partial          { background: #e6f2fb; color: #055a8c; }
+  .st-prepared         { background: #e6f2fb; color: #055a8c; }
+  .st-executed         { background: #dcf3e3; color: #1b6e3a; }
+  /* — Refus / danger — */
+  .st-rejected         { background: #fbdddd; color: #9a1f1f; }
+  .st-returned         { background: #fbefd3; color: #8a5a00; }
+}
+
+/* Transition d'entrée de page (remontée à chaque navigation via
+   key={pathname} dans AppShell). N'anime que opacity/transform. */
+@keyframes ipd-page-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.ipd-page-in {
+  animation: ipd-page-in 160ms ease-out both;
+}
+/* Accessibilité : pas de mouvement si l'utilisateur réduit les animations. */
+@media (prefers-reduced-motion: reduce) {
+  .ipd-page-in { animation: none; }
 }

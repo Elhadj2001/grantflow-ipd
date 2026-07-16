@@ -239,7 +239,7 @@ export default function LabelsPage() {
               ) : (
                 <div
                   data-testid="labels-empty"
-                  className="flex h-[700px] flex-col items-center justify-center gap-3 rounded-md border border-dashed border-slate-200 bg-cream"
+                  className="flex h-[700px] flex-col items-center justify-center gap-3 rounded-md border border-dashed border-slate-200 bg-ipd-tab-fond"
                 >
                   <Printer className="h-12 w-12 text-slate-muted" />
                   <p className="text-sm text-slate-muted">
