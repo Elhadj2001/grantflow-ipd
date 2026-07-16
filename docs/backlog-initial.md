@@ -119,7 +119,7 @@ And l'utilisateur voit le solde affiché en USD (devise de ligne) avec équivale
 | US-046 | En tant que développeur, je veux implémenter `NoCrossProjectDuplicateRule` : warning si une facture identique est déjà imputée sur un autre projet. | 5 | ADR-007 |
 | US-047 | En tant que développeur, je veux implémenter `PeriodNotClosedRule` : la période fiscale de la date d'engagement doit être ouverte. | 1 | ADR-007 |
 | US-048 | En tant que développeur, je veux créer le service `EligibilityEngine` qui orchestre les règles, retourne un `Verdict` agrégé, et logge chaque vérification. | 5 | ADR-007 |
-| US-049 | En tant que développeur, je veux intégrer `EligibilityEngine.validate` dans `purchase-request.service.ts` `create`, `update`, `submit`, afin que toute DA soit validée à chaque étape. | 3 | ADR-007 |
+| US-049 | ~~En tant que développeur, je veux intégrer `EligibilityEngine.validate` dans `purchase-request.service.ts` `create`, `update`, `submit`, afin que toute DA soit validée à chaque étape.~~ **CLOSED** — livrée sur `submit()` (S5) ; dette « proxy catégorie de ligne » résolue par US-055 + US-056 (S6, cf. ADR-007 §Dette US-049). | 3 | ADR-007 |
 | US-050 | En tant que développeur, je veux écrire un test d'intégration par règle (7 tests), plus 3 tests de combinaison, afin de garantir la couverture du PPT IPD slide 7. | 8 | ADR-007 |
 
 **Critères d'acceptation Sprint S5** :

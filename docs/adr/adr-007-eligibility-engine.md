@@ -95,6 +95,29 @@ type Verdict =
 - **Compromis verdict warning vs blocking** : certaines règles (anti-splitting) émettent des warnings non bloquants. Le système doit savoir afficher les warnings à l'utilisateur sans bloquer le flux. UI à concevoir.
 - **Couplage Note Technique active** : si aucune Note Technique n'est active, le moteur ne peut pas valider. Période transitoire entre conventions ou avant activation doit être gérée explicitement.
 
+## Dette US-049 — proxy catégorie de ligne (RÉSOLUE par US-055 + US-056)
+
+À la livraison de l'intégration submit (US-049, Sprint S5), `ref.budget_line`
+ne portait pas de colonne `category` : l'`EligibilityContextBuilder` posait
+`budgetLine.category = expenseNature.category` (proxy documenté). Conséquence :
+`LineNatureCoherentRule` (PPT-4 « imputer sur la mauvaise ligne ») comparait
+toujours des catégories identiques → **jamais bloquante via `submit()`**.
+
+**Résolution (Sprint S6)** :
+- **US-055** — DDL-first : `ref.budget_line.category VARCHAR(32)` + CHECK
+  (même domaine que `expense_nature.category`), nullable pour rétrocompat.
+- **US-056** — le builder lit `budget_line.category` en **direct**. Fallback
+  documenté : si NULL (ligne créée avant US-055), retour au proxy nature avec
+  WARN Pino structuré `us049_proxy_fallback_used` (backfill du référentiel à
+  planifier) — jamais bloquant, comportement identique à l'antérieur.
+
+**Exemple (PPT-4 désormais actif)** : ligne budgétaire « Équipement labo »
+(`category='equipment'`) + DA sur nature `OFFICE_SUPPLIES`
+(`category='functioning'`) → `submit()` rejette avec
+`ELIG_LINE_NATURE_INCOHERENT` (403 `EligibilityValidationException`).
+Couvert par `eligibility-end-to-end.integration.spec.ts` (PPT-4 / PPT-4bis)
+et `eligibility-context-builder.service.spec.ts`.
+
 ## Alternatives considérées
 
 - **Validation éparpillée** (statu quo) — rejetée. Multipliation des règles dans les services, maintenance dégradée, risque d'oubli sur les nouveaux endpoints.

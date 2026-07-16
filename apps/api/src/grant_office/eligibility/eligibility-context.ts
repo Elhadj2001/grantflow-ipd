@@ -1,6 +1,22 @@
 import type { Prisma } from '@prisma/client';
 
 /**
+ * Domaine des catégories comptables — miroir des CHECK PostgreSQL
+ * `ref.budget_line.category` (US-055) et `grant_office.expense_nature.category`
+ * (US-030). Type documentaire : la cohérence métier est validée par le moteur
+ * (LineNatureCoherentRule, ADR-007) et le CHECK PG — PAS par Zod (règle 8/§8
+ * CLAUDE.md : pas de validation d'éligibilité dupliquée).
+ */
+export type BudgetCategory =
+  | 'functioning'
+  | 'equipment'
+  | 'personnel'
+  | 'missions'
+  | 'subcontracting'
+  | 'overhead'
+  | 'other';
+
+/**
  * Données transportées entre les règles d'éligibilité (ADR-007).
  *
  * - pr                  : la demande d'achat évaluée.
@@ -52,7 +68,13 @@ export interface EligibilityContext {
     id: string;
     budgetedAmountXof: bigint | null;
     currency: string | null;
-    category: string;
+    /**
+     * Catégorie comptable RÉSOLUE de la ligne (US-056) : lecture directe de
+     * `ref.budget_line.category` (US-055) ; si NULL (donnée historique
+     * pré-US-055), fallback proxy = catégorie de la nature (WARN
+     * `us049_proxy_fallback_used`, jamais bloquant). Jamais null après build.
+     */
+    category: BudgetCategory | string;
   };
   expenseNature: {
     id: string;

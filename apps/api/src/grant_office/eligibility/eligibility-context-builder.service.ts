@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
@@ -24,6 +24,8 @@ export interface EligibilityPrInput {
  */
 @Injectable()
 export class EligibilityContextBuilder {
+  private readonly logger = new Logger(EligibilityContextBuilder.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly fx: ExchangeRateService,
@@ -51,7 +53,7 @@ export class EligibilityContextBuilder {
 
     const budgetLine = await this.prisma.budgetLine.findUnique({
       where: { id: pr.budgetLineId },
-      select: { id: true, budgetedAmountXof: true, currency: true },
+      select: { id: true, budgetedAmountXof: true, currency: true, category: true },
     });
     if (!budgetLine) throw new NotFoundException(`BudgetLine ${pr.budgetLineId} not found`);
 
@@ -65,17 +67,39 @@ export class EligibilityContextBuilder {
 
     const conv = await this.fx.convertToXof(pr.totalAmount, pr.currency, pr.requestedAt ?? new Date());
 
+    // US-056 — lecture DIRECTE de ref.budget_line.category (livrée US-055) :
+    // active réellement PPT-4 (LineNatureCoherentRule peut désormais détecter
+    // une nature imputée sur une ligne de catégorie incompatible).
+    // Fallback DOCUMENTÉ : lignes historiques créées avant US-055 → category
+    // NULL → on retombe sur l'ancien proxy US-049 (catégorie de la nature,
+    // toujours cohérent donc jamais bloquant) avec un WARN structuré, jusqu'au
+    // backfill du référentiel.
+    let lineCategory = budgetLine.category;
+    if (lineCategory === null || lineCategory === undefined) {
+      lineCategory = expenseNature.category;
+      this.logger.warn(
+        {
+          event: 'us049_proxy_fallback_used',
+          budgetLineId: budgetLine.id,
+          expenseNatureCode: expenseNature.code,
+          proxyCategory: expenseNature.category,
+        },
+        'US-049 proxy fallback used, backfill needed (budget_line.category IS NULL)',
+      );
+    }
+
     return {
       pr: { ...pr, totalAmountXof: conv.xofAmount },
       actor,
       grant,
       activeNoteTechnique,
       eligibilityRules,
-      // budget_line n'a pas de colonne `category` ; la catégorie comptable de
-      // la ligne est portée par la nature de dépense (rapprochement budgétaire
-      // affiné en story future). On expose la catégorie de la nature comme
-      // proxy pour la règle LineNatureCoherent.
-      budgetLine: { ...budgetLine, category: expenseNature.category },
+      budgetLine: {
+        id: budgetLine.id,
+        budgetedAmountXof: budgetLine.budgetedAmountXof,
+        currency: budgetLine.currency,
+        category: lineCategory,
+      },
       expenseNature,
       now: new Date(),
     };
