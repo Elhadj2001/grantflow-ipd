@@ -6,7 +6,7 @@ import { AppShell } from '@/components/layout/AppShell';
  * AuthGuard côté serveur : si pas de session → redirect /login
  * (avec callbackUrl pour retour après auth). Toutes les pages
  * sous `app/(authenticated)/` héritent automatiquement de ce check
- * + de l'AppShell (header + sidebar).
+ * + de l'AppShell (sidebar navy — le profil/logout y vit, plus de header).
  */
 export default async function AuthenticatedLayout({
   children,
@@ -17,5 +17,5 @@ export default async function AuthenticatedLayout({
   if (!session) {
     redirect('/login?callbackUrl=/dashboard');
   }
-  return <AppShell session={session}>{children}</AppShell>;
+  return <AppShell>{children}</AppShell>;
 }

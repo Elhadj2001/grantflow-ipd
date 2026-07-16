@@ -495,4 +495,27 @@ describe('AppSidebar', () => {
     const link = screen.getByText('Projets').closest('a');
     expect(link).toHaveAttribute('aria-current', 'page');
   });
+
+  // Correctif post-preview : header supprimé → le profil + la déconnexion
+  // FÉDÉRÉE OIDC vivent en bas de sidebar (mêmes garanties que l'ancien
+  // AppHeader : badge rôle prioritaire + bouton logout présent).
+  describe('bloc profil (bas de sidebar)', () => {
+    it('affiche le badge du rôle prioritaire (SUPER_ADMIN → Admin)', () => {
+      mockPathname = '/dashboard';
+      mockRoles = ['SUPER_ADMIN'];
+      render(<AppSidebar />);
+      expect(screen.getByTestId('role-badge')).toHaveTextContent('Admin');
+    });
+
+    it('expose le bouton de déconnexion (flux fédéré /api/auth/federated-logout)', () => {
+      mockPathname = '/dashboard';
+      mockRoles = ['DAF'];
+      render(<AppSidebar />);
+      expect(screen.getByTestId('sidebar-logout')).toBeInTheDocument();
+      expect(screen.getByTestId('sidebar-logout')).toHaveAttribute(
+        'aria-label',
+        'Se déconnecter',
+      );
+    });
+  });
 });
