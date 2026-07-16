@@ -307,6 +307,7 @@ model BudgetLine {
   fxRate                   Decimal?                  @map("fx_rate") @db.Decimal(14, 6)
   fxRateDate               DateTime?                 @map("fx_rate_date") @db.Date
   currency                 String?                   @db.VarChar(3)
+  category                 String?                   @db.VarChar(32)
   journalLines             JournalLine[]
   noteTechniqueBudgetLines NoteTechniqueBudgetLine[]
   purchaseOrderLines       PurchaseOrderLine[]
