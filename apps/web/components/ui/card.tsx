@@ -6,8 +6,9 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       // Charte 2025 : cartes rounded-carte (12px) + ombre douce + bordure sable.
+      // Transition 120ms sur fond/ombre pour les cartes cliquables (hover).
       className={cn(
-        'rounded-carte border border-ipd-bordure-carte bg-card text-card-foreground shadow-douce',
+        'rounded-carte border border-ipd-bordure-carte bg-card text-card-foreground shadow-douce transition-[background-color,box-shadow] duration-[120ms]',
         className,
       )}
       {...props}

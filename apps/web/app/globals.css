@@ -133,9 +133,36 @@
   to   { opacity: 1; transform: none; }
 }
 .ipd-page-in {
-  animation: ipd-page-in 160ms ease-out both;
+  animation: ipd-page-in 200ms ease-out both;
 }
-/* Accessibilité : pas de mouvement si l'utilisateur réduit les animations. */
+
+/* Barre de progression de navigation (NavigationProgress) : la rampe monte
+   vers ~85% sans jamais finir (transition longue), le done complète à 100%
+   puis fond. N'anime que width/opacity. */
+@keyframes ipd-progress-ramp {
+  0%   { width: 0%; }
+  15%  { width: 40%; }
+  45%  { width: 65%; }
+  100% { width: 85%; }
+}
+.ipd-progress-ramp {
+  animation: ipd-progress-ramp 6s cubic-bezier(0.15, 0.6, 0.3, 1) both;
+}
+@keyframes ipd-progress-done {
+  from { width: 85%; opacity: 1; }
+  70%  { width: 100%; opacity: 1; }
+  to   { width: 100%; opacity: 0; }
+}
+.ipd-progress-done {
+  animation: ipd-progress-done 240ms ease-out both;
+}
+
+/* Accessibilité : pas de mouvement si l'utilisateur réduit les animations
+   (transition de page, barre de progression → apparition statique,
+   shimmer des skeletons). */
 @media (prefers-reduced-motion: reduce) {
   .ipd-page-in { animation: none; }
+  .ipd-progress-ramp { animation: none; width: 85%; }
+  .ipd-progress-done { animation: none; width: 100%; opacity: 0; }
+  .animate-pulse { animation: none; }
 }

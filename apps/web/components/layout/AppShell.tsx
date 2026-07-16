@@ -1,4 +1,6 @@
+import { Suspense } from 'react';
 import { AppSidebar } from './AppSidebar';
+import { NavigationProgress } from './NavigationProgress';
 import { PageTransition } from './PageTransition';
 
 interface AppShellProps {
@@ -20,9 +22,17 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="flex h-screen overflow-hidden">
       <AppSidebar />
-      <main className="h-screen min-w-0 flex-1 overflow-y-auto bg-background">
-        <PageTransition>{children}</PageTransition>
-      </main>
+      {/* Colonne contenu `relative` : la barre de progression est ancrée en
+          haut de la ZONE CONTENU (hors du conteneur scrollable → ne défile
+          pas). Suspense requis par useSearchParams (Next 14). */}
+      <div className="relative flex h-screen min-w-0 flex-1 flex-col">
+        <Suspense fallback={null}>
+          <NavigationProgress />
+        </Suspense>
+        <main className="min-h-0 flex-1 overflow-y-auto bg-background">
+          <PageTransition>{children}</PageTransition>
+        </main>
+      </div>
     </div>
   );
 }
