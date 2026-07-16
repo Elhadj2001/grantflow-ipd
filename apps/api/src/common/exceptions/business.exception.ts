@@ -2056,3 +2056,35 @@ export class EligibilityValidationException extends BusinessException {
     );
   }
 }
+
+/**
+ * US-051 (ADR-006) — transition de workflow Note Technique impossible depuis
+ * le statut courant (state machine : draft → pending_daf → validated_daf →
+ * active → superseded). 409 Conflict.
+ */
+export class NoteTechniqueInvalidTransitionException extends BusinessException {
+  constructor(noteId: string, from: string, to: string) {
+    super(
+      ErrorCode.BUSINESS.NOTE_TECHNIQUE_INVALID_TRANSITION,
+      HttpStatus.CONFLICT,
+      `Transition impossible pour la Note Technique ${noteId} : ${from} → ${to}.`,
+      { noteId, from, to },
+    );
+  }
+}
+
+/**
+ * US-051 (ADR-006) — le DAF rejette une Note Technique sans motif suffisant.
+ * Le motif (≥ 20 caractères) est obligatoire pour tracer la demande de
+ * correction. 400 Bad Request.
+ */
+export class NoteTechniqueRejectionReasonRequiredException extends BusinessException {
+  constructor(noteId: string) {
+    super(
+      ErrorCode.BUSINESS.NOTE_TECHNIQUE_REJECTION_REASON_REQUIRED,
+      HttpStatus.BAD_REQUEST,
+      `Le motif est obligatoire pour rejeter la Note Technique ${noteId} (minimum 20 caractères).`,
+      { noteId },
+    );
+  }
+}
