@@ -154,7 +154,7 @@ export default function NewPaymentRunPage() {
                 </p>
               )}
               {compatibleInvoices.length === 0 && bankAccount && (
-                <p className="rounded-md border border-dashed border-slate-200 bg-cream p-4 text-center text-sm text-slate-muted">
+                <p className="rounded-md border border-dashed border-slate-200 bg-ipd-tab-fond p-4 text-center text-sm text-slate-muted">
                   Aucune facture payable en {bankAccount.currency}. Vérifiez que les factures
                   sont comptabilisées (status <code>posted</code>).
                 </p>

@@ -72,7 +72,7 @@ export default function InvoiceJournalPage() {
         )}
 
         {!loading && journals.data && journals.data.acEntries.length === 0 && (
-          <div className="rounded-md border border-dashed border-slate-200 bg-cream p-6 text-center text-sm text-slate-muted">
+          <div className="rounded-md border border-dashed border-slate-200 bg-ipd-tab-fond p-6 text-center text-sm text-slate-muted">
             Aucune écriture comptable enregistrée pour cette facture.
             <br />
             La comptabilisation doit être lancée depuis le détail facture (statut

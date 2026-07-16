@@ -76,7 +76,7 @@ export function SupplierPicker({ value, onChange, disabled, className }: Supplie
     return (
       <div
         data-testid="supplier-picker-empty"
-        className="flex items-center justify-between gap-3 rounded-md border border-dashed border-slate-200 bg-cream/50 px-3 py-3 text-sm"
+        className="flex items-center justify-between gap-3 rounded-md border border-dashed border-slate-200 bg-ipd-tab-fond/60 px-3 py-3 text-sm"
       >
         <span className="text-slate-muted">Aucun fournisseur enregistré.</span>
         <Button

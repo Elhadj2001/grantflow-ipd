@@ -6,21 +6,21 @@ describe('StatusBadge', () => {
     render(<StatusBadge status="draft" />);
     const b = screen.getByTestId('status-badge-draft');
     expect(b).toHaveTextContent('Brouillon');
-    expect(b.className).toMatch(/bg-slate-100/);
+    expect(b.className).toMatch(/bg-ipd-gris-clair/);
   });
 
   it('maps approved → success + "Approuvée"', () => {
     render(<StatusBadge status="approved" />);
     const b = screen.getByTestId('status-badge-approved');
     expect(b).toHaveTextContent('Approuvée');
-    expect(b.className).toMatch(/state-success/);
+    expect(b.className).toMatch(/bg-ipd-vert-tint/);
   });
 
   it('maps rejected → error + "Rejetée"', () => {
     render(<StatusBadge status="rejected" />);
     const b = screen.getByTestId('status-badge-rejected');
     expect(b).toHaveTextContent('Rejetée');
-    expect(b.className).toMatch(/state-error/);
+    expect(b.className).toMatch(/bg-ipd-rouge-tint/);
   });
 
   it('maps pending_pi → warning + "En attente PI"', () => {
@@ -37,7 +37,7 @@ describe('StatusBadge', () => {
     render(<StatusBadge status="unknown_xyz" />);
     const b = screen.getByTestId('status-badge-unknown_xyz');
     expect(b).toHaveTextContent('unknown_xyz');
-    expect(b.className).toMatch(/bg-slate-100/);
+    expect(b.className).toMatch(/bg-ipd-gris-clair/);
   });
 
   it('respects label override', () => {

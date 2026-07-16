@@ -46,57 +46,41 @@ export default async function LoginPage({
   const callbackUrl = searchParams?.callbackUrl ?? '/dashboard';
 
   return (
-    <main className="min-h-screen flex flex-col lg:flex-row bg-cream">
-      {/* ====================== ASIDE (rouge dégradé) ====================== */}
+    <main className="min-h-screen flex flex-col lg:flex-row bg-ipd-gris-clair">
+      {/* ============== ASIDE (photo IPD + voile navy charte) ============== */}
       <aside
         aria-label="Présentation GRANTFLOW IPD"
-        className="relative overflow-hidden bg-gradient-to-br from-ipd via-ipd-dark to-navy text-white p-8 lg:p-12 lg:basis-1/2 lg:flex flex-col justify-between"
+        className="relative overflow-hidden bg-ipd-navy text-white p-8 lg:p-12 lg:basis-1/2 lg:flex flex-col justify-between"
       >
-        {/* Pattern SVG dots subtil */}
-        <svg
+        {/* Photo institutionnelle + voile dégradé navy (lisibilité AA). */}
+        <Image
+          src="/img/login_background.jpg"
+          alt=""
+          fill
+          priority
+          sizes="(min-width: 1024px) 50vw, 100vw"
+          className="object-cover opacity-40"
+        />
+        <div
           aria-hidden
-          className="absolute inset-0 h-full w-full opacity-10"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <pattern
-              id="dot-pattern"
-              x="0"
-              y="0"
-              width="24"
-              height="24"
-              patternUnits="userSpaceOnUse"
-            >
-              <circle cx="2" cy="2" r="1.2" fill="currentColor" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#dot-pattern)" />
-        </svg>
+          className="absolute inset-0 bg-gradient-to-br from-ipd-navy/90 via-ipd-navy/70 to-ipd-navy-2/90"
+        />
 
         <div className="relative space-y-8">
-          {/* Logo cerclé */}
-          <div className="flex items-center gap-3">
-            <span
-              className="inline-flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-white shadow-lg ring-4 ring-white/10"
-            >
-              <Image
-                src="/logo-ipd.png"
-                alt="Institut Pasteur de Dakar"
-                width={96}
-                height={96}
-                className="h-24 w-24 object-contain"
-                priority
-              />
-            </span>
-            <div className="text-xs uppercase tracking-widest text-ipd-100">
-              Institut Pasteur de Dakar
-            </div>
-          </div>
+          {/* Logo officiel blanc (charte 2025) */}
+          <Image
+            src="/img/logo_ipd_blanc.png"
+            alt="Institut Pasteur de Dakar"
+            width={220}
+            height={50}
+            className="h-11 w-auto"
+            priority
+          />
 
           {/* Titre + sous-titre */}
           <div className="space-y-3 max-w-xl">
-            <h1 className="text-4xl lg:text-5xl font-bold leading-tight">GRANTFLOW IPD</h1>
-            <p className="text-ipd-50 text-lg leading-relaxed">
+            <h1 className="text-4xl lg:text-5xl font-bold leading-tight !text-white">GRANTFLOW IPD</h1>
+            <p className="text-ipd-hero-sous text-lg leading-relaxed">
               Automatisation Procure-to-Account & Comptabilité analytique multi-bailleurs.
             </p>
           </div>
@@ -114,7 +98,7 @@ export default async function LoginPage({
           </ul>
         </div>
 
-        <div className="relative pt-8 text-xs text-ipd-100">
+        <div className="relative pt-8 text-xs text-ipd-hero-sous">
           © 2026 Institut Pasteur de Dakar — Direction Administrative & Financière
         </div>
       </aside>

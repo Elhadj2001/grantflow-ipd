@@ -248,7 +248,7 @@ export default function GrantDetailPage() {
                       formatter={(value: number) => formatAmount(value, currency)}
                       cursor={{ fill: 'rgba(43, 160, 184, 0.08)' }}
                     />
-                    <Bar dataKey="amount" fill="#2BA0B8" />
+                    <Bar dataKey="amount" fill="#0089D0" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

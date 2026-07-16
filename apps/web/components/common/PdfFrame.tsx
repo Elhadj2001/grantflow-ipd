@@ -101,7 +101,7 @@ export function PdfFrame({ path, height = 600, className, filename = 'document.p
       <div
         data-testid="pdf-frame-error"
         className={cn(
-          'flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-200 bg-cream p-6 text-center',
+          'flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-200 bg-ipd-tab-fond p-6 text-center',
           className,
         )}
         style={{ height }}
