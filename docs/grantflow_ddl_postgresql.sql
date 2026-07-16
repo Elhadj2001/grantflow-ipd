@@ -1925,3 +1925,37 @@ CREATE INDEX IF NOT EXISTS idx_pr_supplier_invoice_number
 CREATE INDEX IF NOT EXISTS idx_pr_pasteur_paris_reimbursed
   ON procurement.purchase_request(pasteur_paris_reimbursed)
   WHERE pasteur_paris_reimbursed = TRUE;
+
+-- =========================================================================
+-- Sprint S6 / US-055 — budget_line.category (cohérence ligne ↔ nature)
+-- =========================================================================
+-- Matérialise la catégorie comptable de la ligne budgétaire pour lever la
+-- dette US-049 : l'EligibilityContextBuilder utilise aujourd'hui la catégorie
+-- de la NATURE de dépense comme proxy (donc LineNatureCoherentRule / PPT-4 ne
+-- peut pas détecter d'incohérence). Une fois cette colonne peuplée (US-056
+-- branchera le builder dessus), PPT-4 bloque réellement une nature imputée sur
+-- une ligne de catégorie incompatible.
+--
+-- Même domaine de valeurs que grant_office.expense_nature.category (matrice de
+-- compatibilité LineNatureCoherentRule). Rétrocompatible : NULLABLE (lignes
+-- existantes non catégorisées → la règle reste permissive, catégorie inconnue
+-- = OK). Aucune FK.
+
+ALTER TABLE ref.budget_line
+  ADD COLUMN IF NOT EXISTS category VARCHAR(32);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_budget_line_category'
+  ) THEN
+    ALTER TABLE ref.budget_line
+      ADD CONSTRAINT chk_budget_line_category
+      CHECK (category IS NULL OR category IN
+        ('functioning', 'equipment', 'personnel', 'missions',
+         'subcontracting', 'overhead', 'other'));
+  END IF;
+END $$;
+
+COMMENT ON COLUMN ref.budget_line.category IS
+  'Catégorie comptable de la ligne budgétaire (même domaine que grant_office.expense_nature.category). Support de LineNatureCoherentRule / PPT-4 (ADR-007). NULL = non catégorisée (règle permissive).';

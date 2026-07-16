@@ -48,6 +48,7 @@ describe('BudgetLineService', () => {
     fxRate: null,
     fxRateDate: null,
     currency: null,
+    category: null,
   };
 
   function dto(overrides: Partial<CreateBudgetLineDto> = {}): CreateBudgetLineDto {
