@@ -145,6 +145,12 @@ services:
       # --hostname-strict=false pour l'alignement inventaire, US-142).
       - key: KC_HOSTNAME_STRICT
         value: "false"
+      # KC_HOSTNAME_STRICT_HTTPS=true : force un issuer OIDC https:// derrière
+      # la terminaison TLS Render — sans lui, discovery en http:// → mismatch
+      # KEYCLOAK_ISSUER côté Vercel → crash NextAuth « Configuration »
+      # (bug 5 du post-mortem prod-restoration-2026-07-13, résolu 2026-07-16).
+      - key: KC_HOSTNAME_STRICT_HTTPS
+        value: "true"
       # Reverse-proxy Render (terminaison TLS) : Keycloak doit faire confiance
       # aux en-têtes X-Forwarded-* pour générer des URLs https correctes.
       # Keycloak 24 : KC_PROXY est DÉPRÉCIÉ → on utilise KC_PROXY_HEADERS

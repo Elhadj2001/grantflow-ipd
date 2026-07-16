@@ -69,3 +69,7 @@ KO**, tout le reste fonctionne. À restaurer après validation R2
 `KC_DB_PASSWORD`, `KC_HOSTNAME`, `KEYCLOAK_ADMIN_PASSWORD`) sont aussi
 `sync:false` — à restaurer si le service Keycloak a lui aussi perdu ses vars
 (cf. `render.yaml` lignes 99-139).
+
+| Key (service grantflow-keycloak) | Requis boot ? | Valeur | Source prod | Fichier référence |
+|---|---|---|---|---|
+| `KC_HOSTNAME_STRICT_HTTPS` | 🟠 FONCTIONNEL (login OIDC) | `true` | en dur dans render.yaml — force l'issuer OIDC `https://` derrière le proxy Render ; sans lui : mismatch `KEYCLOAK_ISSUER` → crash NextAuth (bug 5, post-mortem 2026-07-13) | render.yaml (grantflow-keycloak) |

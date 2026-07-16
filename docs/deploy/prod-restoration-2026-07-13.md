@@ -32,8 +32,8 @@ recréation du service Keycloak **sans** les réglages proxy (bug 5 — l'issuer
 OIDC dépend des en-têtes `X-Forwarded-*`, invisibles tant qu'on ne teste pas
 le login de bout en bout).
 
-> 💡 `KC_HOSTNAME_STRICT_HTTPS` a été posé au dashboard : penser à le déclarer
-> aussi dans `render.yaml` au prochain passage sur US-142+ (parité Blueprint).
+> `KC_HOSTNAME_STRICT_HTTPS="true"` est déclaré dans `render.yaml` (parité
+> Blueprint faite) et couvert par `scripts/check-render-env-parity.sh`.
 
 **Prévention future** : `render.yaml` (Blueprint) redéclare les clés, mais les
 valeurs `sync:false` doivent être re-saisies au dashboard. Envisager un
