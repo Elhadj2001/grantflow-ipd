@@ -86,16 +86,31 @@
 - Appels API via `lib/api-client.ts` avec TanStack Query.
 - Tous les forms utilisent React Hook Form + Zod.
 
-#### Charte couleur IPD (aqua institutionnel)
-- **Primaire** : `ipd` (#4FC3D9) — aqua doux / teal institutionnel. Le nom historique « Pasteur rouge » ne s'applique PAS à l'IPD.
-- **Secondaire** : `navy` (#1E3A5F) — pour graphiques + transitions.
+#### Charte couleur IPD (charte officielle 2025)
+- **Source de vérité** : `docs/design/CHARTE_OFFICIELLE_2025.md` (extraite du
+  brand manual IPD 2025 — copie du projet frère « Enregistrement Fact et Paie »).
+- **Primaire** : `ipd-bleu` (#0089D0). **Secondaires** : `ipd-navy` (#052A62),
+  `ipd-bleu-clair` (#86B4DD), `ipd-beige` (#E3E0D8), `ipd-taupe` (#BFB8B0).
+  **Neutres** : `ipd-gris` (#D7D8DB), `ipd-gris-clair` (#F2F3F5, fond body), blanc.
+  L'ancienne palette aqua (#4FC3D9/#2BA0B8/#1B7A8E) et `cream` sont RETIRÉES.
+- **Typographie** : Poppins Bold = titres (h1-h4, navy), Poppins Light =
+  sous-titres (bleu), Lato Regular = corps. Vendored dans `apps/web/app/fonts/`
+  (`next/font/local`, `--font-poppins` / `--font-lato`, classes `font-titre`
+  / `font-corps` ; `font-sans` = Lato).
+- **Logos** (`apps/web/public/img/`) : `logo_ipd_couleur.png` sur fonds clairs,
+  `logo_ipd_blanc.png` sur fonds sombres (sidebar navy, login),
+  `icone_ipd_blanc.png` pour le menu replié, `logo_ipd_noir.png` monochrome.
 - **Règles d'usage AA** :
-  - `bg-ipd` → grandes surfaces (header, hero, login aside).
-  - `bg-ipd-dark` (#2BA0B8) → **boutons primaires** (texte blanc reste lisible).
-  - `text-ipd-darker` (#1B7A8E) → texte de marque sur fond clair (titres, liens).
-  - `bg-ipd-50/100` → fonds très clairs (items actifs sidebar, hover doux).
-  - **Jamais** `bg-ipd` + `text-white` ensemble (contraste insuffisant).
-- Tokens shadcn (`--primary`, `--ring`, `--accent`) mappés sur cette charte dans `globals.css`.
+  - `bg-ipd-bleu` + `hover:bg-ipd-bleu-dk` (#0070AD) + `shadow-btn` → boutons primaires.
+  - `text-ipd-bleu-fonce` (#055A8C) → texte de marque sur fond clair / badges bleus.
+  - Sidebar : dégradé `from-ipd-navy to-ipd-navy-2`, texte `ipd-nav-texte`,
+    item actif `shadow-actif` (liseré bleu inset) + `bg-ipd-bleu/30`.
+  - Badges de statut : teintes douces `*-tint` + texte foncé associé
+    (`.ipd-badge` / variantes `ui/badge.tsx`) — jamais de texte blanc sur tint.
+  - Cartes : `rounded-carte` (12px) + `shadow-douce` + `border-ipd-bordure-carte`.
+- Tokens shadcn (`--primary`, `--ring`, `--accent`, `--secondary`) mappés sur
+  cette charte dans `globals.css`. Aucun hex de marque en dur dans les
+  composants : uniquement les tokens `ipd-*` de `tailwind.config.ts`.
 
 ### Backend (NestJS)
 - Un module par bounded context : `auth/`, `procurement/`, `ap/`, `gl/`, `co/`, `reporting/`, `treasury/`, `referential/`.
