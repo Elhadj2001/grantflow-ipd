@@ -114,6 +114,18 @@
   .st-returned         { background: #fbefd3; color: #8a5a00; }
 }
 
+/* Scrollbar masquée pour le nav de la sidebar (reste scrollable à la
+   molette / au clavier). La zone de contenu garde SA scrollbar native. */
+@layer utilities {
+  .nav-scroll {
+    scrollbar-width: none;      /* Firefox */
+    -ms-overflow-style: none;   /* IE/Edge legacy */
+  }
+  .nav-scroll::-webkit-scrollbar {
+    display: none;              /* Chrome/Safari */
+  }
+}
+
 /* Transition d'entrée de page (remontée à chaque navigation via
    key={pathname} dans AppShell). N'anime que opacity/transform. */
 @keyframes ipd-page-in {

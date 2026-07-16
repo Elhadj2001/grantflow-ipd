@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import {
   BookOpenCheck,
   Building2,
@@ -15,6 +16,7 @@ import {
   FolderKanban,
   HandCoins,
   LayoutDashboard,
+  LogOut,
   Package,
   ShoppingCart,
   Target,
@@ -23,6 +25,7 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
+import type { GrantflowRole } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { SystemStatus } from './SystemStatus';
@@ -196,6 +199,43 @@ const GROUPES: NavGroup[] = [
 const REPLIE_KEY = 'grantflow.sidebar.replie';
 
 /**
+ * Priorité d'affichage des rôles + couleur de badge (repris de l'ancien
+ * AppHeader, supprimé au correctif post-preview — la marque et le profil
+ * vivent désormais dans la sidebar).
+ */
+const ROLE_PRIORITY: Array<{ role: GrantflowRole; classes: string; label: string }> = [
+  { role: 'SUPER_ADMIN', classes: 'bg-ipd-dark text-white', label: 'Admin' },
+  { role: 'DAF', classes: 'bg-ipd-dark text-white', label: 'DAF' },
+  { role: 'CONTROLEUR', classes: 'bg-white/15 text-white', label: 'Contrôleur' },
+  { role: 'COMPTABLE', classes: 'bg-white/15 text-white', label: 'Comptable' },
+  { role: 'TRESORIER', classes: 'bg-ipd-vert text-white', label: 'Trésorier' },
+  { role: 'CAISSIER', classes: 'bg-ipd-ambre text-white', label: 'Caissier' },
+  { role: 'ACHETEUR', classes: 'bg-ipd-vert text-white', label: 'Acheteur' },
+  { role: 'MAGASINIER', classes: 'bg-ipd-vert text-white', label: 'Magasinier' },
+  { role: 'PI', classes: 'bg-white/15 text-white', label: 'PI' },
+  { role: 'DEMANDEUR', classes: 'bg-white/15 text-ipd-nav-texte', label: 'Demandeur' },
+  { role: 'BAILLEUR', classes: 'bg-white/15 text-ipd-nav-texte', label: 'Bailleur' },
+];
+
+function pickPrimaryRole(roles: GrantflowRole[]): (typeof ROLE_PRIORITY)[number] | null {
+  for (const r of ROLE_PRIORITY) {
+    if (roles.includes(r.role)) return r;
+  }
+  return null;
+}
+
+function initiales(nom: string): string {
+  return (
+    nom
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase() ?? '')
+      .join('') || 'U'
+  );
+}
+
+/**
  * Sidebar charte 2025 — dégradé navy, logo blanc IPD, repliable
  * (w-60 ↔ w-[68px], icône seule replié). Item actif : liseré bleu inset
  * (shadow-actif) + fond bleu translucide. La navigation et le filtrage par
@@ -204,7 +244,21 @@ const REPLIE_KEY = 'grantflow.sidebar.replie';
 export function AppSidebar() {
   const pathname = usePathname();
   const perms = usePermissions();
+  const { data: session } = useSession();
   const [replie, setReplie] = useState(false);
+
+  // Profil (bloc bas de sidebar). Champs défensifs : le fallback couvre les
+  // sessions minimales (tests / première hydratation).
+  const fullName = session?.fullName || session?.user?.email || 'Utilisateur';
+  const email = session?.user?.email ?? '';
+  const primaryRole = pickPrimaryRole((session?.roles ?? []) as GrantflowRole[]);
+
+  // ⚠️ MÊME flux que l'ancien header : logout fédéré OIDC (route handler
+  // /api/auth/federated-logout = signOut next-auth + end_session Keycloak).
+  // Pas de signOut() direct (laisserait la session SSO Keycloak active).
+  const deconnexion = () => {
+    window.location.href = '/api/auth/federated-logout';
+  };
 
   // Préférence persistée (lecture post-hydratation → pas de mismatch SSR).
   useEffect(() => {
@@ -275,7 +329,7 @@ export function AppSidebar() {
         </button>
       </div>
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden p-2.5">
+      <nav className="nav-scroll flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden p-2.5">
         {GROUPES.map((groupe) => {
           const items = groupe.items.filter((it) => (it.visible ? it.visible(perms) : true));
           if (items.length === 0) return null;
@@ -337,13 +391,52 @@ export function AppSidebar() {
         })}
       </nav>
 
-      <div className="border-t border-white/10 px-4 py-3">
+      {/* Bloc bas de sidebar : état système + profil + déconnexion fédérée. */}
+      <div className="border-t border-white/10 p-2.5">
         {!replie && (
-          <div className="space-y-2">
+          <div className="mb-2.5 space-y-1.5 px-1.5">
             <SystemStatus />
-            <div className="text-xs text-ipd-nav-muet">v0.12.0 — Charte 2025</div>
+            <div className="text-[11px] text-ipd-nav-muet">v0.12.0 — Charte 2025</div>
           </div>
         )}
+        <div className={cn('flex items-center gap-3', replie && 'flex-col gap-2')}>
+          <div
+            title={replie ? `${fullName}${primaryRole ? ` · ${primaryRole.label}` : ''}` : undefined}
+            className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-ipd-bleu font-titre text-[13px] font-semibold text-white"
+          >
+            {initiales(fullName)}
+          </div>
+          {!replie && (
+            <div className="min-w-0 flex-1 leading-tight">
+              <div className="flex items-center gap-1.5">
+                <span className="truncate font-titre text-[13px] font-medium text-white">
+                  {fullName}
+                </span>
+                {primaryRole && (
+                  <span
+                    data-testid="role-badge"
+                    className={cn(
+                      'flex-none rounded-full px-2 py-px text-[10px] font-medium',
+                      primaryRole.classes,
+                    )}
+                  >
+                    {primaryRole.label}
+                  </span>
+                )}
+              </div>
+              <div className="truncate text-[11px] text-ipd-nav-muet">{email || 'Connecté'}</div>
+            </div>
+          )}
+          <button
+            onClick={deconnexion}
+            data-testid="sidebar-logout"
+            title="Se déconnecter"
+            aria-label="Se déconnecter"
+            className="flex-none p-1 text-ipd-nav-muet hover:text-white"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </aside>
   );
