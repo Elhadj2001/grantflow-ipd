@@ -904,8 +904,8 @@ model JournalLine {
   debit          Decimal         @default(0) @db.Decimal(18, 2)
   credit         Decimal         @default(0) @db.Decimal(18, 2)
   currency       String          @default("XOF") @db.Char(3)
-  debitCurrency  Decimal?        @default(0) @map("debit_currency") @db.Decimal(18, 2)
-  creditCurrency Decimal?        @default(0) @map("credit_currency") @db.Decimal(18, 2)
+  debitTxAmount  Decimal?        @default(0) @map("debit_tx_amount") @db.Decimal(18, 2)
+  creditTxAmount Decimal?        @default(0) @map("credit_tx_amount") @db.Decimal(18, 2)
   projectId      String?         @map("project_id") @db.Uuid
   grantId        String?         @map("grant_id") @db.Uuid
   budgetLineId   String?         @map("budget_line_id") @db.Uuid

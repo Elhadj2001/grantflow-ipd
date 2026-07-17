@@ -339,7 +339,7 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
       const expense = allLines.find((l: { accountCode: string }) => l.accountCode === '601');
       // 100 EUR * 655.957 ≈ 65595.7
       expect(Number(expense.debit)).toBeCloseTo(65595.7, 1);
-      expect(Number(expense.debitCurrency)).toBe(100);
+      expect(Number(expense.debitTxAmount)).toBe(100);
       expect(expense.currency).toBe('EUR');
       // US-140 (I1) : fx_rate + fx_rate_date renseignés sur CHAQUE ligne EUR.
       allLines
@@ -437,9 +437,9 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
           journal: JournalType.AC, status: EntryStatus.posted,
           label: 'Facture ACME-001 INV-2026-001',
           lines: [
-            { lineNumber: 1, accountCode: '601', debit: new Prisma.Decimal(100000), credit: new Prisma.Decimal(0), currency: 'XOF', debitCurrency: null, creditCurrency: null, projectId, grantId, budgetLineId: blId, costCenterId: null, activityId: null, auxiliaryCode: null, label: 'Achat' },
-            { lineNumber: 2, accountCode: '445', debit: new Prisma.Decimal(18000), credit: new Prisma.Decimal(0), currency: 'XOF', debitCurrency: null, creditCurrency: null, projectId: null, grantId: null, budgetLineId: null, costCenterId: null, activityId: null, auxiliaryCode: null, label: 'TVA' },
-            { lineNumber: 3, accountCode: '401', debit: new Prisma.Decimal(0), credit: new Prisma.Decimal(118000), currency: 'XOF', debitCurrency: null, creditCurrency: null, projectId: null, grantId: null, budgetLineId: null, costCenterId: null, activityId: null, auxiliaryCode: 'ACME-001', label: 'Fournisseur' },
+            { lineNumber: 1, accountCode: '601', debit: new Prisma.Decimal(100000), credit: new Prisma.Decimal(0), currency: 'XOF', debitTxAmount: null, creditTxAmount: null, projectId, grantId, budgetLineId: blId, costCenterId: null, activityId: null, auxiliaryCode: null, label: 'Achat' },
+            { lineNumber: 2, accountCode: '445', debit: new Prisma.Decimal(18000), credit: new Prisma.Decimal(0), currency: 'XOF', debitTxAmount: null, creditTxAmount: null, projectId: null, grantId: null, budgetLineId: null, costCenterId: null, activityId: null, auxiliaryCode: null, label: 'TVA' },
+            { lineNumber: 3, accountCode: '401', debit: new Prisma.Decimal(0), credit: new Prisma.Decimal(118000), currency: 'XOF', debitTxAmount: null, creditTxAmount: null, projectId: null, grantId: null, budgetLineId: null, costCenterId: null, activityId: null, auxiliaryCode: 'ACME-001', label: 'Fournisseur' },
           ],
         }),
       );

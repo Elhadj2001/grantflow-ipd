@@ -118,7 +118,7 @@ describe('JournalEntryTable', () => {
             debit: '2952500',
             credit: 0,
             currency: 'USD',
-            debitCurrency: '5000',
+            debitTxAmount: '5000',
             fxRate: '590.5',
           },
           {
@@ -126,7 +126,7 @@ describe('JournalEntryTable', () => {
             debit: 0,
             credit: '2952500',
             currency: 'USD',
-            creditCurrency: '5000',
+            creditTxAmount: '5000',
             fxRate: '590.5',
           },
         ])}
@@ -150,8 +150,8 @@ describe('JournalEntryTable', () => {
     render(
       <JournalEntryTable
         entry={makeEntry([
-          { accountCode: '6111', debit: 118000, credit: 0, currency: 'XOF', debitCurrency: 118000 },
-          { accountCode: '4011', debit: 0, credit: 118000, currency: 'XOF', creditCurrency: 118000 },
+          { accountCode: '6111', debit: 118000, credit: 0, currency: 'XOF', debitTxAmount: 118000 },
+          { accountCode: '4011', debit: 0, credit: 118000, currency: 'XOF', creditTxAmount: 118000 },
         ])}
       />,
     );

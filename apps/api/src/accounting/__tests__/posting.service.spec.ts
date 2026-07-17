@@ -39,8 +39,8 @@ describe('PostingService', () => {
     debit: number;
     credit: number;
     currency: string;
-    debitCurrency: Prisma.Decimal | number | null;
-    creditCurrency: Prisma.Decimal | number | null;
+    debitTxAmount: Prisma.Decimal | number | null;
+    creditTxAmount: Prisma.Decimal | number | null;
     fx_rate: number | null;
     fx_rate_date: Date | null;
     projectId: string | null;
@@ -164,11 +164,11 @@ describe('PostingService', () => {
       expect(lines[0].fx_rate).toBe(655.957);
       expect(lines[0].fx_rate_date).toBeInstanceOf(Date);
       // montant transactionnel brut conservé (Règle d'or n°4)
-      expect(Number(lines[0].debitCurrency)).toBe(100000);
-      expect(Number(lines[1].creditCurrency)).toBe(100000);
+      expect(Number(lines[0].debitTxAmount)).toBe(100000);
+      expect(Number(lines[1].creditTxAmount)).toBe(100000);
     });
 
-    it('F18 — BC XOF : no-op identité (fx_rate=1, pas de debit/credit_currency)', async () => {
+    it('F18 — BC XOF : no-op identité (fx_rate=1, pas de debit/credit_tx_amount)', async () => {
       prisma.journalEntry.create.mockResolvedValue({ id: 'je-1' } as never);
       prisma.journalEntry.update.mockResolvedValue({ id: 'je-1', lines: [] } as never);
       await svc.createCommitmentEntry(
@@ -179,8 +179,8 @@ describe('PostingService', () => {
       expect(lines[0]).toMatchObject({ accountCode: '801', debit: 1000000, credit: 0, currency: 'XOF' });
       expect(lines[1]).toMatchObject({ accountCode: '802', debit: 0, credit: 1000000, currency: 'XOF' });
       expect(lines[0].fx_rate).toBe(1);
-      expect(lines[0].debitCurrency).toBeNull();
-      expect(lines[1].creditCurrency).toBeNull();
+      expect(lines[0].debitTxAmount).toBeNull();
+      expect(lines[1].creditTxAmount).toBeNull();
     });
 
     it('F18 — BC USD converti via taux indicatif (stub 600)', async () => {
@@ -194,7 +194,7 @@ describe('PostingService', () => {
       // 1 000 USD × 600 = 600 000 XOF
       expect(lines[0]).toMatchObject({ accountCode: '801', debit: 600000, credit: 0, currency: 'USD' });
       expect(lines[0].fx_rate).toBe(600);
-      expect(Number(lines[0].debitCurrency)).toBe(1000);
+      expect(Number(lines[0].debitTxAmount)).toBe(1000);
     });
 
     it('formats entry number as OD-YYYY-NNNN', async () => {

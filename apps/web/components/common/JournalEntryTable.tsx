@@ -22,9 +22,9 @@ export interface JournalEntryLine {
   credit: number | string;
   /** Devise TRANSACTIONNELLE d'origine (XOF si opération locale). */
   currency?: string;
-  /** Montants BRUTS en devise d'origine (colonnes debit/credit_currency). */
-  debitCurrency?: number | string | null;
-  creditCurrency?: number | string | null;
+  /** Montants BRUTS en devise d'origine (colonnes debit/credit_tx_amount). */
+  debitTxAmount?: number | string | null;
+  creditTxAmount?: number | string | null;
   /** Taux de conversion figé à l'écriture (fx_rate). */
   fxRate?: number | string | null;
   /** Imputation analytique optionnelle. */
@@ -63,7 +63,7 @@ export interface JournalEntryTableProps {
  * la devise TRANSACTIONNELLE (« 2 952 500,00 USD » pour un montant XOF).
  * Désormais : label XOF systématique + mention secondaire
  * « ≈ 5 000,00 USD @ 590,50 » quand la devise d'origine ≠ XOF (montants
- * bruts `debit/credit_currency` + `fx_rate` stockés sur la ligne).
+ * bruts `debit/credit_tx_amount` + `fx_rate` stockés sur la ligne).
  */
 export function JournalEntryTable({ entry, className }: JournalEntryTableProps) {
   const totalDebit = entry.lines.reduce((s, l) => s + numeric(l.debit), 0);
@@ -104,10 +104,10 @@ export function JournalEntryTable({ entry, className }: JournalEntryTableProps) 
               <TableCell className="font-mono text-xs">{l.accountCode}</TableCell>
               <TableCell>{l.label ?? '—'}</TableCell>
               <TableCell className="text-right">
-                <AmountCell amountXof={l.debit} line={l} txAmount={l.debitCurrency} />
+                <AmountCell amountXof={l.debit} line={l} txAmount={l.debitTxAmount} />
               </TableCell>
               <TableCell className="text-right">
-                <AmountCell amountXof={l.credit} line={l} txAmount={l.creditCurrency} />
+                <AmountCell amountXof={l.credit} line={l} txAmount={l.creditTxAmount} />
               </TableCell>
             </TableRow>
           ))}

@@ -131,8 +131,8 @@ function toDisplayEntry(e: JournalEntry): DisplayJournalEntry {
       currency: l.currency,
       // Hotfix devise : montants BRUTS + taux figé pour la mention
       // secondaire (« ≈ 5 000,00 USD @ 590,50 ») — debit/credit sont en XOF.
-      debitCurrency: l.debitCurrency,
-      creditCurrency: l.creditCurrency,
+      debitTxAmount: l.debitTxAmount,
+      creditTxAmount: l.creditTxAmount,
       fxRate: l.fx_rate,
       projectId: l.projectId,
       grantId: l.grantId,

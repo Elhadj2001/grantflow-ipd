@@ -15,7 +15,7 @@ import { UnknownCurrencyException } from '../../common/exceptions/business.excep
  *
  *  I1. currency != 'XOF' ⟹ fx_rate ET fx_rate_date renseignés.
  *  I2. debit/credit sont en XOF (devise de tenue) ; le brut transactionnel
- *      est dans debit_currency/credit_currency.
+ *      est dans debit_tx_amount/credit_tx_amount.
  *  I3. fx_rate renseigné ⟹ fx_rate > 0.
  *  I4. fx_rate renseigné ⟹ fx_rate_date non null.
  *  I5. Toutes les lignes d'un entry partagent la même currency
@@ -40,8 +40,8 @@ describe('PostingService — invariants multidevise (sentinelles US-022)', () =>
     debit: number;
     credit: number;
     currency: string;
-    debitCurrency: Prisma.Decimal | number | null;
-    creditCurrency: Prisma.Decimal | number | null;
+    debitTxAmount: Prisma.Decimal | number | null;
+    creditTxAmount: Prisma.Decimal | number | null;
     fx_rate: number | null;
     fx_rate_date: Date | null;
   };
@@ -143,19 +143,19 @@ describe('PostingService — invariants multidevise (sentinelles US-022)', () =>
       expect(lines[0].fx_rate).toBe(655.957); // I1
     });
 
-    it('I2 — montant en XOF dans debit, brut transactionnel dans debit_currency', async () => {
+    it('I2 — montant en XOF dans debit, brut transactionnel dans debit_tx_amount', async () => {
       await svc.createCommitmentEntry(makePo({ totalHt: new Prisma.Decimal('100000'), currency: 'EUR' }), actor);
       const lines = linesOf(prisma.journalLine.createMany.mock.calls);
       expect(lines[0].debit).toBe(65595700); // XOF, PAS 100000
-      expect(Number(lines[0].debitCurrency)).toBe(100000); // brut EUR
-      expect(Number(lines[1].creditCurrency)).toBe(100000);
+      expect(Number(lines[0].debitTxAmount)).toBe(100000); // brut EUR
+      expect(Number(lines[1].creditTxAmount)).toBe(100000);
     });
 
-    it('I2 (XOF natif) — pas de debit_currency, fx_rate = 1', async () => {
+    it('I2 (XOF natif) — pas de debit_tx_amount, fx_rate = 1', async () => {
       await svc.createCommitmentEntry(makePo({ totalHt: new Prisma.Decimal('500000'), currency: 'XOF' }), actor);
       const lines = linesOf(prisma.journalLine.createMany.mock.calls);
       expect(lines[0].debit).toBe(500000);
-      expect(lines[0].debitCurrency).toBeNull();
+      expect(lines[0].debitTxAmount).toBeNull();
       expect(lines[0].fx_rate).toBe(1);
     });
 
@@ -185,12 +185,12 @@ describe('PostingService — invariants multidevise (sentinelles US-022)', () =>
 
   // ================= postPayment =================
   describe('postPayment', () => {
-    it('I1/I2 — paiement EUR : debit en XOF, fx_rate set, debit_currency = brut', async () => {
+    it('I1/I2 — paiement EUR : debit en XOF, fx_rate set, debit_tx_amount = brut', async () => {
       await svc.postPayment(actor, makePayment('EUR'), makeBank('EUR'));
       const lines = linesOf(prisma.journalLine.createMany.mock.calls);
       // 118 000 EUR × 655,957 = 77 402 926 XOF (postPayment stocke un Decimal).
       expect(Number(lines[0].debit)).toBe(77402926);
-      expect(Number(lines[0].debitCurrency)).toBe(118000);
+      expect(Number(lines[0].debitTxAmount)).toBe(118000);
       expect(lines[0].fx_rate).toBe(655.957);
       expect(lines[0].fx_rate_date).toBeInstanceOf(Date);
     });

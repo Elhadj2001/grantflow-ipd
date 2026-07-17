@@ -63,7 +63,7 @@ async function main(): Promise<void> {
          FROM gl.fiscal_period fp WHERE fp.code = '2026-01'`,
       );
       await tx.$executeRawUnsafe(
-        `INSERT INTO gl.journal_line (entry_id, line_number, account_code, debit, credit, currency, debit_currency)
+        `INSERT INTO gl.journal_line (entry_id, line_number, account_code, debit, credit, currency, debit_tx_amount)
          SELECT id, 1, 'ZZ1', 65595700, 0, 'EUR', 100000 FROM gl.journal_entry WHERE entry_number='TEST-US139-E1'
          UNION ALL SELECT id, 2, 'ZZ1', 50000, 0, 'XOF', NULL FROM gl.journal_entry WHERE entry_number='TEST-US139-E1'
          UNION ALL SELECT id, 3, 'ZZ1', 0, 20000, 'XOF', NULL FROM gl.journal_entry WHERE entry_number='TEST-US139-E1'
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
          FROM gl.fiscal_period fp WHERE fp.code = '2026-01'`,
       );
       await tx.$executeRawUnsafe(
-        `INSERT INTO gl.journal_line (entry_id, line_number, account_code, debit, credit, currency, debit_currency)
+        `INSERT INTO gl.journal_line (entry_id, line_number, account_code, debit, credit, currency, debit_tx_amount)
          SELECT id, 1, 'ZZ1', 999999, 0, 'XOF', NULL FROM gl.journal_entry WHERE entry_number='TEST-US139-E2'`,
       );
       rows = await tx.$queryRawUnsafe<BalanceRow[]>(

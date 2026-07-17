@@ -138,7 +138,7 @@ export class PostingService {
     // fonctionnelle SYSCEBNL). On convertit totalHt depuis la devise du BC
     // via ExchangeRateService — si po.currency = XOF, c'est un no-op identité
     // (comportement historique préservé). On conserve aussi le montant
-    // transactionnel brut (debitCurrency/creditCurrency) et le taux
+    // transactionnel brut (debitTxAmount/creditTxAmount) et le taux
     // (fx_rate/fx_rate_date) pour respecter la Règle d'or n°4 (CLAUDE.md §2).
     const totalCurrency = new Prisma.Decimal(po.totalHt);
     const conv = await this.fx.convertToXof(po.totalHt, po.currency, po.orderDate);
@@ -185,8 +185,8 @@ export class PostingService {
             debit: totalXof,
             credit: 0,
             currency: po.currency,
-            debitCurrency: isXof ? null : totalCurrency,
-            creditCurrency: isXof ? null : 0,
+            debitTxAmount: isXof ? null : totalCurrency,
+            creditTxAmount: isXof ? null : 0,
             fx_rate: conv.fxRate,
             fx_rate_date: conv.fxRateDate,
             ...baseImputation,
@@ -199,8 +199,8 @@ export class PostingService {
             debit: 0,
             credit: totalXof,
             currency: po.currency,
-            debitCurrency: isXof ? null : 0,
-            creditCurrency: isXof ? null : totalCurrency,
+            debitTxAmount: isXof ? null : 0,
+            creditTxAmount: isXof ? null : totalCurrency,
             fx_rate: conv.fxRate,
             fx_rate_date: conv.fxRateDate,
             ...baseImputation,
@@ -292,9 +292,9 @@ export class PostingService {
           credit: l.debit,
           currency: l.currency,
           // US-140 (I1) : l'extourne propage le taux figé de l'origine
-          // (debit↔credit inversés → debit_currency/credit_currency inversés).
-          debitCurrency: l.creditCurrency,
-          creditCurrency: l.debitCurrency,
+          // (debit↔credit inversés → debit_tx_amount/credit_tx_amount inversés).
+          debitTxAmount: l.creditTxAmount,
+          creditTxAmount: l.debitTxAmount,
           fx_rate: l.fx_rate,
           fx_rate_date: l.fx_rate_date,
           projectId: l.projectId,
@@ -375,7 +375,7 @@ export class PostingService {
    * Multidevises : si invoice.currency ≠ XOF, on cherche un taux dans
    * `ref.exchange_rate` à invoice_date (sinon EXCHANGE_RATE_MISSING),
    * on convertit en XOF pour les colonnes `debit`/`credit`, et on
-   * conserve la valeur originale dans `debit_currency`/`credit_currency`.
+   * conserve la valeur originale dans `debit_tx_amount`/`credit_tx_amount`.
    * L'écart de change effectif sera capté au paiement (sprint 5).
    *
    * Le statut de la facture passe à `posted`. `postedAt` est mis à jour.
@@ -479,8 +479,8 @@ export class PostingService {
           debit: amountXof,
           credit: 0,
           currency: invoice.currency,
-          debitCurrency: invoice.currency === 'XOF' ? null : amountCurrency,
-          creditCurrency: invoice.currency === 'XOF' ? null : 0,
+          debitTxAmount: invoice.currency === 'XOF' ? null : amountCurrency,
+          creditTxAmount: invoice.currency === 'XOF' ? null : 0,
           // US-140 (I1) : taux figé propagé à TOUTES les lignes de la facture.
           fx_rate: exchangeRate,
           fx_rate_date: invoice.invoiceDate,
@@ -500,8 +500,8 @@ export class PostingService {
           debit: vatXof,
           credit: 0,
           currency: invoice.currency,
-          debitCurrency: invoice.currency === 'XOF' ? null : totalVatCurrency,
-          creditCurrency: invoice.currency === 'XOF' ? null : 0,
+          debitTxAmount: invoice.currency === 'XOF' ? null : totalVatCurrency,
+          creditTxAmount: invoice.currency === 'XOF' ? null : 0,
           fx_rate: exchangeRate,
           fx_rate_date: invoice.invoiceDate,
         });
@@ -519,8 +519,8 @@ export class PostingService {
         debit: 0,
         credit: ttcXof,
         currency: invoice.currency,
-        debitCurrency: invoice.currency === 'XOF' ? null : 0,
-        creditCurrency: invoice.currency === 'XOF' ? null : totalTtcCurrency,
+        debitTxAmount: invoice.currency === 'XOF' ? null : 0,
+        creditTxAmount: invoice.currency === 'XOF' ? null : totalTtcCurrency,
         fx_rate: exchangeRate,
         fx_rate_date: invoice.invoiceDate,
       });
@@ -689,8 +689,8 @@ export class PostingService {
           debit: l.credit,
           credit: l.debit,
           currency: l.currency,
-          debitCurrency: l.creditCurrency ?? null,
-          creditCurrency: l.debitCurrency ?? null,
+          debitTxAmount: l.creditTxAmount ?? null,
+          creditTxAmount: l.debitTxAmount ?? null,
           // US-140 (I1) : propage le taux figé de la ligne d'origine.
           fx_rate: l.fx_rate,
           fx_rate_date: l.fx_rate_date,
@@ -745,8 +745,8 @@ export class PostingService {
             credit: l.debit,
             currency: l.currency,
             // US-140 (I1) : propage le taux figé de l'engagement d'origine.
-            debitCurrency: l.creditCurrency,
-            creditCurrency: l.debitCurrency,
+            debitTxAmount: l.creditTxAmount,
+            creditTxAmount: l.debitTxAmount,
             fx_rate: l.fx_rate,
             fx_rate_date: l.fx_rate_date,
             projectId: l.projectId,
@@ -865,7 +865,7 @@ export class PostingService {
     // (devise fonctionnelle). On convertit depuis la devise du paiement
     // (= devise du compte bancaire, cf. contrôle PaymentCurrencyMismatch
     // ci-dessus) ; XOF → no-op identité. On garde le montant transactionnel
-    // brut (debitCurrency/creditCurrency) + le taux (Règle d'or n°4).
+    // brut (debitTxAmount/creditTxAmount) + le taux (Règle d'or n°4).
     const amountCurrency = new Prisma.Decimal(payment.amount);
     const conv = await this.fx.convertToXof(payment.amount, payment.currency, payment.paymentDate);
     const amountXof = new Prisma.Decimal(conv.xofAmount);
@@ -901,8 +901,8 @@ export class PostingService {
             debit: amountXof,
             credit: 0,
             currency: payment.currency,
-            debitCurrency: isXof ? null : amountCurrency,
-            creditCurrency: isXof ? null : 0,
+            debitTxAmount: isXof ? null : amountCurrency,
+            creditTxAmount: isXof ? null : 0,
             fx_rate: conv.fxRate,
             fx_rate_date: conv.fxRateDate,
           },
@@ -914,8 +914,8 @@ export class PostingService {
             debit: 0,
             credit: amountXof,
             currency: payment.currency,
-            debitCurrency: isXof ? null : 0,
-            creditCurrency: isXof ? null : amountCurrency,
+            debitTxAmount: isXof ? null : 0,
+            creditTxAmount: isXof ? null : amountCurrency,
             fx_rate: conv.fxRate,
             fx_rate_date: conv.fxRateDate,
           },
@@ -1018,7 +1018,7 @@ export class PostingService {
     // US-140 (I1/F18) : l'extourne classe 8 offsette un engagement STOCKÉ EN
     // XOF (US-020). On convertit donc le montant à extourner et le total au
     // taux FIGÉ de l'engagement d'origine (1 si XOF/legacy → identité), et on
-    // conserve le brut transactionnel dans debit_currency/credit_currency.
+    // conserve le brut transactionnel dans debit_tx_amount/credit_tx_amount.
     const commitFxRate = original.lines[0]?.fx_rate ?? null;
     const commitFxRateDate = original.lines[0]?.fx_rate_date ?? null;
     const rate = commitFxRate ? new Prisma.Decimal(commitFxRate) : new Prisma.Decimal(1);
@@ -1055,8 +1055,8 @@ export class PostingService {
           debit: 0,
           credit: amountToReverse,
           currency: po.currency,
-          debitCurrency: isXof ? null : 0,
-          creditCurrency: isXof ? null : amountToReverseCurrency,
+          debitTxAmount: isXof ? null : 0,
+          creditTxAmount: isXof ? null : amountToReverseCurrency,
           fx_rate: commitFxRate,
           fx_rate_date: commitFxRateDate,
           ...imputation,
@@ -1069,8 +1069,8 @@ export class PostingService {
           debit: amountToReverse,
           credit: 0,
           currency: po.currency,
-          debitCurrency: isXof ? null : amountToReverseCurrency,
-          creditCurrency: isXof ? null : 0,
+          debitTxAmount: isXof ? null : amountToReverseCurrency,
+          creditTxAmount: isXof ? null : 0,
           fx_rate: commitFxRate,
           fx_rate_date: commitFxRateDate,
           ...imputation,

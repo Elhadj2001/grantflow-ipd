@@ -630,8 +630,10 @@ CREATE TABLE gl.journal_line (
     debit           NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (debit >= 0),
     credit          NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (credit >= 0),
     currency        CHAR(3) NOT NULL DEFAULT 'XOF',
-    debit_currency  NUMERIC(18,2) DEFAULT 0,
-    credit_currency NUMERIC(18,2) DEFAULT 0,
+    -- US-098 : renommées depuis debit_currency/credit_currency (noms
+    -- trompeurs — ce sont des MONTANTS bruts en devise, pas des codes devise).
+    debit_tx_amount  NUMERIC(18,2) DEFAULT 0,
+    credit_tx_amount NUMERIC(18,2) DEFAULT 0,
     -- Imputation analytique
     project_id      UUID REFERENCES ref.project(id),
     grant_id        UUID REFERENCES ref.grant_agreement(id),
@@ -1431,8 +1433,9 @@ ON CONFLICT (code) DO NOTHING;
 --
 --  NOTES DE MAPPING (noms réels confirmés par lecture du DDL) :
 --    - gl.journal_line stocke DÉJÀ l'équivalent XOF (debit/credit =
---      devise fonctionnelle) + le transactionnel (debit_currency/
---      credit_currency). Il ne lui manque que fx_rate + fx_rate_date.
+--      devise fonctionnelle) + le transactionnel (debit_tx_amount/
+--      credit_tx_amount, ex debit_currency/credit_currency avant US-098).
+--      Il ne lui manque que fx_rate + fx_rate_date.
 --    - ap.payment porte déjà original_amount/original_currency/
 --      exchange_rate (axe facture↔paiement, écart FX 666/766). On ajoute
 --      le triplet ADR-005 standardisé (amount↔XOF fonctionnel) en parallèle.
@@ -1535,12 +1538,12 @@ COMMENT ON COLUMN ap.invoice_line.fx_rate_date IS
 -- 7) gl.journal_line — l'équivalent XOF EST déjà debit/credit ; il manque le taux + sa date.
 --    On N'AJOUTE PAS de *_xof (ce serait dupliquer debit/credit). On ajoute
 --    seulement fx_rate + fx_rate_date pour reproduire la conversion
---    debit_currency/credit_currency (transactionnel) → debit/credit (XOF).
+--    debit_tx_amount/credit_tx_amount (transactionnel) → debit/credit (XOF).
 ALTER TABLE gl.journal_line
     ADD COLUMN IF NOT EXISTS fx_rate      NUMERIC(14,6),
     ADD COLUMN IF NOT EXISTS fx_rate_date DATE;
 COMMENT ON COLUMN gl.journal_line.fx_rate IS
-  'ADR-005 — taux appliqué pour convertir debit_currency/credit_currency (devise transactionnelle) en debit/credit (XOF fonctionnel). 1 si currency=XOF.';
+  'ADR-005 — taux appliqué pour convertir debit_tx_amount/credit_tx_amount (devise transactionnelle) en debit/credit (XOF fonctionnel). 1 si currency=XOF.';
 COMMENT ON COLUMN gl.journal_line.fx_rate_date IS
   'ADR-005 — date du taux fx_rate (ref.exchange_rate.rate_date). debit/credit portent déjà l''équivalent XOF.';
 
@@ -1596,7 +1599,7 @@ COMMENT ON COLUMN ref.budget_line.currency IS
 -- =========================================================================
 -- Depuis US-020/F18, journal_line.debit/credit sont stockés en XOF (devise
 -- de tenue SYSCEBNL) ; currency porte la devise transactionnelle et
--- debit_currency/credit_currency le montant brut en devise étrangère.
+-- debit_tx_amount/credit_tx_amount le montant brut en devise étrangère.
 -- On expose des alias explicites *_xof (lever toute ambiguïté pour la balance
 -- / le grand livre / les états réglementaires) + une ventilation informative
 -- des devises transactionnelles ÉTRANGÈRES (currency <> 'XOF' ; la base XOF
@@ -1959,3 +1962,40 @@ END $$;
 
 COMMENT ON COLUMN ref.budget_line.category IS
   'Catégorie comptable de la ligne budgétaire (même domaine que grant_office.expense_nature.category). Support de LineNatureCoherentRule / PPT-4 (ADR-007). NULL = non catégorisée (règle permissive).';
+
+-- =========================================================================
+-- Sprint S9 / US-098 — renommage gl.journal_line debit_currency/credit_currency
+-- =========================================================================
+-- Les colonnes debit_currency/credit_currency sont des MONTANTS bruts en
+-- devise transactionnelle (NUMERIC 18,2), PAS des codes devise : le nom a
+-- directement causé le bug F-S8-25 (label « USD » affiché sur des montants
+-- XOF). Renommage en debit_tx_amount/credit_tx_amount (F-S8-25, ADR-005).
+--
+-- IDEMPOTENT : RENAME conditionné à l'existence de l'ancien nom (base
+-- fraîche = CREATE TABLE déjà au nouveau nom → no-op). RENAME COLUMN ne
+-- touche ni les données, ni les triggers (check_entry_balance,
+-- check_period_open, compute_hash_chain), ni les CHECK, ni les index —
+-- aucune vue ne référence ces colonnes (v_general_balance lit debit/credit).
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'gl' AND table_name = 'journal_line'
+      AND column_name = 'debit_currency'
+  ) THEN
+    ALTER TABLE gl.journal_line RENAME COLUMN debit_currency TO debit_tx_amount;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'gl' AND table_name = 'journal_line'
+      AND column_name = 'credit_currency'
+  ) THEN
+    ALTER TABLE gl.journal_line RENAME COLUMN credit_currency TO credit_tx_amount;
+  END IF;
+END $$;
+
+COMMENT ON COLUMN gl.journal_line.debit_tx_amount IS
+  'ADR-005 — MONTANT brut au débit dans la devise transactionnelle (currency). NULL/0 si currency=XOF (debit porte déjà le XOF). Ex debit_currency (renommée US-098 : le nom laissait croire à un code devise — cause du bug F-S8-25).';
+COMMENT ON COLUMN gl.journal_line.credit_tx_amount IS
+  'ADR-005 — MONTANT brut au crédit dans la devise transactionnelle (currency). NULL/0 si currency=XOF. Ex credit_currency (renommée US-098).';
