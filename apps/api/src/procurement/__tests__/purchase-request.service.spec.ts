@@ -274,6 +274,37 @@ describe('PurchaseRequestService', () => {
       );
       expect(Number(res.totalAmount)).toBe(3000);
     });
+
+    // US-096 (F-S8-11) : total calculé en Prisma.Decimal — 3 × (0,1 × 1)
+    // vaut exactement 0.3 (l'ancienne réduction float64 donnait
+    // 0.30000000000000004, persisté tel quel en Decimal(18,2)).
+    it('US-096 — totalAmount Decimal exact (3 × 0,1 → 0.3, pas 0.30000000000000004)', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue({
+        projectId,
+        budgetLines: [{ id: blId1 }],
+      } as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
+      let persisted: Prisma.Decimal | undefined;
+      prisma.purchaseRequest.create.mockImplementation((args: unknown) => {
+        const { data } = args as { data: { totalAmount: Prisma.Decimal } };
+        persisted = data.totalAmount;
+        return Promise.resolve(
+          makePrWithLines([], { totalAmount: new Prisma.Decimal(data.totalAmount) }),
+        ) as never;
+      });
+      await svc.create(
+        demandeur,
+        createDto({
+          lines: [
+            { description: 'A', quantity: 0.1, unit: 'unit', unitPrice: 1, budgetLineId: blId1 },
+            { description: 'B', quantity: 0.1, unit: 'unit', unitPrice: 1, budgetLineId: blId1 },
+            { description: 'C', quantity: 0.1, unit: 'unit', unitPrice: 1, budgetLineId: blId1 },
+          ],
+        }),
+      );
+      expect(persisted).toBeInstanceOf(Prisma.Decimal);
+      expect(persisted?.toString()).toBe('0.3');
+    });
   });
 
   // ------------------------------------------------------------------

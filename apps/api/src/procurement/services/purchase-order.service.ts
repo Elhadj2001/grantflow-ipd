@@ -706,13 +706,17 @@ export class PurchaseOrderService {
       unitPrice: Number(l.unitPrice),
       lineTotal: Number(l.lineTotal),
     }));
-    // Agrégat HT exact en Decimal (F10) depuis lineTotal (colonne Decimal),
-    // puis .toNumber() à la frontière (DTO PDF + createFromSimulatedPdf attendent number).
-    const totalHt = po.lines
-      .reduce((s, l) => s.plus(l.lineTotal ?? 0), new Prisma.Decimal(0))
-      .toNumber();
-    const totalVat = Math.round(totalHt * SIM_VAT_RATE * 100) / 100;
-    const totalTtc = Math.round((totalHt + totalVat) * 100) / 100;
+    // US-096 (F-S8-12) : chaîne HT → TVA → TTC 100 % Decimal. TVA arrondie
+    // half-up au centime UNE fois (ADR-005 addendum) ; TTC = HT + TVA est
+    // alors exact à 2 décimales (aucun re-arrondi). .toNumber() seulement à
+    // la frontière (DTO PDF + createFromSimulatedPdf attendent number).
+    const totalHtD = po.lines.reduce((s, l) => s.plus(l.lineTotal ?? 0), new Prisma.Decimal(0));
+    const totalVatD = totalHtD
+      .times(SIM_VAT_RATE)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    const totalHt = totalHtD.toNumber();
+    const totalVat = totalVatD.toNumber();
+    const totalTtc = totalHtD.plus(totalVatD).toNumber();
 
     const invoiceDate = new Date();
     const dueDate = new Date(invoiceDate);

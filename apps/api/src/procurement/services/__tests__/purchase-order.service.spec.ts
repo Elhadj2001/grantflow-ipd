@@ -541,6 +541,37 @@ describe('PurchaseOrderService', () => {
       );
     });
 
+    // US-096 (F-S8-12) : chaîne TVA/TTC en Decimal — cas où float64 arrondissait
+    // FAUX : HT 1,25 → TVA exacte 0,225 → half-up 0,23. L'ancien code float
+    // (1.25×0.18×100 = 22.4999999999999964 → Math.round → 22) donnait 0,22.
+    it('US-096 — TVA Decimal half-up exacte (HT 1,25 → TVA 0,23, pas 0,22)', async () => {
+      prisma.purchaseOrder.findUnique.mockResolvedValue({
+        ...makePo({ status: PoStatus.sent }),
+        lines: [
+          {
+            id: 'l-1',
+            lineNumber: 1,
+            description: 'Micro-consommable',
+            quantity: new Prisma.Decimal('1'),
+            unit: 'u',
+            unitPrice: new Prisma.Decimal('1.25'),
+            lineTotal: new Prisma.Decimal('1.25'),
+            budgetLineId: 'bl-1',
+          },
+        ],
+      } as never);
+      prisma.invoice.count.mockResolvedValue(0 as never);
+      await svc.simulateInvoice(sa, poId, 'inject');
+      expect(invoiceSvc.createFromSimulatedPdf).toHaveBeenCalledWith(
+        sa,
+        expect.objectContaining({
+          totalHt: 1.25,
+          totalVat: 0.23,
+          totalTtc: 1.48, // HT + TVA exact à 2 déc. — aucun re-arrondi
+        }),
+      );
+    });
+
     it('rejette si le PO n\'est pas en statut sent', async () => {
       prisma.purchaseOrder.findUnique.mockResolvedValue({
         ...makePo({ status: PoStatus.draft }),

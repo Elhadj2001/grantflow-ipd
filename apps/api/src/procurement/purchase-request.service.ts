@@ -190,9 +190,11 @@ export class PurchaseRequestService {
     }
 
     // Calcul total (côté app — DB ne le calcule que sur PRL via GENERATED).
+    // US-096 (F-S8-11) : réduction en Prisma.Decimal — le total persisté en
+    // Decimal(18,2) ne transite plus par float64.
     const totalAmount = dto.lines.reduce(
-      (sum, l) => sum + Number(l.quantity) * Number(l.unitPrice),
-      0,
+      (sum, l) => sum.plus(new Prisma.Decimal(l.quantity).times(l.unitPrice)),
+      new Prisma.Decimal(0),
     );
 
     const appUserId = await this.resolveAppUserId(actor);
@@ -253,7 +255,7 @@ export class PurchaseRequestService {
         prId: pr.id,
         prNumber,
         actorId: actor.id,
-        total: totalAmount,
+        total: totalAmount.toString(),
         currency: dto.currency,
         requestType: dto.requestType,
       },
@@ -279,7 +281,7 @@ export class PurchaseRequestService {
     cashBoxId?: string;
     grant: { id: string; allowsCashPayment: boolean };
     requesterId: string;
-    totalAmount: number;
+    totalAmount: number | Prisma.Decimal;
     /** Devise de la DA en cours (pour conversion XOF du plafond). */
     currency: string;
   }): Promise<void> {
@@ -399,7 +401,9 @@ export class PurchaseRequestService {
     }
 
     // Si on remplace les lignes, on revalide leur grant ET on recalcule total.
-    let totalAmount = Number(pr.totalAmount);
+    // US-096 (F-S8-11) : Decimal de bout en bout (pr.totalAmount est déjà
+    // un Prisma.Decimal — plus de round-trip float).
+    let totalAmount: Prisma.Decimal = pr.totalAmount;
     if (dto.lines) {
       const validBlIds = new Set(
         (
@@ -415,8 +419,8 @@ export class PurchaseRequestService {
         }
       }
       totalAmount = dto.lines.reduce(
-        (sum, l) => sum + Number(l.quantity) * Number(l.unitPrice),
-        0,
+        (sum, l) => sum.plus(new Prisma.Decimal(l.quantity).times(l.unitPrice)),
+        new Prisma.Decimal(0),
       );
     }
 
