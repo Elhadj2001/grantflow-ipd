@@ -23,6 +23,8 @@ import {
 } from '../../common/exceptions/business.exception';
 import { MailService } from '../../common/services/mail.service';
 import { StorageService } from '../../common/services/storage.service';
+import { mapStorageError } from '../../common/services/storage-errors';
+import type { EntityDocument } from '../../common/services/entity-document';
 import { PostingService } from '../../accounting/services/posting.service';
 import { maskEmail } from '../../common/utils/mask-email.util';
 import { SupplierInvoicePdfService } from './supplier-invoice-pdf.service';
@@ -847,12 +849,45 @@ export class PurchaseOrderService {
     if (!po) throw new EntityNotFoundException(ENTITY_NAME, { id: poId });
     await this.assertCanRead(actor, po);
     if (!po.pdfObjectKey) throw new PoNoPdfException(po.id);
-    const obj = await this.storage.getObject(PO_BUCKET, po.pdfObjectKey);
-    return {
-      buffer: obj.buffer,
-      contentType: 'application/pdf',
-      filename: `${po.poNumber}.pdf`,
-    };
+    try {
+      const obj = await this.storage.getObject(PO_BUCKET, po.pdfObjectKey);
+      return {
+        buffer: obj.buffer,
+        contentType: 'application/pdf',
+        filename: `${po.poNumber}.pdf`,
+      };
+    } catch (err) {
+      // US-069 : plus jamais de 500 brut — NoSuchKey → 404, sinon 503.
+      throw mapStorageError(err, {
+        entityType: 'purchase_order',
+        entityId: poId,
+        objectKey: po.pdfObjectKey,
+      });
+    }
+  }
+
+  /**
+   * US-069 — documents archivés d'un BC (panneau Documents). Dérivé de
+   * `pdfObjectKey` (PDF généré au send) — aucune table dédiée. Taille en
+   * statObject BEST-EFFORT (null si stockage indisponible).
+   */
+  async listDocuments(actor: AuthenticatedUser, poId: string): Promise<EntityDocument[]> {
+    const po = await this.prisma.purchaseOrder.findUnique({ where: { id: poId } });
+    if (!po) throw new EntityNotFoundException(ENTITY_NAME, { id: poId });
+    await this.assertCanRead(actor, po);
+    if (!po.pdfObjectKey) return [];
+    const stat = await this.storage.statObjectSafe(PO_BUCKET, po.pdfObjectKey);
+    return [
+      {
+        objectKey: po.pdfObjectKey,
+        label: `${po.poNumber}.pdf`,
+        kind: 'po_pdf',
+        contentType: 'application/pdf',
+        sizeBytes: stat?.size ?? null,
+        storedAt: (po.sentAt ?? po.createdAt)?.toISOString() ?? null,
+        downloadPath: `/purchase-orders/${poId}/pdf`,
+      },
+    ];
   }
 
   // ------------------------------------------------------------------

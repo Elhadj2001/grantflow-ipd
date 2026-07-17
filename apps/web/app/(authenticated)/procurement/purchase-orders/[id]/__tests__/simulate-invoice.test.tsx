@@ -62,6 +62,12 @@ jest.mock('@/hooks/use-features', () => ({
 const toastMock = jest.fn();
 jest.mock('@/hooks/use-toast', () => ({ toast: (...args: unknown[]) => toastMock(...args) }));
 
+// US-069 : la page monte le panneau Documents (usePoDocuments = useQuery) —
+// stub sans QueryClient, le panneau lui-même a sa propre suite de tests.
+jest.mock('@/hooks/use-documents', () => ({
+  usePoDocuments: () => ({ data: [], isLoading: false, isError: false }),
+}));
+
 // --- Mocks des fonctions API ---
 const injectMock = jest.fn();
 const downloadMock = jest.fn();

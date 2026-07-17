@@ -2058,6 +2058,39 @@ export class EligibilityValidationException extends BusinessException {
 }
 
 /**
+ * US-069 (Sprint S7) — le document demandé n'est pas archivé : l'entité n'a
+ * pas de `pdfObjectKey`, ou l'objet est absent du stockage (NoSuchKey). Le
+ * front affiche l'état vide « Aucun document archivé » — jamais d'icône
+ * cassée. 404 Not Found.
+ */
+export class DocumentNotFoundException extends BusinessException {
+  constructor(entityType: string, entityId: string, objectKey?: string | null) {
+    super(
+      ErrorCode.BUSINESS.DOCUMENT_NOT_FOUND,
+      HttpStatus.NOT_FOUND,
+      `Aucun document archivé pour ${entityType} ${entityId}.`,
+      { entityType, entityId, objectKey: objectKey ?? null },
+    );
+  }
+}
+
+/**
+ * US-069 (Sprint S7) — le stockage objet (R2/MinIO) est injoignable ou en
+ * erreur non-NoSuchKey (credentials S3_* absents, réseau…). Distinct du 404 :
+ * le document existe peut-être mais on ne peut pas l'affirmer. 503.
+ */
+export class DocumentStoreUnavailableException extends BusinessException {
+  constructor(entityType: string, entityId: string, cause?: string) {
+    super(
+      ErrorCode.BUSINESS.DOCUMENT_STORE_UNAVAILABLE,
+      HttpStatus.SERVICE_UNAVAILABLE,
+      `Stockage documentaire indisponible (${entityType} ${entityId}).`,
+      { entityType, entityId, cause: cause ?? null },
+    );
+  }
+}
+
+/**
  * US-051 (ADR-006) — transition de workflow Note Technique impossible depuis
  * le statut courant (state machine : draft → pending_daf → validated_daf →
  * active → superseded). 409 Conflict.

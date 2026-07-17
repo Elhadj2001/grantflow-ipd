@@ -133,11 +133,28 @@ export class PurchaseOrderController {
     return this.svc.findOne(user, id);
   }
 
+  @Get(':id/documents')
+  @ApiOperation({
+    summary: 'US-069 — documents archivés du BC (panneau Documents)',
+    description:
+      'Liste dérivée des métadonnées existantes (pdfObjectKey, PDF généré au send). ' +
+      'Taille best-effort. Même RBAC que le détail BC.',
+  })
+  listDocuments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.svc.listDocuments(user, id);
+  }
+
   @Get(':id/pdf')
   @ApiProduces('application/pdf')
   @Header('Content-Type', 'application/pdf')
   @ApiOperation({ summary: 'Télécharger le PDF du BC (depuis MinIO)' })
-  @ApiNotFoundResponse({ description: 'PO_NO_PDF si le BC n\'a pas encore été envoyé' })
+  @ApiNotFoundResponse({
+    description:
+      'PO_NO_PDF si le BC n\'a pas encore été envoyé ; BUSINESS.DOCUMENT_NOT_FOUND si l\'objet est absent (US-069)',
+  })
   async downloadPdf(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,

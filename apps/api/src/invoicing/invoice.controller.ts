@@ -164,11 +164,27 @@ export class InvoiceController {
     return this.svc.findMatchDetails(user, id);
   }
 
+  @Get('invoices/:id/documents')
+  @ApiOperation({
+    summary: 'US-069 — documents archivés de la facture (panneau Documents)',
+    description:
+      'Liste dérivée des métadonnées existantes (pdfObjectKey). Taille best-effort ' +
+      '(null si stockage indisponible). Même RBAC que le détail facture.',
+  })
+  listDocuments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.svc.listDocuments(user, id);
+  }
+
   @Get('invoices/:id/pdf')
   @ApiProduces('application/pdf')
   @Header('Content-Type', 'application/pdf')
   @ApiOperation({ summary: 'Télécharger le PDF de la facture (stream depuis MinIO)' })
-  @ApiNotFoundResponse({ description: 'PDF absent (facture saisie manuellement)' })
+  @ApiNotFoundResponse({
+    description: 'BUSINESS.DOCUMENT_NOT_FOUND — PDF jamais archivé ou objet absent (US-069)',
+  })
   async downloadPdf(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,

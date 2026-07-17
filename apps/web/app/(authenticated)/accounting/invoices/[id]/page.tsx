@@ -22,7 +22,8 @@ import { StatusBadge } from '@/components/common/StatusBadge';
 import { AmountDisplay } from '@/components/common/AmountDisplay';
 import { DateDisplay } from '@/components/common/DateDisplay';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { PdfFrame } from '@/components/common/PdfFrame';
+import { DocumentsPanel } from '@/components/common/DocumentsPanel';
+import { useInvoiceDocuments } from '@/hooks/use-documents';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -88,6 +89,8 @@ export default function InvoiceDetailPage() {
   const permissions = usePermissions();
   const inv = useInvoice(id);
   const matchDetails = useInvoiceMatchDetails(id);
+  // US-069 : panneau Documents (liste + aperçu inline + visionneuse).
+  const documents = useInvoiceDocuments(id);
   const updateM = useUpdateInvoice(id);
   const submitM = useSubmitInvoice(id);
   const rejectM = useRejectInvoice(id);
@@ -387,20 +390,14 @@ export default function InvoiceDetailPage() {
           </Card>
         </div>
 
-        {/* Aside : OCR + PDF */}
+        {/* Aside : Documents (US-069) + OCR */}
         <aside className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Aperçu PDF</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3">
-              <PdfFrame
-                path={`/invoices/${data.id}/pdf`}
-                height={500}
-                filename={`${data.invoiceNumber}.pdf`}
-              />
-            </CardContent>
-          </Card>
+          <DocumentsPanel
+            documents={documents.data}
+            isLoading={documents.isLoading}
+            isError={documents.isError}
+            emptyMessage="Aucun document archivé (facture saisie manuellement ?)."
+          />
 
           {ocrPayload && (
             <Card>
