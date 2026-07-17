@@ -133,9 +133,12 @@ export function ApercuPdf({ path, titre, hauteur = 'h-[460px]', className }: Ape
             data-testid="document-apercu-iframe"
             // Fragment de vue : lecteur ajusté à la largeur (Chromium/Edge),
             // côté client uniquement (le « # » ne change pas la requête).
+            // US-075 (F-S8-01) : PAS d'attribut sandbox — Chromium refuse
+            // d'instancier son viewer PDF dans une iframe sandboxée (aperçu
+            // blanc pour TOUT document). Le blob est local, même origine,
+            // sans script exécutable — même posture que le projet frère.
             src={`${chargement.src}#view=FitH&toolbar=1`}
             title={titre}
-            sandbox="allow-same-origin"
             className={cn('block w-full rounded-md border border-ipd-bordure-carte bg-ipd-gris-clair', hauteur)}
           />
         ) : (

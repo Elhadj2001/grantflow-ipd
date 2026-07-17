@@ -34,3 +34,14 @@ export function formatQuantityFr(v: number): string {
     v.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 4 }),
   );
 }
+
+/**
+ * US-075 (F-S8-15) — montant FR à 2 décimales FIXES (rendu des rapports
+ * bailleurs et états SYSCEBNL, qui affichent toujours les centimes).
+ * Même normalisation WinAnsi que formatMoneyFr.
+ */
+export function formatMoneyFr2(v: number): string {
+  return withWinAnsiSeparators(
+    v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  );
+}

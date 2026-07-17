@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
+import { formatMoneyFr2 } from '../../common/utils/fr-number-format';
 import type { AggregationResult } from './report-aggregation.service';
 
 export interface PdfRenderInput {
@@ -200,7 +201,9 @@ export class PdfRenderService {
   }
 
   private fmtAmount(v: number): string {
-    return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // US-075 (F-S8-15) : séparateur U+00A0 WinAnsi-safe — le toLocaleString
+    // direct produisait U+202F → glyphe cassé dans les PDF bailleurs.
+    return formatMoneyFr2(v);
   }
   private fmtPct(v: number): string {
     const s = v >= 0 ? '+' : '';

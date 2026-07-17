@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import * as XLSX from 'xlsx';
+import { formatMoneyFr2 } from '../../common/utils/fr-number-format';
 import type { StatementResult } from './financial-statement-generator.service';
 
 export interface StatementRenderInput {
@@ -239,6 +240,8 @@ export class StatementRenderService {
     return d.toISOString().slice(0, 10);
   }
   private fmtAmount(v: number): string {
-    return v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // US-075 (F-S8-15) : séparateur U+00A0 WinAnsi-safe (chemin PDF pdfkit ;
+    // l'Excel tolère U+00A0 sans problème).
+    return formatMoneyFr2(v);
   }
 }

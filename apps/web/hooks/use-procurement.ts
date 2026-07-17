@@ -361,8 +361,10 @@ export function useSendPO(id: string) {
 export function useAcknowledgePO(id: string) {
   const { accessToken } = useToken();
   const qc = useQueryClient();
-  return useMutation<unknown, ApiError, string | undefined>({
-    mutationFn: (contactEmail) => acknowledgePurchaseOrder(id, contactEmail, { accessToken }),
+  // US-075 (F-S8-21) : le paramètre est désormais la référence d'accusé
+  // fournisseur `ackRef` (obligatoire côté DTO), plus un contactEmail mort.
+  return useMutation<unknown, ApiError, string>({
+    mutationFn: (ackRef) => acknowledgePurchaseOrder(id, ackRef, { accessToken }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: procurementKeys.po(id) });
       toast({ variant: 'success', title: 'BC confirmé' });

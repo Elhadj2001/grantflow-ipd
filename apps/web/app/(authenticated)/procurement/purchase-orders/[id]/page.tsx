@@ -294,11 +294,15 @@ export default function PurchaseOrderDetailPage() {
         open={dialog === 'acknowledge'}
         onOpenChange={(o) => !o && setDialog(null)}
         title="Confirmer la prise en compte par le fournisseur"
-        description="Marque le BC comme acknowledged — utile pour le suivi opérationnel."
+        description="Saisissez la référence de l'accusé fournisseur (e-mail, n° d'AR…). Le BC passera en acknowledged."
+        // US-075 (F-S8-21) : ackRef OBLIGATOIRE — le DTO l'exige, l'ancien
+        // appel sans corps était un 400 systématique.
+        requireReason
+        reasonLabel="Référence de l'accusé fournisseur"
         confirmLabel="Confirmer"
         loading={ackM.isPending}
-        onConfirm={async () => {
-          await ackM.mutateAsync(undefined);
+        onConfirm={async (ackRef) => {
+          await ackM.mutateAsync(ackRef ?? '');
           setDialog(null);
         }}
       />

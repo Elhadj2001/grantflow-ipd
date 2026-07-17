@@ -24,6 +24,7 @@ import {
 import { MailService } from '../../common/services/mail.service';
 import { StorageService } from '../../common/services/storage.service';
 import { mapStorageError } from '../../common/services/storage-errors';
+import { formatMoneyFr } from '../../common/utils/fr-number-format';
 import type { EntityDocument } from '../../common/services/entity-document';
 import { PostingService } from '../../accounting/services/posting.service';
 import { maskEmail } from '../../common/utils/mask-email.util';
@@ -934,7 +935,7 @@ export class PurchaseOrderService {
       `Cher partenaire ${supplier.name},`,
       '',
       `Veuillez trouver ci-joint notre bon de commande ${po.poNumber} d'un montant total de`,
-      `${Number(po.totalTtc).toLocaleString('fr-FR')} ${po.currency} (TTC).`,
+      `${formatMoneyFr(Number(po.totalTtc))} ${po.currency} (TTC).`,
       '',
       `Nous vous remercions de bien vouloir confirmer la réception et nous indiquer une`,
       `date de livraison prévisionnelle.`,
@@ -948,7 +949,7 @@ export class PurchaseOrderService {
     return `<!doctype html><html><body>
 <p>Cher partenaire <strong>${supplier.name}</strong>,</p>
 <p>Veuillez trouver ci-joint notre <strong>bon de commande ${po.poNumber}</strong>
-d'un montant total de <strong>${Number(po.totalTtc).toLocaleString('fr-FR')} ${po.currency}</strong> (TTC).</p>
+d'un montant total de <strong>${formatMoneyFr(Number(po.totalTtc))} ${po.currency}</strong> (TTC).</p>
 <p>Nous vous remercions de bien vouloir confirmer la réception et nous indiquer
 une date de livraison prévisionnelle.</p>
 <p>Cordialement,<br/>Service Achats — Institut Pasteur de Dakar</p>

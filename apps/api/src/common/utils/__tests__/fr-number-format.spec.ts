@@ -3,7 +3,7 @@
  * U+00A0 (encodable WinAnsi 0xA0), JAMAIS U+202F (glyphe cassé en Helvetica
  * pdfkit). Assertions par code points explicites — aucun littéral invisible.
  */
-import { formatMoneyFr, formatQuantityFr } from '../fr-number-format';
+import { formatMoneyFr, formatMoneyFr2, formatQuantityFr } from '../fr-number-format';
 
 const NBSP = String.fromCharCode(0x00a0);
 const NARROW_NBSP = String.fromCharCode(0x202f);
@@ -31,5 +31,14 @@ describe('fr-number-format (fix/pdf-thousands-separator)', () => {
 
   it('formatQuantityFr : jusqu à 4 décimales (12 345,6789)', () => {
     expect(formatQuantityFr(12345.6789)).toBe(`12${NBSP}345,6789`);
+  });
+
+  // US-075 (F-S8-15) — variante 2 décimales fixes (rapports bailleurs / SYSCEBNL)
+  it('formatMoneyFr2 : 2 décimales FIXES, aucune occurrence U+202F', () => {
+    for (const v of [0, 1234567.89, 1_500_000]) {
+      expect(formatMoneyFr2(v)).not.toContain(NARROW_NBSP);
+    }
+    expect(formatMoneyFr2(1_500_000)).toBe(`1${NBSP}500${NBSP}000,00`);
+    expect(formatMoneyFr2(1234567.89)).toBe(`1${NBSP}234${NBSP}567,89`);
   });
 });

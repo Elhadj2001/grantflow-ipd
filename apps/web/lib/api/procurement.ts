@@ -517,14 +517,19 @@ export async function simulateInvoiceDownload(
   return { blob, filename };
 }
 
+/**
+ * US-075 (F-S8-21) : le DTO strict `AcknowledgePoDto` exige `{ ackRef }`
+ * (référence de l'accusé fournisseur) — l'ancien `{ contactEmail }` était
+ * rejeté en 400 à CHAQUE confirmation. `ackRef` est désormais obligatoire.
+ */
 export function acknowledgePurchaseOrder(
   id: string,
-  contactEmail?: string,
+  ackRef: string,
   opts: CallOpts = {},
 ): Promise<PurchaseOrder> {
   return apiFetch<PurchaseOrder>(`/purchase-orders/${id}/acknowledge`, {
     method: 'POST',
-    json: { contactEmail },
+    json: { ackRef },
     accessToken: opts.accessToken,
   });
 }
@@ -600,9 +605,12 @@ export function updateGrLine(
   input: PatchGrLineInput,
   opts: CallOpts = {},
 ): Promise<GoodsReceiptDetail> {
+  // US-075 (F-S8-22) : le DTO strict `UpdateGrLinesDto` exige l'enveloppe
+  // `{ lines: [...] }` — l'objet nu était rejeté en 400 à chaque « Sauver »
+  // de ligne depuis la fiche GR. On réutilise la forme batch avec 1 ligne.
   return apiFetch<GoodsReceiptDetail>(`/goods-receipts/${grId}/lines`, {
     method: 'POST',
-    json: input,
+    json: { lines: [input] },
     accessToken: opts.accessToken,
   });
 }
