@@ -231,6 +231,55 @@ Given un BC cancelled When complete d'un GR draft ancien Then 409 (BC non récep
 Given un postPayment qui échoue en milieu de série When approve Then aucun paiement 'prepared' avec écriture BQ postée
 ```
 
+### Sprint S9 (cadence réelle 2026-07) — Lot L4 « Intégrité montants ADR-005 » (~15 pts)
+
+> **Source** : audit v2 F-S8-10/11/12/13/14/26 — périmètre figé au CLOSE-S8.
+> **Ordre de livraison : US-095 → 096 → 097 → 098 → 099.** Justification :
+> le convertisseur Decimal (095) AVANT les triplets (097) — les triplets
+> persistent les valeurs produites par `convertToXof` ; backfiller avant de
+> fiabiliser le convertisseur figerait des montants float imprécis qu'il
+> faudrait re-backfiller. 096 (petit, même veine que 095) s'intercale ; 098
+> (renommage journal_line) après 095 pour éviter les conflits sur posting ;
+> 099 en dernier (attend la DÉCISION comptable user).
+> **US-099 : décision comptable à soumettre AVANT implémentation.**
+
+| ID | Story | Pts | Findings |
+|---|---|---|---|
+| US-095 | En tant que comptable, je veux `convertToXof` et le contrôle budgétaire en `Prisma.Decimal` de bout en bout (multiplication montant×taux, agrégats `prByBl/poByBl/willByBl`, comparaison `available < 0`), avec **stratégie d'arrondi documentée** : *arrondi half-up à l'unité XOF, appliqué UNE seule fois à la frontière (persistance/décision), jamais en chaîne intermédiaire* — justification : le XOF n'a pas de subdivision en circulation, SYSCOHADA/SYSCEBNL tient le XOF à l'unité, et la parité 655,957 génère des fractions ; c'est la règle DE FAIT actuelle (`Math.round` → unité) — on remplace le mécanisme (float64), pas la règle, donc zéro rupture des montants existants. JSDoc + note dans `uemoa-exchange-rate.md`. | 3 | F-S8-10, 13 |
+| US-096 | En tant que développeur, je veux les totaux de DA (`create`/`update` : réduction des lignes) et les TVA/TTC du simulateur en `Prisma.Decimal` (plus de `sum + Number(q)*Number(pu)` ni `Math.round` float persistés en Decimal 18,2), afin d'éliminer les résidus F10 de l'audit. | 1,5 | F-S8-11, 12 |
+| US-097 | En tant que CG, je veux les triplets `*_amount_xof`/`fx_rate`/`fx_rate_date` **persistés à l'écriture** sur DA (+lignes), facture (+lignes), BC (+lignes) et paiement via `convertToXof` (recensement audit : les colonnes EXISTENT toutes au schéma — Invoice 686-690, InvoiceLine 716-719, Payment 798-800, PR 458-460, PRL 494-496, PO 548-552, POL 595-597 — à re-vérifier en ouverture de story ; DDL-first UNIQUEMENT si un manque apparaît) + **backfill idempotent dry-run par défaut** (workflow éprouvé : rapport ligne à ligne, APPLY sur `SET grantflow.backfill_apply='on'`, exécution Neon = GO user) au taux à la date de création de chaque entité (fallback taux du jour documenté), afin que l'infobulle US-068 cesse de lire NULL et qu'ADR-005 soit réalisé. | 5 | F-S8-14 |
+| US-098 | En tant que développeur, je veux renommer les colonnes trompeuses `gl.journal_line.debit_currency`/`credit_currency` (ce sont des MONTANTS bruts en devise, pas des codes devise) en `debit_tx_amount`/`credit_tx_amount` — **DDL-first** (section additive `ALTER TABLE … RENAME COLUMN` idempotente + migration extraite `docs/migrations/`), **revue contrôle de gestion requise** (CLAUDE.md §9 — table gl), `prisma db pull` + `prisma:generate`, adaptation code/API/front (champ sérialisé), afin que le modèle ne piège plus les prochains lecteurs (cause du bug F-S8-25). | 2 | F-S8-25 (modèle) |
+| US-099 | En tant que DAF, je veux une politique de résorption de l'écart d'extourne multi-taux (engagement classe 8 @taux indicatif vs facture @taux seedé) — **décision comptable à trancher (voir options ci-dessous) AVANT implémentation** ; livraison = écriture(s) d'ajustement + tests + note dans `uemoa-exchange-rate.md`. | 3,5 | F-S8-26 |
+
+**US-099 — options comptables soumises à décision** :
+- **Option A (recommandée)** : extourne au taux d'origine (déjà le cas) + **écriture OD d'ajustement de solde classe 8** en fin de vie du BC (fully invoiced ou cancelled), soldant le résidu d'engagement 801/802 SANS toucher au résultat. *Justification SYSCEBNL : la classe 8 est un cadre d'engagements hors gestion — un écart d'ENGAGEMENT n'est pas un écart de change réalisé ; les comptes 676/776 (pertes/gains de change) constatent des écarts sur créances/dettes RÉGLÉES, pas sur des engagements statistiques. Simple, auditable, aucun impact TER/résultat.*
+- **Option B** : constater 676/776 à chaque facture pour l'écart engagement↔facture. *Déconseillée : crée un résultat de change sur un flux hors bilan — hétérodoxe SYSCEBNL, bruite le compte de résultat.*
+- **Option C** : réévaluer l'engagement au taux du jour à chaque facture (re-mesure continue de la classe 8). *Déconseillée : lourd, bruyant, sans exigence normative.*
+- **Volet connexe à confirmer en ouverture de story** : le VRAI écart de change comptable (676/776) se joue au **règlement** de la dette 401 en devise si le taux de paiement ≠ taux de comptabilisation — vérifier si `postPayment` le constate déjà ; sinon, l'ajouter au périmètre (ou story S10).
+
+**Critères d'acceptation Sprint S9** :
+```gherkin
+# US-095 — conversion exacte
+Given un montant EUR de 152 449,02
+When convertToXof s'exécute Then le calcul interne est en Prisma.Decimal
+And le résultat est arrondi half-up à l'unité XOF UNE seule fois (100 000 000 XOF exactement)
+And le contrôle budgétaire compare des Decimal (aucun Number() sur la chaîne)
+
+# US-097 — triplets réalisés
+Given une DA créée en USD après livraison
+Then total_amount_xof, fx_rate et fx_rate_date sont posés à l'écriture
+And l'infobulle US-068 affiche l'équivalent XOF (plus jamais NULL)
+Given le backfill exécuté en dry-run Then un rapport ligne à ligne est produit sans écriture
+
+# US-098 — modèle clarifié
+Given la migration appliquée Then gl.journal_line expose debit_tx_amount/credit_tx_amount
+And les triggers/CHECK/GENERATED existants sont intacts (vérif \d+ psql)
+
+# US-099 — résorption (après décision)
+Given un BC totalement facturé avec résidu d'engagement multi-taux
+When la fin de vie du BC est constatée Then une OD solde le résidu classe 8 selon l'option retenue
+```
+
 ---
 
 ## 3. Phase 2 — Santé de la suite de tests (en parallèle Phase 1)
