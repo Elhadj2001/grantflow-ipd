@@ -59,6 +59,10 @@ export interface PurchaseRequest {
   totalAmount: string;
   currency: string;
   description: string | null;
+  // US-064 — champs éligibilité (colonnes US-054)
+  expenseNatureCode?: string | null;
+  pasteurParisReimbursed?: boolean;
+  supplierInvoiceNumber?: string | null;
 }
 
 export interface PurchaseRequestDetail extends PurchaseRequest {
@@ -108,6 +112,11 @@ export interface CreatePurchaseRequestInput {
   activityId?: string;
   currency?: string;
   requestType?: PrType;
+  // US-064 — éligibilité : structure seule ici, le métier est jugé par
+  // l'EligibilityEngine au submit (ADR-007).
+  expenseNatureCode?: string;
+  pasteurParisReimbursed?: boolean;
+  supplierInvoiceNumber?: string;
   lines: Array<{
     description: string;
     quantity: number;

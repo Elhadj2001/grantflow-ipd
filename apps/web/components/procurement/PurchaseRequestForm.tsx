@@ -10,10 +10,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { AmountDisplay } from '@/components/common/AmountDisplay';
+import { Combobox } from '@/components/ui/combobox';
 import { ProjectPicker } from '@/components/procurement/pickers/ProjectPicker';
 import { GrantPicker } from '@/components/procurement/pickers/GrantPicker';
 import { BudgetLinePicker } from '@/components/procurement/pickers/BudgetLinePicker';
-import { useGrant, useGrantDashboard } from '@/hooks/use-referential';
+import { useExpenseNatures, useGrant, useGrantDashboard } from '@/hooks/use-referential';
 import { cn } from '@/lib/utils';
 import type { CreatePurchaseRequestInput, PrType } from '@/lib/api/procurement';
 import { convertAmount, FX_SUPPORTED_CURRENCIES } from '@/lib/fx-fallback';
@@ -35,6 +36,11 @@ const PrFormSchema = z.object({
   neededBy: z.string().optional(),
   currency: z.string().default('XOF'),
   requestType: z.enum(['standard', 'petty_cash', 'cash_advance']).default('standard'),
+  // US-064 — éligibilité : structure seule (le métier est jugé par
+  // l'EligibilityEngine au submit, ADR-007).
+  expenseNatureCode: z.string().optional(),
+  pasteurParisReimbursed: z.boolean().default(false),
+  supplierInvoiceNumber: z.string().optional(),
   lines: z.array(LineSchema).min(1, 'Au moins une ligne requise'),
 });
 
@@ -84,6 +90,9 @@ export function PurchaseRequestForm({
       neededBy: '',
       currency: 'XOF',
       requestType: 'standard',
+      expenseNatureCode: '',
+      pasteurParisReimbursed: false,
+      supplierInvoiceNumber: '',
       lines: [
         { description: '', quantity: 1, unit: 'unit', unitPrice: 0, budgetLineId: '' },
       ],
@@ -110,6 +119,9 @@ export function PurchaseRequestForm({
   // pour le contrôle "Solde insuffisant" par ligne. Cache partagé avec
   // les BudgetLinePicker en aval (même clé TanStack Query).
   const { data: grantDashboard } = useGrantDashboard(watchedGrantId || null);
+  // US-064 : catalogue des natures de dépense (staleTime 5 min, cache
+  // référentiel partagé). Le select alimente expense_nature_code (US-054).
+  const { data: expenseNatures, isLoading: naturesLoading } = useExpenseNatures();
   // Fix da-multi-currency : on a besoin de la devise convention pour
   // (a) afficher l'alerte "devise différente" et (b) convertir les
   // line totals avant la comparaison budgétaire. `useGrantDashboard`
@@ -164,6 +176,15 @@ export function PurchaseRequestForm({
       neededBy: values.neededBy && values.neededBy !== '' ? values.neededBy : undefined,
       currency: values.currency,
       requestType: values.requestType,
+      expenseNatureCode:
+        values.expenseNatureCode && values.expenseNatureCode !== ''
+          ? values.expenseNatureCode
+          : undefined,
+      pasteurParisReimbursed: values.pasteurParisReimbursed ?? false,
+      supplierInvoiceNumber:
+        values.supplierInvoiceNumber && values.supplierInvoiceNumber !== ''
+          ? values.supplierInvoiceNumber
+          : undefined,
       lines: values.lines.map((l) => ({
         description: l.description,
         quantity: Number(l.quantity),
@@ -303,6 +324,67 @@ export function PurchaseRequestForm({
             </p>
           )}
         </div>
+      </div>
+
+      {/* US-064 — Éligibilité bailleur (ADR-007). Ces champs alimentent les
+          colonnes US-054 ; l'EligibilityEngine statue au SUBMIT (le
+          formulaire ne duplique aucune règle métier). */}
+      <div className="grid grid-cols-1 gap-4 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-2">
+        <div className="md:col-span-2">
+          <Label className="text-sm font-medium">Éligibilité bailleur</Label>
+          <p className="mt-0.5 text-xs text-slate-muted">
+            Contrôlée par le moteur d&apos;éligibilité à la soumission, selon la
+            Note Technique active de la convention.
+          </p>
+        </div>
+        <div>
+          <Label className="mb-1.5 block text-sm font-medium">Nature de dépense</Label>
+          <Controller
+            control={control}
+            name="expenseNatureCode"
+            render={({ field }) => (
+              <Combobox
+                options={(expenseNatures ?? []).map((n) => ({
+                  value: n.code,
+                  label: `${n.label} — ${n.category}`,
+                }))}
+                value={field.value || null}
+                onChange={(code) => field.onChange(code ?? '')}
+                placeholder="Sélectionner une nature…"
+                searchPlaceholder="Rechercher une nature…"
+                loading={naturesLoading}
+                testId="pr-expense-nature"
+              />
+            )}
+          />
+        </div>
+        <div>
+          <Label htmlFor="supplierInvoiceNumber">N° facture fournisseur (optionnel)</Label>
+          <Input
+            id="supplierInvoiceNumber"
+            {...register('supplierInvoiceNumber')}
+            placeholder="ex. INV-2026-0042"
+            data-testid="pr-supplier-invoice-number"
+          />
+          <p className="mt-1 text-xs text-slate-muted">
+            Si déjà connu — sert au contrôle de doublon inter-projets.
+          </p>
+        </div>
+        <label className="flex items-start gap-2 md:col-span-2">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-input accent-ipd-bleu"
+            {...register('pasteurParisReimbursed')}
+            data-testid="pr-pasteur-paris"
+          />
+          <span className="text-sm">
+            Dépense refacturée à Pasteur Paris
+            <span className="block text-xs text-slate-muted">
+              Une dépense déjà remboursée par Pasteur Paris n&apos;est pas imputable
+              à la convention.
+            </span>
+          </span>
+        </label>
       </div>
 
       {/* Lignes */}

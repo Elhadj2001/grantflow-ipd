@@ -277,6 +277,117 @@ describe('PurchaseRequestService', () => {
   });
 
   // ------------------------------------------------------------------
+  // US-064 — le DTO transporte les champs éligibilité (colonnes US-054)
+  // jusqu'à Prisma, et la chaîne create → submit aboutit au rejet PPT.
+  describe('create/update — champs éligibilité US-064', () => {
+    it('create transporte expenseNatureCode / pasteurParisReimbursed / supplierInvoiceNumber', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue({
+        projectId,
+        budgetLines: [{ id: blId1 }],
+      } as never);
+      prisma.purchaseRequest.create.mockResolvedValue(makePrWithLines([]) as never);
+      await svc.create(
+        demandeur,
+        createDto({
+          expenseNatureCode: 'LAB_CONSUMABLES',
+          pasteurParisReimbursed: true,
+          supplierInvoiceNumber: 'INV-2026-0042',
+        } as never),
+      );
+      expect(prisma.purchaseRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            expenseNatureCode: 'LAB_CONSUMABLES',
+            pasteurParisReimbursed: true,
+            supplierInvoiceNumber: 'INV-2026-0042',
+          }),
+        }),
+      );
+    });
+
+    it('create sans champs éligibilité → défauts null / false / null (gate dormante)', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue({
+        projectId,
+        budgetLines: [{ id: blId1 }],
+      } as never);
+      prisma.purchaseRequest.create.mockResolvedValue(makePrWithLines([]) as never);
+      await svc.create(demandeur, createDto());
+      expect(prisma.purchaseRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            expenseNatureCode: null,
+            pasteurParisReimbursed: false,
+            supplierInvoiceNumber: null,
+          }),
+        }),
+      );
+    });
+
+    it('update transporte les champs éligibilité (PATCH, undefined = inchangé)', async () => {
+      const existing = makePrWithLines([]);
+      prisma.purchaseRequest.findUnique.mockResolvedValue({
+        ...existing,
+        status: 'draft',
+        requestedBy: userOwn,
+        lines: [],
+      } as never);
+      prisma.purchaseRequest.update.mockResolvedValue(existing as never);
+      await svc.update(demandeur, existing.id, {
+        expenseNatureCode: 'MISSION_TRAVEL',
+        pasteurParisReimbursed: true,
+      } as never);
+      expect(prisma.purchaseRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            expenseNatureCode: 'MISSION_TRAVEL',
+            pasteurParisReimbursed: true,
+            supplierInvoiceNumber: undefined,
+          }),
+        }),
+      );
+    });
+
+    it('chaîne complète US-064 : DA créée avec nature inéligible → submit REJETÉ code ELIG_NATURE_NOT_ALLOWED', async () => {
+      // 1. create() avec la nature saisie au formulaire.
+      prisma.grantAgreement.findUnique.mockResolvedValue({
+        projectId,
+        budgetLines: [{ id: blId1 }],
+      } as never);
+      const created = makePrWithLines([], { expenseNatureCode: 'ALCOHOL' } as never);
+      prisma.purchaseRequest.create.mockResolvedValue(created as never);
+      const pr = await svc.create(demandeur, createDto({ expenseNatureCode: 'ALCOHOL' } as never));
+
+      // 2. submit() : la colonne matérialisée active la gate → le moteur
+      //    rend le verdict PPT slide 7 (ELIG_NATURE_NOT_ALLOWED, bloquant).
+      const ln = line({ lineTotal: new Prisma.Decimal('100'), budgetLineId: blId1 });
+      prisma.purchaseRequest.findUnique.mockResolvedValue({
+        ...pr,
+        lines: [ln],
+        grant: { status: 'active', projectId },
+        expenseNatureCode: 'ALCOHOL',
+      } as never);
+      prisma.budgetLine.findMany.mockResolvedValue([
+        { id: blId1, code: 'L01', label: 'L01', budgetedAmount: new Prisma.Decimal('38000'), grant: { currency: 'XOF' } },
+      ] as never);
+      engine.validate.mockResolvedValueOnce({
+        ok: false,
+        blockedVerdicts: [
+          { kind: 'blocked', code: 'ELIG_NATURE_NOT_ALLOWED', message: 'Nature exclue par la Note Technique' },
+        ],
+        warnings: [],
+        verdictsByRule: {},
+      });
+
+      const err = await svc.submit(demandeur, pr.id).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(EligibilityValidationException);
+      expect((err as EligibilityValidationException).details).toMatchObject({
+        blockedCodes: ['ELIG_NATURE_NOT_ALLOWED'],
+      });
+      expect(prisma.purchaseRequest.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ------------------------------------------------------------------
   describe('findMany — RBAC scoping', () => {
     it('DEMANDEUR sees only own DAs (requestedBy override)', async () => {
       prisma.purchaseRequest.findMany.mockResolvedValue([] as never);

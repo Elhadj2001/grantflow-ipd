@@ -227,6 +227,11 @@ export class PurchaseRequestService {
           description: dto.description,
           requestType: dto.requestType,
           cashBoxId: dto.cashBoxId ?? null,
+          // US-064 → colonnes US-054 : transport brut, l'EligibilityEngine
+          // statue au submit (runEligibilityGate).
+          expenseNatureCode: dto.expenseNatureCode ?? null,
+          pasteurParisReimbursed: dto.pasteurParisReimbursed ?? false,
+          supplierInvoiceNumber: dto.supplierInvoiceNumber ?? null,
           lines: {
             create: dto.lines.map((line, i) => ({
               lineNumber: i + 1,
@@ -431,6 +436,10 @@ export class PurchaseRequestService {
           activityId: dto.activityId,
           currency: dto.currency,
           totalAmount,
+          // US-064 : undefined = inchangé (sémantique PATCH Prisma).
+          expenseNatureCode: dto.expenseNatureCode,
+          pasteurParisReimbursed: dto.pasteurParisReimbursed,
+          supplierInvoiceNumber: dto.supplierInvoiceNumber,
           updatedAt: new Date(),
           ...(dto.lines && {
             lines: {
