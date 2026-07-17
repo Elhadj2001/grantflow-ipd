@@ -216,6 +216,8 @@ export const ErrorCode = {
     MATCHING_EMPTY_INVOICE:                   'BUSINESS.MATCHING_EMPTY_INVOICE',
     /** Sprint S8 (US-079, F-S8-03) — comptabilisation refusée : facture sans lignes. */
     INVOICE_NO_LINES_NOT_POSTABLE:            'BUSINESS.INVOICE_NO_LINES_NOT_POSTABLE',
+    /** Sprint S8 (US-094, F-S8-09) — approve refusé : facture du run plus payable. */
+    PAYMENT_RUN_INVOICE_NOT_PAYABLE:          'BUSINESS.PAYMENT_RUN_INVOICE_NOT_PAYABLE',
   },
   REF: {
     INVALID_GL_ACCOUNT: 'REF.INVALID_GL_ACCOUNT',

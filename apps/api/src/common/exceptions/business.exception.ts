@@ -2058,6 +2058,24 @@ export class EligibilityValidationException extends BusinessException {
 }
 
 /**
+ * US-094 (Sprint S8, F-S8-09) — l'approbation d'un payment run est refusée :
+ * une facture du run n'est plus dans un état payable (`posted` /
+ * `partially_paid`) — elle a changé entre `prepare` et `approve`
+ * (rejet, dé-comptabilisation, déjà soldée…). 409 Conflict — retirer la
+ * facture du run (ou re-préparer) avant d'approuver.
+ */
+export class PaymentRunInvoiceNotPayableException extends BusinessException {
+  constructor(runId: string, invoiceId: string, invoiceStatus: string) {
+    super(
+      ErrorCode.BUSINESS.PAYMENT_RUN_INVOICE_NOT_PAYABLE,
+      HttpStatus.CONFLICT,
+      `Run ${runId} : la facture ${invoiceId} est en statut « ${invoiceStatus} » (non payable) — état modifié depuis la préparation.`,
+      { runId, invoiceId, invoiceStatus },
+    );
+  }
+}
+
+/**
  * US-079 (Sprint S8, F-S8-03) — comptabilisation refusée : la facture n'a
  * aucune ligne, donc aucune imputation analytique possible (règle d'or n°1).
  * Remplace l'ancien 404 EntityNotFound('InvoiceLine') sémantiquement faux
