@@ -182,6 +182,55 @@ When son montant s'affiche (détail, liste, dashboard)
 Then une infobulle montre l'équivalent XOF depuis *_amount_xof au format français
 ```
 
+### Sprint S8 (cadence réelle 2026-07) — Résorption audit v2 : lots L1 → L5 → L2 → L3 (~27,5 pts)
+
+> **Source** : `docs/audit-codebase-2026-07-17.md` (findings F-S8-01…24).
+> **Numérotation** : blocs 070-074 et 080-090 déjà pris → US-075→079 puis
+> US-091→094. **L4 (dette montants ADR-005 : convertisseur Decimal, triplets
+> XOF, backfills) reporté en Sprint S9 dédié** — trop structurant pour
+> cohabiter avec les fixes. Le fix U+202F des générateurs reporting
+> (F-S8-15/16), indépendant de L4, est rattaché à L1 (pattern `f9053b0`).
+
+| ID | Lot | Story | Pts | Findings |
+|---|---|---|---|---|
+| US-075 | L1 | En tant qu'utilisateur, je veux que les 4 actions cassées soient réparées : (a) aperçu PDF (retrait du `sandbox` de l'iframe — Chromium n'y instancie pas son viewer), (b) « Confirmer réception fournisseur » (dialog avec saisie `ackRef` alignée sur le DTO), (c) édition d'une ligne GR (enveloppe `{lines:[…]}`), (d) montants des PDF rapports bailleurs/états SYSCEBNL + emails BC via `formatMoneyFr` (U+202F→U+00A0). | 4 | F-S8-01, 21, 22, 15, 16 |
+| US-076 | L5 | En tant qu'utilisateur, je veux des entrées sidebar « Bons de commande » et « Réceptions » (groupe Opérations, gating `canListPurchaseOrders`/`canListGoodsReceipts`) et « Analytique » (groupe Pilotage, gating `canViewAnalytics`), afin qu'aucune page de liste ne soit orpheline. | 2 | F-S8-05, 24 |
+| US-077 | L2 | En tant que comptable, je veux un OCR pdfparse fiable : TVA jamais confondue avec le taux (regex excluant les `%`, préférence « Total TVA »/bloc totaux), contrôle de cohérence HT+TVA≈TTC (tolérance ; sinon confidence dégradée + capture « à vérifier »), ligne de repli « Import global » imputable quand aucune ligne n'est extraite, devise cherchée près des totaux. | 5 | F-S8-04 |
+| US-078 | L2 | En tant que comptable, je veux que le matching refuse une facture sans lignes ou à totaux nuls (exception `MATCHING_EMPTY_INVOICE` 409 + gardes des préconditions documentées), afin qu'aucune facture ne soit « Rapprochée » par vacuité. | 3 | F-S8-02, 06 |
+| US-079 | L2 | En tant que comptable, je veux un refus de comptabilisation explicite (`INVOICE_NO_LINES_NOT_POSTABLE` 409 au lieu du 404) et un bouton « Comptabiliser » désactivé avec message quand la facture n'a pas de lignes, afin de comprendre le blocage sans erreur trompeuse. | 2 | F-S8-03 |
+| US-091 | L3 | En tant que DAF, je veux les lectures sensibles gardées : détail/paiements/écritures des payment-runs (mêmes @Roles que la liste), téléchargements PDF/Excel des états financiers (@Roles + acteur au service, règles `isBailleurOnly`/`locked`), comptes bancaires (lectures TRESORIER/COMPTABLE/DAF/SA), templates reporting alignés. | 4,5 | F-S8-17, 18, 19, 20 |
+| US-092 | L3 | En tant que comptable, je veux qu'une facture `posted`/`partially_paid` soit non-rejetable (chemin légitime : `cancelPosting` d'abord), afin de ne jamais laisser d'écritures orphelines. | 2 | F-S8-07 |
+| US-093 | L3 | En tant que magasinier, je veux que `GoodsReceipt.complete` vérifie l'état courant du BC (∈ sent/acknowledged/partially_received), afin qu'un GR draft ancien ne rouvre jamais un BC annulé ou facturé. | 2 | F-S8-08 |
+| US-094 | L3 | En tant que trésorier, je veux l'approbation d'un payment run résiliente : marquage par paiement (écriture BQ ↔ statut payment cohérents même en cas d'échec en série) et re-validation du statut des factures entre prepare et approve. | 3 | F-S8-09 |
+
+**Critères d'acceptation Sprint S8** :
+```gherkin
+# US-075 — actions réparées
+Given un BC envoyé avec PDF archivé
+When j'ouvre son panneau Documents Then l'aperçu s'affiche (iframe sans sandbox)
+When je confirme la réception fournisseur avec la référence 'ACK-2026-01' Then le BC passe acknowledged (200)
+Given un GR draft When je sauve une ligne depuis la fiche Then 200 (corps {lines:[…]})
+Given un état financier PDF Then aucun U+202F dans les montants rendus
+
+# US-077/078 — import fiable
+Given un PDF facture affichant « TVA (18%) : 2 952,00 »
+When l'OCR capture Then totalVat = 2952 (jamais 18)
+Given une capture où HT+TVA ≠ TTC (tolérance dépassée) Then confidence dégradée et capture signalée « à vérifier »
+Given une facture sans lignes When submitForMatching Then 409 MATCHING_EMPTY_INVOICE (jamais « Rapprochée »)
+
+# US-079 — refus explicite
+Given une facture matched sans lignes (donnée legacy)
+Then le bouton Comptabiliser est désactivé avec message ; l'API renvoie 409 INVOICE_NO_LINES_NOT_POSTABLE
+
+# US-091 — fuites fermées
+Given un utilisateur BAILLEUR Then GET payment-runs/:id → 403 et GET statements/:id/pdf sur un brouillon → 403
+
+# US-092/093/094 — intégrité
+Given une facture posted When reject Then 409 (cancelPosting requis d'abord)
+Given un BC cancelled When complete d'un GR draft ancien Then 409 (BC non réceptionnable)
+Given un postPayment qui échoue en milieu de série When approve Then aucun paiement 'prepared' avec écriture BQ postée
+```
+
 ---
 
 ## 3. Phase 2 — Santé de la suite de tests (en parallèle Phase 1)
