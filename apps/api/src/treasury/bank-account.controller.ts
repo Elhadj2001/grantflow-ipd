@@ -32,13 +32,18 @@ import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.d
 export class BankAccountController {
   constructor(private readonly svc: BankAccountService) {}
 
+  // US-091 (F-S8-19) : les IBAN des comptes IPD sont sensibles (§6 : les
+  // logs les masquent — l'API ne doit pas les servir à tout authentifié).
+  // Lectures réservées aux rôles finance qui préparent/contrôlent les runs.
   @Get()
+  @Roles('TRESORIER', 'COMPTABLE', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Liste des comptes bancaires IPD (actifs et inactifs)' })
   list() {
     return this.svc.findMany();
   }
 
   @Get(':id')
+  @Roles('TRESORIER', 'COMPTABLE', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Détail compte bancaire' })
   @ApiNotFoundResponse({ description: 'BANK_ACCOUNT_NOT_FOUND' })
   findOne(@Param('id', new ParseUUIDPipe()) id: string) {
