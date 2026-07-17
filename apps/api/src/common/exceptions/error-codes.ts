@@ -212,6 +212,8 @@ export const ErrorCode = {
     /** Sprint S7 (US-069) — documents archivés (PDF R2/MinIO). */
     DOCUMENT_NOT_FOUND:                       'BUSINESS.DOCUMENT_NOT_FOUND',
     DOCUMENT_STORE_UNAVAILABLE:               'BUSINESS.DOCUMENT_STORE_UNAVAILABLE',
+    /** Sprint S8 (US-078, F-S8-02) — jamais de « Rapprochée » par vacuité. */
+    MATCHING_EMPTY_INVOICE:                   'BUSINESS.MATCHING_EMPTY_INVOICE',
   },
   REF: {
     INVALID_GL_ACCOUNT: 'REF.INVALID_GL_ACCOUNT',

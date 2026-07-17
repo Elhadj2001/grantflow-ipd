@@ -2058,6 +2058,25 @@ export class EligibilityValidationException extends BusinessException {
 }
 
 /**
+ * US-078 (Sprint S8, F-S8-02) — la facture soumise au matching n'a aucune
+ * ligne (ou des totaux nuls) : le verdict « tout OK » serait obtenu PAR
+ * VACUITÉ (aucune comparaison possible). 409 Conflict — la facture doit
+ * être corrigée (lignes/totaux) au statut captured avant re-soumission.
+ */
+export class MatchingEmptyInvoiceException extends BusinessException {
+  constructor(invoiceId: string, reason: 'no_lines' | 'zero_totals') {
+    super(
+      ErrorCode.BUSINESS.MATCHING_EMPTY_INVOICE,
+      HttpStatus.CONFLICT,
+      reason === 'no_lines'
+        ? `La facture ${invoiceId} n'a aucune ligne — rapprochement impossible (rien à comparer).`
+        : `La facture ${invoiceId} a des totaux nuls — rapprochement impossible.`,
+      { invoiceId, reason },
+    );
+  }
+}
+
+/**
  * US-069 (Sprint S7) — le document demandé n'est pas archivé : l'entité n'a
  * pas de `pdfObjectKey`, ou l'objet est absent du stockage (NoSuchKey). Le
  * front affiche l'état vide « Aucun document archivé » — jamais d'icône

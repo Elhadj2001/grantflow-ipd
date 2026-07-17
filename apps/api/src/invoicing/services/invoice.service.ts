@@ -14,6 +14,7 @@ import {
   InvoiceNotCapturableException,
   InvoiceNotEditableException,
   InvoiceNotRejectableException,
+  MatchingEmptyInvoiceException,
   MatchingForceReasonRequiredException,
   PrNotOwnedException,
 } from '../../common/exceptions/business.exception';
@@ -457,6 +458,11 @@ export class InvoiceService {
       throw new InvoiceNotCapturableException(invoice.id, invoice.status);
     }
     if (!invoice.poId) throw new InvoiceNoPoLinkedException(invoice.id);
+    // US-078 (F-S8-06) : la précondition « totaux > 0 » était documentée
+    // mais jamais codée — une facture à 0 franchissait la soumission.
+    if (new Prisma.Decimal(invoice.totalTtc).lessThanOrEqualTo(0)) {
+      throw new MatchingEmptyInvoiceException(invoice.id, 'zero_totals');
+    }
 
     const outcome = await this.matching.matchInvoice(invoiceId);
     const matcherId = await this.resolveAppUserId(actor);

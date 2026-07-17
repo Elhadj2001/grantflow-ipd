@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   EntityNotFoundException,
   InvoiceNoPoLinkedException,
+  MatchingEmptyInvoiceException,
   MatchingNoReceiptException,
 } from '../../common/exceptions/business.exception';
 
@@ -98,6 +99,12 @@ export class MatchingService {
     });
     if (!invoice) throw new EntityNotFoundException('Invoice', { id: invoiceId });
     if (!invoice.poId) throw new InvoiceNoPoLinkedException(invoice.id);
+    // US-078 (F-S8-02) : une facture SANS ligne rendait un verdict « matched »
+    // PAR VACUITÉ (agrégation some() sur details=[]). Jamais de rapprochement
+    // sans matière à comparer.
+    if (invoice.lines.length === 0) {
+      throw new MatchingEmptyInvoiceException(invoice.id, 'no_lines');
+    }
 
     const po = await this.prisma.purchaseOrder.findUnique({
       where: { id: invoice.poId },

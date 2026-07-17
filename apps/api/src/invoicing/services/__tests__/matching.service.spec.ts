@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   EntityNotFoundException,
   InvoiceNoPoLinkedException,
+  MatchingEmptyInvoiceException,
   MatchingNoReceiptException,
 } from '../../../common/exceptions/business.exception';
 
@@ -110,6 +111,16 @@ describe('MatchingService', () => {
     it('rejects when invoice has no poId', async () => {
       prisma.invoice.findUnique.mockResolvedValue(makeInvoice({ poId: null }));
       await expect(svc.matchInvoice(invoiceId)).rejects.toBeInstanceOf(InvoiceNoPoLinkedException);
+    });
+
+    it('US-078 (F-S8-02) : facture SANS ligne → MATCHING_EMPTY_INVOICE, jamais matched par vacuité', async () => {
+      prisma.invoice.findUnique.mockResolvedValue(makeInvoice({ lines: [] }));
+      const err = await svc.matchInvoice(invoiceId).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(MatchingEmptyInvoiceException);
+      expect((err as MatchingEmptyInvoiceException).getStatus()).toBe(409);
+      expect((err as MatchingEmptyInvoiceException).details).toMatchObject({ reason: 'no_lines' });
+      // Aucune écriture de match ni lecture GR : la garde bloque en amont.
+      expect(prisma.invoiceMatch.create).not.toHaveBeenCalled();
     });
 
     it('rejects when no GR complete found for PO', async () => {

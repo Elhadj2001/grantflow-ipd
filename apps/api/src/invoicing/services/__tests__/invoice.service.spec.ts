@@ -10,6 +10,7 @@ import {
   InvoiceNotCapturableException,
   InvoiceNotEditableException,
   InvoiceNotRejectableException,
+  MatchingEmptyInvoiceException,
   MatchingForceReasonRequiredException,
   PrNotOwnedException,
 } from '../../../common/exceptions/business.exception';
@@ -354,6 +355,19 @@ describe('InvoiceService', () => {
       prisma.invoice.findUnique.mockResolvedValue(makeInvoice({ poId: null }));
       await expect(svc.submitForMatching(comptable, invoiceId))
         .rejects.toBeInstanceOf(InvoiceNoPoLinkedException);
+    });
+
+    it('US-078 (F-S8-06) : totaux nuls → 409 MATCHING_EMPTY_INVOICE (précondition codée)', async () => {
+      prisma.invoice.findUnique.mockResolvedValue(
+        makeInvoice({ totalTtc: new Prisma.Decimal(0) }),
+      );
+      const err = await svc.submitForMatching(comptable, invoiceId).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(MatchingEmptyInvoiceException);
+      expect((err as MatchingEmptyInvoiceException).details).toMatchObject({
+        reason: 'zero_totals',
+      });
+      // Le moteur de matching n'est jamais sollicité.
+      expect(matching.matchInvoice).not.toHaveBeenCalled();
     });
 
     it('persists matchSummary returned by MatchingService', async () => {
