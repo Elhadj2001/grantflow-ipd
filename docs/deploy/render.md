@@ -146,14 +146,24 @@ scripts/check-render-env-parity.sh   # doit afficher « PARITÉ OK » (exit 0)
 3. **Saisir les secrets `sync:false`** — `grantflow-api` :
    `DATABASE_URL`, `KEYCLOAK_URL` (URL du service KC), `KEYCLOAK_CLIENT_SECRET`,
    **`WEB_ORIGIN`** (URL Vercel du front — sinon CORS bloque le login),
-   `ANTHROPIC_API_KEY`/`S3_*`/`SMTP_*` (optionnels).
-4. **Saisir les secrets `sync:false`** — `grantflow-keycloak` :
+   `S3_*` (différé tant que R2 non validé — cf. US-143).
+4. **Restaurer le tier FONCTIONNEL (non-boot)** — `grantflow-api`. L'API boote
+   sans ces vars mais les features se dégradent **silencieusement** (omises
+   lors de la migration Frankfurt 2026-07 : mail `530 Authentication required`
+   + OCR vision retombé sur pdf-parse) :
+   | Var | Provenance |
+   |---|---|
+   | `SMTP_USER` / `SMTP_PASS` | **Mailtrap dashboard** → Inbox sandbox → SMTP Settings (Credentials) |
+   | `ANTHROPIC_API_KEY` | **console.anthropic.com** → API keys (requise car `OCR_PROVIDER=auto`) |
+   Parité vérifiable : `scripts/check-render-env-parity.sh` (section
+   « fonctionnelles non-boot »).
+5. **Saisir les secrets `sync:false`** — `grantflow-keycloak` :
    `KEYCLOAK_ADMIN_PASSWORD`, `KC_HOSTNAME` (= hôte public du service KC, sans
    `https://`), `KC_DB_URL` (JDBC Neon), `KC_DB_USERNAME`, `KC_DB_PASSWORD`.
-5. **Répercuter la nouvelle URL** partout où elle est codée : `KEYCLOAK_URL`
+6. **Répercuter la nouvelle URL** partout où elle est codée : `KEYCLOAK_URL`
    sur l'API, `WEB_ORIGIN` (si le front a changé), les monitors UptimeRobot,
    les Redirect URIs Keycloak (§6), et `scripts/prod-health-check.*`.
-6. **Vérifier** : `scripts/prod-health-check.sh` (tout `[OK]`) puis §7.
+7. **Vérifier** : `scripts/prod-health-check.sh` (tout `[OK]`) puis §7.
 
 > Les variables non-secrètes (valeurs en clair dans `render.yaml` : `NODE_ENV`,
 > `KEYCLOAK_REALM`, `KC_HTTP_PORT`, `KC_HOSTNAME_STRICT`, `KC_PROXY_HEADERS`…)
@@ -187,7 +197,11 @@ scripts/check-render-env-parity.sh   # doit afficher « PARITÉ OK » (exit 0)
    1. Apply Blueprint → nouveau `grantflow-api` (Frankfurt).
    2. Saisir les secrets `sync:false` (§3) avec **`KEYCLOAK_URL` = nouvelle
       URL Keycloak** de l'étape 1.
-   3. Health-check : `API_URL=https://<nouvelle-URL-API> scripts/prod-health-check.sh`.
+   3. ⚠️ **Ne pas oublier le tier FONCTIONNEL** (§9 étape 4) : `SMTP_USER`,
+      `SMTP_PASS`, `ANTHROPIC_API_KEY`. Omis lors de la migration 2026-07 —
+      symptômes différés constatés en prod : mail `530 Authentication
+      required` + OCR fallback pdf-parse (restaurés le 2026-07-17).
+   4. Health-check : `API_URL=https://<nouvelle-URL-API> scripts/prod-health-check.sh`.
 3. **Répercussions d'URLs post-migration (exhaustif)** :
 
    | Où | Quoi |

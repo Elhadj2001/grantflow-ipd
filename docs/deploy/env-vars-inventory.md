@@ -4,7 +4,8 @@
 > `ConfigService.get / getOrThrow` et `process.env`), croisé avec
 > `.env.example`, `render.yaml` et `docker-compose.yml`.
 > **But** : restauration fiable de la prod Render après perte des variables.
-> _Dernière mise à jour : 2026-07-13._
+> _Dernière mise à jour : 2026-07-17 (tier fonctionnel non-boot après
+> l'omission constatée post-migration Frankfurt)._
 
 ## Légende « Requis boot ? »
 - **🔴 BOOT-CRITIQUE** : lu via `getOrThrow` au **constructeur** d'un provider
@@ -37,12 +38,12 @@
 | `S3_BUCKET` | 🟢 | vide | `grantflow-pdf` — omis | storage.service.ts:116 |
 | `MINIO_HOST/PORT/USE_SSL/ACCESS_KEY/SECRET_KEY` | 🟢 | MinIO local | non requis en prod (fallback si S3_* absent) | storage.service.ts:89-100 |
 | `OCR_PROVIDER` | 🟢 | `pdfparse` | `auto` (render.yaml) → nécessite ANTHROPIC_API_KEY sinon retombe sur pdfparse | ocr.service.ts:50, invoicing.module.ts:29 |
-| `ANTHROPIC_API_KEY` | 🟢 | vide | **secret** (requis seulement si OCR vision) | invoicing.module.ts:30, claude-vision-ocr.provider.ts:128 |
+| `ANTHROPIC_API_KEY` | 🟠 FONCTIONNEL | vide | **secret** — console.anthropic.com → API keys. Prod a `OCR_PROVIDER=auto` : absente → OCR retombe silencieusement sur pdf-parse (constaté post-migration Frankfurt 2026-07) | invoicing.module.ts:30, claude-vision-ocr.provider.ts:128 |
 | `OCR_VISION_MODEL` | 🟢 | vide (défaut interne) | vide | claude-vision-ocr.provider.ts:143 |
 | `OCR_VISION_FALLBACK_THRESHOLD` | 🟢 | `50` | `50` | ocr.service.ts:53 |
 | `OCR_VISION_MAX_BYTES` | 🟢 | `5242880` | `5242880` | claude-vision-ocr.provider.ts:146 |
 | `SMTP_HOST/PORT/SECURE` | 🟢 | MailHog `localhost:1025` | Mailtrap `sandbox.smtp.mailtrap.io:2525` | mail.service.ts:50-60 |
-| `SMTP_USER` / `SMTP_PASS` | 🟢 | vide | **secret Mailtrap** | mail.service.ts:52-53 |
+| `SMTP_USER` / `SMTP_PASS` | 🟠 FONCTIONNEL | vide | **secret** — Mailtrap dashboard → Inbox sandbox → SMTP Settings. Absentes → `530 Authentication required` sur tout envoi de mail (constaté post-migration Frankfurt 2026-07) | mail.service.ts:52-53 |
 | `MAIL_FROM` | 🟢 | défaut interne | `GRANTFLOW IPD <no-reply@grantflow.demo>` | mail.service.ts:54 |
 | `ENABLE_DEMO_INVOICE_SIMULATOR` | 🟢 | `false` | `true` (env démo) | (process.env) invoice-sim |
 | `INVOICE_MATCH_PRICE_TOLERANCE_PCT` | 🟢 | `2.0` | défaut | matching.service.ts:78 |
@@ -54,11 +55,17 @@
 **5 variables 🔴 BOOT-CRITIQUES** (sans elles, l'API ne démarre pas) :
 `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`, `DATABASE_URL`.
 
-**1 variable 🟠 FONCTIONNELLE** indispensable au login cross-origin :
-`WEB_ORIGIN` (désormais déclarée `sync:false` dans `render.yaml` — US-142 ;
-sa valeur reste à saisir au dashboard, sinon CORS bloque le front Vercel).
-Parité render.yaml ↔ inventaire vérifiable via
-`scripts/check-render-env-parity.sh`.
+**4 variables 🟠 FONCTIONNELLES** (l'API boote sans elles, features dégradées) :
+- `WEB_ORIGIN` — login cross-origin (sinon CORS bloque le front Vercel).
+- **Tier fonctionnel non-boot** (omis lors de la migration Frankfurt 2026-07,
+  restauré 2026-07-17) : `SMTP_USER`, `SMTP_PASS` (Mailtrap dashboard —
+  sinon mail `530 Authentication required`) et `ANTHROPIC_API_KEY`
+  (console.anthropic.com — sinon OCR fallback pdf-parse malgré
+  `OCR_PROVIDER=auto`). Restauration : `docs/deploy/render.md` §9 étape 4.
+
+Toutes déclarées `sync:false` dans `render.yaml` ; parité render.yaml ↔
+inventaire (boot-critiques **et** fonctionnelles, listes séparées) vérifiable
+via `scripts/check-render-env-parity.sh`.
 
 **Bloc S3_\* volontairement omis** à ce stade (cf. debug R2) → l'API démarre en
 mode `dev-multi-bucket` (endPoint=localhost). Conséquence : **upload PDF de BC
