@@ -114,7 +114,9 @@ export default function PurchaseRequestsListPage() {
     {
       key: 'totalAmount',
       header: 'Total',
-      cell: (r) => <AmountDisplay amount={r.totalAmount} currency={r.currency} />,
+      cell: (r) => (
+        <AmountDisplay amount={r.totalAmount} currency={r.currency} amountXof={r.total_amount_xof} />
+      ),
       align: 'right',
       width: '160px',
     },

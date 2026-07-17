@@ -243,7 +243,12 @@ export default function PurchaseRequestDetailPage() {
               </Table>
               <div className="border-t border-slate-200 px-4 py-3 text-right">
                 <span className="mr-2 text-xs uppercase tracking-wide text-slate-muted">Total</span>
-                <AmountDisplay amount={data.totalAmount} currency={data.currency} className="text-lg" />
+                <AmountDisplay
+                  amount={data.totalAmount}
+                  currency={data.currency}
+                  amountXof={data.total_amount_xof}
+                  className="text-lg"
+                />
               </div>
             </CardContent>
           </Card>

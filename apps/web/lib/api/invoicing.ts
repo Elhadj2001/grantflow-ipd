@@ -66,6 +66,11 @@ export interface Invoice {
   totalVat: string;
   totalTtc: string;
   currency: string;
+  // US-068 (ADR-005) : équivalents XOF stockés (colonnes snake exposées
+  // telles quelles par Prisma) — infobulle XOF, aucun recalcul front.
+  total_ht_xof?: string | number | null;
+  total_vat_xof?: string | number | null;
+  total_ttc_xof?: string | number | null;
   exchangeRate: string | null;
   poId: string | null;
   status: InvoiceStatus;

@@ -302,8 +302,8 @@ export default function InvoiceDetailPage() {
                   <Field label="Fournisseur" value={<span className="font-mono text-xs">{data.supplierId}</span>} />
                   <Field label="BC lié" value={data.poId ? <span className="font-mono text-xs">{data.poId}</span> : '—'} />
                   <Field label="Devise" value={data.currency} />
-                  <Field label="Total HT" value={<AmountDisplay amount={data.totalHt} currency={data.currency} />} />
-                  <Field label="TVA" value={<AmountDisplay amount={data.totalVat} currency={data.currency} />} />
+                  <Field label="Total HT" value={<AmountDisplay amount={data.totalHt} currency={data.currency} amountXof={data.total_ht_xof} />} />
+                  <Field label="TVA" value={<AmountDisplay amount={data.totalVat} currency={data.currency} amountXof={data.total_vat_xof} />} />
                   <Field
                     label="Total TTC"
                     value={

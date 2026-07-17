@@ -54,4 +54,26 @@ describe('AmountDisplay', () => {
     render(<AmountDisplay amount={NaN} />);
     expect(screen.getByTestId('amount-display')).toHaveAttribute('data-amount', '0');
   });
+
+  // ----- US-068 — infobulle équivalent XOF (colonnes *_amount_xof) -----
+
+  it('US-068 : devise ≠ XOF + amountXof → infobulle "≈ … XOF" au format FR', () => {
+    render(<AmountDisplay amount={1000} currency="USD" amountXof="565000" />);
+    const el = screen.getByTestId('amount-display');
+    const title = el.getAttribute('title') ?? '';
+    expect(title.replace(/[  ]/g, ' ')).toBe('≈ 565 000 XOF');
+    expect(el).toHaveAttribute('data-xof', '565000');
+  });
+
+  it('US-068 : pas d\'infobulle quand la devise est XOF (équivalent inutile)', () => {
+    render(<AmountDisplay amount={565000} currency="XOF" amountXof={565000} />);
+    expect(screen.getByTestId('amount-display')).not.toHaveAttribute('title');
+  });
+
+  it('US-068 : pas d\'infobulle sans amountXof — AUCUN recalcul front', () => {
+    render(<AmountDisplay amount={1000} currency="USD" />);
+    const el = screen.getByTestId('amount-display');
+    expect(el).not.toHaveAttribute('title');
+    expect(el).not.toHaveAttribute('data-xof');
+  });
 });
