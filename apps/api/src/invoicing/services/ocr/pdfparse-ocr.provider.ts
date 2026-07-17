@@ -103,6 +103,26 @@ export class PdfParseOcrProvider implements OcrProvider {
       fieldConfidence.totalTtc = totals.confidenceTtc;
     }
 
+    // ---- 3bis) US-077 (F-S8-04) : contrôle de cohérence HT + TVA ≈ TTC ----
+    // Une capture incohérente (ex. TVA=18 « taux » au lieu du montant) ne
+    // doit JAMAIS partir avec une confiance haute silencieuse.
+    const warnings: string[] = [];
+    if (
+      fields.totalHt !== undefined &&
+      fields.totalVat !== undefined &&
+      fields.totalTtc !== undefined
+    ) {
+      const gap = Math.abs(fields.totalHt + fields.totalVat - fields.totalTtc);
+      const tolerance = Math.max(1, fields.totalTtc * 0.01);
+      if (gap > tolerance) {
+        warnings.push(
+          `totals_inconsistent: HT(${fields.totalHt}) + TVA(${fields.totalVat}) ≠ TTC(${fields.totalTtc})`,
+        );
+        // Le champ le plus suspect est la TVA (source du bug historique).
+        fieldConfidence.totalVat = Math.min(fieldConfidence.totalVat ?? 0, 30);
+      }
+    }
+
     // ---- 4) Devise ----
     const currency = this.extractCurrency(rawText);
     if (currency) {
@@ -119,9 +139,12 @@ export class PdfParseOcrProvider implements OcrProvider {
 
     // ---- 6) Confiance globale ----
     const values = Object.values(fieldConfidence);
-    const confidence = values.length === 0
+    let confidence = values.length === 0
       ? 0
       : Math.round(values.reduce((s, v) => s + v, 0) / values.length);
+    // US-077 : une incohérence de totaux plafonne la confiance globale —
+    // le front (< 80 %) signale la capture « à vérifier ».
+    if (warnings.length > 0) confidence = Math.min(confidence, 50);
 
     return {
       rawText,
@@ -129,6 +152,7 @@ export class PdfParseOcrProvider implements OcrProvider {
       confidence,
       fields,
       fieldConfidence,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 
@@ -207,7 +231,11 @@ export class PdfParseOcrProvider implements OcrProvider {
     const tht = this.matchAmountLabelled(text, /(?:total\s+ht|montant\s+ht|sous[-\s]?total|subtotal)/i);
     if (tht) { out.totalHt = tht.value; out.confidenceHt = tht.confidence; }
 
-    const tva = this.matchAmountLabelled(text, /(?:total\s+tva|tva|vat|taxes?\b)/i);
+    // US-077 (F-S8-04) : préférer le libellé « Total TVA » (bloc totaux) au
+    // label court « TVA » qui peut matcher l'en-tête de colonne du tableau.
+    const tva =
+      this.matchAmountLabelled(text, /(?:total\s+tva|montant\s+tva)/i) ??
+      this.matchAmountLabelled(text, /(?:tva|vat|taxes?\b)/i);
     if (tva) { out.totalVat = tva.value; out.confidenceVat = tva.confidence; }
 
     if (out.totalTtc !== undefined && out.totalHt !== undefined && out.totalVat === undefined) {
@@ -224,12 +252,22 @@ export class PdfParseOcrProvider implements OcrProvider {
     const labelMatch = text.match(labelRe);
     if (!labelMatch) return null;
     const startIdx = (labelMatch.index ?? 0) + labelMatch[0].length;
-    const window = text.slice(startIdx, startIdx + 120);
-    const amount = window.match(/([-+]?\s*[0-9][0-9\s.,]*)\s*(?:XOF|EUR|USD|CFA|F|€|\$)?/);
-    if (!amount) return null;
-    const num = this.parseNumber(amount[1]);
-    if (num === null) return null;
-    return { value: num, confidence: this.CONF_EXACT };
+    // US-077 : le montant d'un label vit sur LA MÊME LIGNE (format facture) —
+    // la fenêtre multi-lignes historique capturait le montant du label
+    // SUIVANT quand la ligne courante n'en portait pas (ex. « TVA 18 % »).
+    const window = text.slice(startIdx, startIdx + 120).split('\n')[0];
+    // US-077 (F-S8-04) : un nombre suivi de « % » est un TAUX, jamais un
+    // montant — « TVA (18%) : 2 952,00 » capturait 18 avec confidence 95.
+    // On itère les candidats et on prend le premier NON suivi de %.
+    const candidates = window.matchAll(/([-+]?\s*[0-9][0-9\s.,]*)/g);
+    for (const c of candidates) {
+      const after = window.slice((c.index ?? 0) + c[0].length);
+      if (/^\s*%/.test(after)) continue; // taux → candidat suivant
+      const num = this.parseNumber(c[1]);
+      if (num === null) continue;
+      return { value: num, confidence: this.CONF_EXACT };
+    }
+    return null;
   }
 
   private parseNumber(s: string): number | null {
@@ -264,10 +302,27 @@ export class PdfParseOcrProvider implements OcrProvider {
   }
 
   private extractCurrency(text: string): { value: string; confidence: number } | null {
+    // US-077 (F-S8-04) : chercher d'abord PRÈS DES TOTAUX — la première
+    // occurrence ISO du document peut être un IBAN/une parité sans rapport
+    // (cause du « EUR » erroné constaté en prod sur une facture XOF).
+    const totalsLabel = text.match(/(?:total\s+ttc|net\s+à\s+payer|montant\s+ttc|grand\s+total|amount\s+due)/i);
+    if (totalsLabel) {
+      // Fenêtre APRÈS le label uniquement : la devise SUIT le montant
+      // (« 19 352,00 XOF ») — une marge arrière ramasserait la ligne
+      // précédente (IBAN, mentions bancaires).
+      const start = totalsLabel.index ?? 0;
+      const window = text.slice(start, start + totalsLabel[0].length + 160);
+      const near = window.match(/\b(XOF|EUR|USD|CFA|GBP|CHF|CAD)\b/i);
+      if (near) {
+        const v = near[1].toUpperCase() === 'CFA' ? 'XOF' : near[1].toUpperCase();
+        return { value: v, confidence: this.CONF_EXACT };
+      }
+    }
     const iso = text.match(/\b(XOF|EUR|USD|CFA|GBP|CHF|CAD)\b/i);
     if (iso) {
       const v = iso[1].toUpperCase() === 'CFA' ? 'XOF' : iso[1].toUpperCase();
-      return { value: v, confidence: this.CONF_EXACT };
+      // Hors bloc totaux → simple indice, pas une certitude.
+      return { value: v, confidence: this.CONF_HEURISTIC };
     }
     if (text.includes('€')) return { value: 'EUR', confidence: this.CONF_HEURISTIC };
     if (text.includes('$')) return { value: 'USD', confidence: this.CONF_HEURISTIC };

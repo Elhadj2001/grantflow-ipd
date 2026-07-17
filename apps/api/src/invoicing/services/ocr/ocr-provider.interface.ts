@@ -47,6 +47,13 @@ export interface OcrResult {
   fields: OcrFields;
   /** Confiance par champ 0-100. Clé = `keyof OcrFields`. */
   fieldConfidence: Record<string, number>;
+  /**
+   * US-077 (F-S8-04) — anomalies détectées à l'extraction (ex.
+   * `totals_inconsistent` quand HT+TVA≠TTC). Optionnel : les providers
+   * qui n'en produisent pas restent conformes. Persisté dans
+   * `captured_payload` → visible au panneau OCR du détail facture.
+   */
+  warnings?: string[];
 }
 
 /**

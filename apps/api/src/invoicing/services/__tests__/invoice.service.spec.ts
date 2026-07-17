@@ -231,6 +231,48 @@ describe('InvoiceService', () => {
       const res = await svc.uploadAndCapture(comptable, Buffer.from('%PDF-'), 'x.pdf', { supplierId });
       expect(res.ocr.isImageScan).toBe(true);
     });
+
+    // ----- US-077 (F-S8-04) — ligne de repli + warnings persistés -----
+
+    it('US-077 : aucune ligne OCR + totalHt>0 → ligne de repli « Import global » créée', async () => {
+      ocr.extractFromPdf.mockResolvedValue({
+        rawText: 'x', isImageScan: false, confidence: 90,
+        fields: { totalHt: 16400, totalVat: 2952, totalTtc: 19352 }, fieldConfidence: {},
+      });
+      prisma.invoice.create.mockResolvedValue(makeInvoice());
+      await svc.uploadAndCapture(comptable, Buffer.from('%PDF-'), 'x.pdf', { supplierId });
+      const data = prisma.invoice.create.mock.calls[0][0].data;
+      expect(data.lines.create).toHaveLength(1);
+      expect(data.lines.create[0]).toMatchObject({
+        lineNumber: 1,
+        description: 'Import global — détail non extrait (OCR)',
+      });
+      expect(Number(data.lines.create[0].lineTotal)).toBe(16400);
+    });
+
+    it('US-077 : totaux à 0 (image scan) → PAS de ligne de repli', async () => {
+      ocr.extractFromPdf.mockResolvedValue({
+        rawText: '', isImageScan: true, confidence: 0,
+        fields: {}, fieldConfidence: {},
+      });
+      prisma.invoice.create.mockResolvedValue(makeInvoice({ totalTtc: new Prisma.Decimal(0) }));
+      await svc.uploadAndCapture(comptable, Buffer.from('%PDF-'), 'x.pdf', { supplierId });
+      const data = prisma.invoice.create.mock.calls[0][0].data;
+      expect(data.lines).toBeUndefined();
+    });
+
+    it('US-077 : warnings OCR persistés dans capturedPayload (ocrWarnings)', async () => {
+      ocr.extractFromPdf.mockResolvedValue({
+        rawText: 'x', isImageScan: false, confidence: 45,
+        fields: { totalHt: 16400, totalVat: 18, totalTtc: 19352 }, fieldConfidence: {},
+        warnings: ['totals_inconsistent: HT(16400) + TVA(18) ≠ TTC(19352)'],
+      });
+      prisma.invoice.create.mockResolvedValue(makeInvoice());
+      await svc.uploadAndCapture(comptable, Buffer.from('%PDF-'), 'x.pdf', { supplierId });
+      const data = prisma.invoice.create.mock.calls[0][0].data;
+      expect(data.capturedPayload.ocrWarnings).toHaveLength(1);
+      expect(data.capturedPayload.ocrWarnings[0]).toMatch(/totals_inconsistent/);
+    });
   });
 
   // ============================================================

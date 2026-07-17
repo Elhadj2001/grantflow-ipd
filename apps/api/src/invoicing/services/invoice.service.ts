@@ -162,6 +162,32 @@ export class InvoiceService {
     const invoiceDate = ocr.fields.invoiceDate ?? now;
     const dueDate = ocr.fields.dueDate ?? invoiceDate;
 
+    // US-077 (F-S8-04) : ligne de REPLI quand l'OCR n'extrait aucun détail
+    // (cas pdfparse : jamais de lignes). Sans elle, la facture 0-ligne
+    // enchaînait « matched par vacuité » (F-S8-02) puis refus de
+    // comptabilisation (F-S8-03). La ligne globale porte le HT et reste
+    // corrigeable au statut captured.
+    const ocrLines =
+      ocr.fields.lines && ocr.fields.lines.length > 0
+        ? ocr.fields.lines
+        : totalHt > 0
+          ? [
+              {
+                description: 'Import global — détail non extrait (OCR)',
+                quantity: 1,
+                unitPrice: totalHt,
+                lineTotal: totalHt,
+              },
+            ]
+          : [];
+
+    if (ocr.warnings && ocr.warnings.length > 0) {
+      this.logger.warn(
+        { invoiceNumber, warnings: ocr.warnings, ocrConfidence: ocr.confidence },
+        'ocr capture warnings — à vérifier par le comptable',
+      );
+    }
+
     const invoice = await this.prisma.invoice.create({
       data: {
         invoiceNumber,
@@ -175,11 +201,14 @@ export class InvoiceService {
         totalTtc,
         ocrConfidence: ocr.confidence,
         pdfObjectKey: objectKey,
-        capturedPayload: ocr.fields as unknown as Prisma.InputJsonValue,
+        capturedPayload: {
+          ...(ocr.fields as unknown as Record<string, unknown>),
+          ...(ocr.warnings && ocr.warnings.length > 0 ? { ocrWarnings: ocr.warnings } : {}),
+        } as Prisma.InputJsonValue,
         status: InvoiceStatus.captured,
-        lines: ocr.fields.lines && ocr.fields.lines.length > 0
+        lines: ocrLines.length > 0
           ? {
-              create: ocr.fields.lines.map((l, i) => ({
+              create: ocrLines.map((l, i) => ({
                 lineNumber: i + 1,
                 description: l.description,
                 quantity: l.quantity ? new Prisma.Decimal(l.quantity) : null,

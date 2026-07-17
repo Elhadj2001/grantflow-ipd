@@ -106,6 +106,36 @@ Total TTC     : 118 000,00 XOF
       expect(r.fields.totalHt).toBe(100000);
       expect(r.fields.totalTtc).toBe(118000);
     });
+
+    // ----- US-077 (F-S8-04) — le TAUX n'est jamais un MONTANT -----
+
+    it('US-077 : « TVA (18%) : 2 952,00 » capture 2952, JAMAIS le taux 18', () => {
+      const text = `
+Total HT      : 16 400,00 XOF
+TVA (18%)     :  2 952,00 XOF
+Total TTC     : 19 352,00 XOF
+`;
+      const r = svc.parseText(text);
+      expect(r.fields.totalVat).toBe(2952);
+      expect(r.fields.totalHt).toBe(16400);
+      expect(r.fields.totalTtc).toBe(19352);
+      expect(r.warnings).toBeUndefined(); // cohérent → pas de warning
+    });
+
+    it('US-077 : « TVA 18 % » sans montant → dérivation TTC−HT (pas 18)', () => {
+      const text = 'Total HT : 100 000\nTVA 18 %\nTotal TTC : 118 000';
+      const r = svc.parseText(text);
+      expect(r.fields.totalVat).toBe(18000);
+    });
+
+    it('US-077 : incohérence HT+TVA≠TTC → warning + confiance plafonnée ≤ 50', () => {
+      // Reproduit la facture prod : TVA=18 alors que TTC-HT=2952.
+      const text = 'Montant HT : 16 400,00\nTotal TVA : 18,00\nTotal TTC : 19 352,00';
+      const r = svc.parseText(text);
+      expect(r.warnings?.[0]).toMatch(/totals_inconsistent/);
+      expect(r.confidence).toBeLessThanOrEqual(50);
+      expect(r.fieldConfidence.totalVat).toBeLessThanOrEqual(30);
+    });
   });
 
   // ----------------------------------------------------------------
@@ -130,6 +160,16 @@ Total TTC     : 118 000,00 XOF
     it('returns undefined if no currency hint', () => {
       const r = svc.parseText('Numéro: FAC-001\nMontant : 100');
       expect(r.fields.currency).toBeUndefined();
+    });
+
+    it('US-077 : la devise PRÈS DES TOTAUX gagne sur une mention antérieure (IBAN EUR…)', () => {
+      const text = `
+Coordonnées bancaires : IBAN FR76… — virements EUR acceptés
+Total HT  : 16 400,00
+Total TTC : 19 352,00 XOF
+`;
+      const r = svc.parseText(text);
+      expect(r.fields.currency).toBe('XOF');
     });
   });
 
