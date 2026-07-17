@@ -61,7 +61,7 @@ bien attaché ; sinon saisir les variables directement sur le service.
 
 | # | Key | Valeur à saisir | Provenance |
 |---|---|---|---|
-| 1 | `DATABASE_URL` | `postgresql://<user>:<pass>@<host>/<db>?sslmode=require` | **Neon dashboard → Connect → Pooled** |
+| 1 | `DATABASE_URL` | `postgresql://<user>:<pass><AT><host>/<db>?sslmode=require` (`<AT>` = arobase) | **Neon dashboard → Connect → Pooled** |
 | 2 | `KEYCLOAK_URL` | `https://grantflow-keycloak-<suffix>.onrender.com` | **URL Render du service grantflow-keycloak** (onglet du service KC) |
 | 3 | `KEYCLOAK_REALM` | `grantflow` | en dur (documenté) |
 | 4 | `KEYCLOAK_CLIENT_ID` | `grantflow-api` | en dur (documenté) |

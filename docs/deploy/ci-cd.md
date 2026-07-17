@@ -37,7 +37,7 @@ Déclenché à chaque push sur `main` qui touche aux fichiers de schéma ou de m
 2. Clique **+ New repository secret**.
 3. Nom : `DATABASE_URL`
 4. Valeur : le DSN Neon prod en **mode Direct** (pas Pooled).
-   - Format : `postgresql://USER:PASSWORD@ep-XXX.eu-central-1.aws.neon.tech/neondb?sslmode=require`
+   - Format : `postgresql://USER:PASSWORD<AT>ep-XXX.eu-central-1.aws.neon.tech/neondb?sslmode=require` (`<AT>` = arobase — placeholder neutralisé pour la règle anti-leak du repo)
    - À récupérer depuis Neon Console → Connection Details → Direct connection.
 5. Clique **Add secret**.
 
