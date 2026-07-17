@@ -2,8 +2,9 @@
 
 > **Thème** : effectivité de l'Eligibility Engine côté utilisateurs + dettes
 > courtes. 6 stories (dont US-069 ajoutée en cours de sprint sur retour user).
-> **Livré mergé main : 20 pts** (US-064/065/066/068/069) ; US-067 (2 pts)
-> **préparée**, exécution Neon en attente du GO utilisateur.
+> **Livré : 22 pts, sprint CLOS À 100 % le 2026-07-17** — 5 stories mergées
+> main (US-064/065/066/068/069), US-067 exécutée sur Neon (seed seul, backfill
+> différé documenté), rôle GO créé sur Keycloak PROD. Aucune action restante.
 
 ## Stories livrées
 
@@ -42,10 +43,11 @@ conflit `lib/api/procurement.ts` : cumul champs éligibilité + `total_amount_xo
 - Tier fonctionnel non-boot (SMTP + ANTHROPIC_API_KEY) restauré et ajouté à
   la parité env vars (commit `a399bc4` pré-sprint).
 
-## Actions utilisateur en attente
+## Actions utilisateur — TOUTES SOLDÉES (sprint clos à 100 %)
 
-1. **Keycloak PROD** : créer le rôle `GO` + l'utilisateur Grant Office via
-   l'admin UI (le realm.json ne s'importe qu'à la création du conteneur).
+1. ~~**Keycloak PROD** : créer le rôle `GO` + l'utilisateur Grant Office~~ —
+   **FAIT le 2026-07-17** via l'admin UI, vérifié (le realm.json ne
+   s'importe qu'à la création du conteneur, d'où l'action manuelle).
 2. ~~**US-067 — exécution Neon**~~ — **EXÉCUTÉE le 2026-07-17 (GO « seed
    seul »)** : inventaire préalable (2 parités fixes EUR seulement — le taux
    605,50 @01/07 d'un dépannage manuel évoqué n'existait pas en base), seed
