@@ -258,6 +258,8 @@ async function seedUsers() {
     { email: 'acheteur@pasteur.sn',   fullName: 'M. BA (Acheteur)',      roleCode: 'ACHETEUR' },
     { email: 'magasinier@pasteur.sn', fullName: 'M. THIAM (Magasin)',    roleCode: 'MAGASINIER' },
     { email: 'bailleur@pasteur.sn',   fullName: 'Auditeur USAID (lecture)', roleCode: 'BAILLEUR' },
+    // US-065 — Grant Office (rédige/soumet/active les NT, validation = DAF).
+    { email: 'go.demo@pasteur.sn',    fullName: 'N. GUEYE (Grant Office)', roleCode: 'GO' },
   ];
   for (const u of users) {
     const role = await prisma.role.findUniqueOrThrow({ where: { code: u.roleCode } });

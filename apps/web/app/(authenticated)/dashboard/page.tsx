@@ -19,6 +19,7 @@ const ROLE_LABELS_FR: Record<GrantflowRole, string> = {
   DEMANDEUR: 'Demandeur',
   BAILLEUR: 'Bailleur / Auditeur',
   CAISSIER: 'Caissier',
+  GO: 'Grant Office',
 };
 
 function formatRolesFr(roles: GrantflowRole[]): string {

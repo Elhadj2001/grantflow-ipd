@@ -115,12 +115,17 @@ describe('NoteTechniqueController — transitions REST (US-052)', () => {
       reflector.get<string[]>(ROLES_KEY, fn as () => unknown);
 
     expect(get(NoteTechniqueController.prototype.submitToDaf)).toEqual([
+      'GO',
       'CONTROLEUR',
       'SUPER_ADMIN',
     ]);
     expect(get(NoteTechniqueController.prototype.validateAsDaf)).toEqual(['DAF', 'SUPER_ADMIN']);
     expect(get(NoteTechniqueController.prototype.rejectAsDaf)).toEqual(['DAF', 'SUPER_ADMIN']);
-    expect(get(NoteTechniqueController.prototype.activate)).toEqual(['CONTROLEUR', 'SUPER_ADMIN']);
+    expect(get(NoteTechniqueController.prototype.activate)).toEqual([
+      'GO',
+      'CONTROLEUR',
+      'SUPER_ADMIN',
+    ]);
 
     // Un DEMANDEUR / BAILLEUR n'est dans AUCUNE liste → 403 garanti par le guard.
     const submitRoles = get(NoteTechniqueController.prototype.submitToDaf) ?? [];
@@ -128,5 +133,37 @@ describe('NoteTechniqueController — transitions REST (US-052)', () => {
     expect(submitRoles).not.toContain('BAILLEUR');
     const validateRoles = get(NoteTechniqueController.prototype.validateAsDaf) ?? [];
     expect(validateRoles).not.toContain('CONTROLEUR'); // un CONTROLEUR ne peut pas s'auto-valider
+  });
+
+  // ------------------------------------------------------------------
+  // US-065 — rôle GO dédié (ADR-006). Le RolesGuard lit ces métadatas :
+  // les inclure/exclure PROUVE le 403 pour les cas interdits.
+  // ------------------------------------------------------------------
+  describe('US-065 — RBAC rôle GO', () => {
+    const reflector = new Reflector();
+    const get = (fn: unknown): string[] =>
+      reflector.get<string[]>(ROLES_KEY, fn as () => unknown) ?? [];
+
+    it('GO peut créer, éditer, lister et soumettre une NT', () => {
+      expect(get(NoteTechniqueController.prototype.create)).toContain('GO');
+      expect(get(NoteTechniqueController.prototype.update)).toContain('GO');
+      expect(get(NoteTechniqueController.prototype.list)).toContain('GO');
+      expect(get(NoteTechniqueController.prototype.findById)).toContain('GO');
+      expect(get(NoteTechniqueController.prototype.submitToDaf)).toContain('GO');
+      expect(get(NoteTechniqueController.prototype.activate)).toContain('GO');
+    });
+
+    it('GO ne peut PAS valider ni rejeter (validation = DAF, SoD ADR-009)', () => {
+      expect(get(NoteTechniqueController.prototype.validateAsDaf)).not.toContain('GO');
+      expect(get(NoteTechniqueController.prototype.rejectAsDaf)).not.toContain('GO');
+    });
+
+    it('un PI ne peut PAS créer de NT (absent de toutes les listes NT)', () => {
+      expect(get(NoteTechniqueController.prototype.create)).not.toContain('PI');
+      expect(get(NoteTechniqueController.prototype.update)).not.toContain('PI');
+      expect(get(NoteTechniqueController.prototype.submitToDaf)).not.toContain('PI');
+      expect(get(NoteTechniqueController.prototype.validateAsDaf)).not.toContain('PI');
+      expect(get(NoteTechniqueController.prototype.activate)).not.toContain('PI');
+    });
   });
 });

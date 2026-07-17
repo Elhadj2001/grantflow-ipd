@@ -171,7 +171,9 @@ const GROUPES: NavGroup[] = [
         label: 'Bailleurs',
         icon: HandCoins,
         matchPrefix: '/referential/donors',
-        visible: (p) => p.canManageDonors(),
+        // US-065 : le GO consulte les bailleurs (GET /donors ouvert) — les
+        // actions d'écriture restent gated par canManageDonors dans la page.
+        visible: (p) => p.canManageDonors() || p.has('GO'),
       },
       {
         href: '/referential/projects',
@@ -206,6 +208,7 @@ const REPLIE_KEY = 'grantflow.sidebar.replie';
 const ROLE_PRIORITY: Array<{ role: GrantflowRole; classes: string; label: string }> = [
   { role: 'SUPER_ADMIN', classes: 'bg-ipd-dark text-white', label: 'Admin' },
   { role: 'DAF', classes: 'bg-ipd-dark text-white', label: 'DAF' },
+  { role: 'GO', classes: 'bg-ipd-bleu text-white', label: 'Grant Office' },
   { role: 'CONTROLEUR', classes: 'bg-white/15 text-white', label: 'Contrôleur' },
   { role: 'COMPTABLE', classes: 'bg-white/15 text-white', label: 'Comptable' },
   { role: 'TRESORIER', classes: 'bg-ipd-vert text-white', label: 'Trésorier' },

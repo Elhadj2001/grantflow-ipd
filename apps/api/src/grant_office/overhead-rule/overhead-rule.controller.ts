@@ -25,14 +25,14 @@ export class OverheadRuleController {
   constructor(private readonly service: OverheadRuleService) {}
 
   @Get()
-  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Liste les règles d’overhead actives.' })
   list() {
     return this.service.list();
   }
 
   @Get(':id')
-  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Détail d’une règle d’overhead.' })
   findById(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.findById(id);

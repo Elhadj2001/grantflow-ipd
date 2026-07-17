@@ -21,6 +21,8 @@ export const GRANTFLOW_ROLES = [
   'DEMANDEUR',
   'BAILLEUR',
   'CAISSIER',
+  // US-065 — Grant Office (Notes Techniques, ADR-006)
+  'GO',
 ] as const;
 export type GrantflowRoleCode = (typeof GRANTFLOW_ROLES)[number];
 

@@ -424,6 +424,27 @@ describe('AppSidebar', () => {
     }
   });
 
+  // -----------------------------------------------------------------
+  // US-065 — rôle GO (Grant Office) : voit Bailleurs + Pilotage
+  // (conventions) ; badge de rôle dédié. Pas d'accès Administration.
+  // -----------------------------------------------------------------
+
+  it('US-065 : GO voit Bailleurs et Pilotage, pas Utilisateurs', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['GO'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Bailleurs')).toBeInTheDocument();
+    expect(screen.getByText('Pilotage')).toBeInTheDocument();
+    expect(screen.queryByText('Utilisateurs')).toBeNull();
+  });
+
+  it('US-065 : badge de rôle "Grant Office" affiché pour GO', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['GO'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Grant Office')).toBeInTheDocument();
+  });
+
   it('Bailleurs masqué pour ACHETEUR (peut gérer fournisseurs mais pas bailleurs)', () => {
     mockPathname = '/dashboard';
     mockRoles = ['ACHETEUR'];
