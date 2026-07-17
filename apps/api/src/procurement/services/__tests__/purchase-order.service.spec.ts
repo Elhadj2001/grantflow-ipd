@@ -200,6 +200,15 @@ describe('PurchaseOrderService', () => {
       posting as never,
       supplierInvoicePdf as never,
       invoiceSvc as never,
+      // US-097 : stub fx identité XOF (xofAmount ENTIER, contrat du service).
+      {
+        convertToXof: jest.fn(async (amount: number | { toString(): string }) => ({
+          xofAmount: Math.round(Number(amount)),
+          fxRate: 1,
+          fxRateDate: new Date('2026-06-15'),
+          isIndicativeFallback: false,
+        })),
+      } as never,
     );
   });
 
@@ -266,6 +275,27 @@ describe('PurchaseOrderService', () => {
       await svc.createFromPr(acheteur, prId, { supplierId });
       const data = createDataOf(prisma.purchaseOrder.create.mock.calls);
       expect(Number(data.totalHt)).toBe(100000);
+    });
+
+    // US-097 (F-S8-14) : le triplet XOF est figé à la création du BC.
+    it('US-097 — triplet XOF persisté (total_ht_xof BigInt + fx_rate + fx_rate_date)', async () => {
+      prisma.purchaseRequest.findUnique.mockResolvedValue(
+        makePr({}, [{ lineTotal: new Prisma.Decimal('30000') }]) as never,
+      );
+      prisma.purchaseOrder.create.mockResolvedValue(makePo() as never);
+      await svc.createFromPr(acheteur, prId, { supplierId });
+      const data = createDataOf(prisma.purchaseOrder.create.mock.calls) as unknown as {
+        total_ht_xof: bigint;
+        total_ttc_xof: bigint;
+        fx_rate: number;
+        fx_rate_date: Date;
+        lines: { create: Array<{ unit_price_xof: bigint }> };
+      };
+      expect(data.total_ht_xof).toBe(BigInt(30000));
+      expect(data.total_ttc_xof).toBe(BigInt(30000));
+      expect(data.fx_rate).toBe(1);
+      expect(data.fx_rate_date).toBeInstanceOf(Date);
+      expect(typeof data.lines.create[0].unit_price_xof).toBe('bigint');
     });
   });
 

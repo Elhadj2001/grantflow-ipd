@@ -145,15 +145,19 @@ FALLBACK_INDICATIVE_TO_XOF = { USD: 600, GBP: 800, CHF: 700 };
 
 ## 6. Matérialisation XOF dans les entités
 
-Pour les contrôles internes, l'équivalent XOF est figé au paramétrage de la
-convention sur :
+Pour les contrôles internes, l'équivalent XOF est figé à l'écriture sur :
 
 - `ref.budget_line` (Sprint S3 US-024) : `budgetedAmountXof`, `fxRate`,
   `fxRateDate`, `currency`.
 - `gl.journal_line` (Sprint S1 US-001 puis S3 US-020) : `debit_amount`,
   `credit_amount` déjà en XOF, `fxRate`, `fxRateDate` ajoutés ; ventilation
   transactionnelle dans `debit_currency`, `credit_currency`.
-- `ap.invoice` / `ap.payment` / etc. : voir DDL section S1.
+- **Sprint S9 US-097 (F-S8-14)** — triplets écrits À LA CRÉATION via
+  `convertToXof` sur : `procurement.purchase_request` (+ lignes),
+  `procurement.purchase_order` (+ lignes), `ap.invoice` (+ lignes),
+  `ap.payment`. Dates de valorisation : DA = jour de création (requested_at,
+  re-figé au PATCH si montant/devise change), BC = order_date, facture =
+  invoice_date (date de la pièce), paiement = payment_date.
 
 ## 7. Invariants multidevise (5)
 
@@ -191,6 +195,14 @@ Exposition des soldes XOF :
 - Données legacy : script `apps/api/scripts/backfill-budget-line-xof.ts`
   fige les `budget_line` existantes au taux du jour d'exécution. Pattern
   réutilisable pour d'autres entités.
+- **US-097** : `apps/api/scripts/backfill-xof-triplets.ts` — matérialise les
+  triplets sur DA/BC/facture/paiement (+ lignes) où ils sont NULL.
+  **Dry-run par défaut** (rapport ligne à ligne JSON), APPLY via
+  `BACKFILL_APPLY=on` (marqueur `grantflow.backfill_apply`, convention
+  US-067). Taux à la date métier de l'entité ; si aucun taux BD n'existe à
+  cette date, repli sur le taux du jour d'exécution (flag `usedTodayRate`) ;
+  l'indicatif 600/800/700 ne reste qu'en dernier recours (flag
+  `isIndicativeFallback`). Exécution Neon soumise à GO explicite.
 
 ## 11. Erreurs courantes à éviter
 

@@ -31,6 +31,7 @@ import type {
 import { OcrService, type OcrResult } from './ocr.service';
 import { MatchingService, type MatchOutcome } from './matching.service';
 import { PostingService, type CancelPostingResult, type PostInvoiceResult } from '../../accounting/services/posting.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 
 const ENTITY_NAME = 'Invoice';
 const INVOICE_BUCKET = 'grantflow-invoices';
@@ -99,7 +100,52 @@ export class InvoiceService {
     private readonly ocr: OcrService,
     private readonly matching: MatchingService,
     private readonly posting: PostingService,
+    // US-097 (F-S8-14) : triplets XOF figés à la création de la facture.
+    private readonly fx: ExchangeRateService,
   ) {}
+
+  /**
+   * US-097 (F-S8-14, ADR-005) : calcule le triplet XOF d'une facture
+   * (totaux + lignes) valorisé à la date de la facture — le taux comptable
+   * pertinent est celui du jour de la pièce, pas du jour de saisie.
+   */
+  private async buildInvoiceFxData(params: {
+    currency: string;
+    invoiceDate: Date;
+    totalHt: number | Prisma.Decimal;
+    totalVat: number | Prisma.Decimal;
+    totalTtc: number | Prisma.Decimal;
+    lines: Array<{ unitPrice: number | Prisma.Decimal | null; lineTotal: number | Prisma.Decimal }>;
+  }) {
+    const { currency, invoiceDate } = params;
+    const [fxHt, fxVat, fxTtc] = await Promise.all([
+      this.fx.convertToXof(params.totalHt, currency, invoiceDate),
+      this.fx.convertToXof(params.totalVat, currency, invoiceDate),
+      this.fx.convertToXof(params.totalTtc, currency, invoiceDate),
+    ]);
+    const fxLines = await Promise.all(
+      params.lines.map(async (l) => ({
+        unitPrice:
+          l.unitPrice != null ? await this.fx.convertToXof(l.unitPrice, currency, invoiceDate) : null,
+        lineTotal: await this.fx.convertToXof(l.lineTotal, currency, invoiceDate),
+      })),
+    );
+    return {
+      header: {
+        total_ht_xof: BigInt(fxHt.xofAmount),
+        total_vat_xof: BigInt(fxVat.xofAmount),
+        total_ttc_xof: BigInt(fxTtc.xofAmount),
+        fx_rate: fxTtc.fxRate,
+        fx_rate_date: fxTtc.fxRateDate,
+      },
+      lines: fxLines.map((l) => ({
+        unit_price_xof: l.unitPrice ? BigInt(l.unitPrice.xofAmount) : null,
+        line_total_xof: BigInt(l.lineTotal.xofAmount),
+        fx_rate: l.lineTotal.fxRate,
+        fx_rate_date: l.lineTotal.fxRateDate,
+      })),
+    };
+  }
 
   // ------------------------------------------------------------------
   // Upload + capture OCR
@@ -197,6 +243,20 @@ export class InvoiceService {
       );
     }
 
+    // US-097 (F-S8-14) : triplet XOF figé à la capture, valorisé à la date
+    // de la facture.
+    const fxData = await this.buildInvoiceFxData({
+      currency: ocr.fields.currency ?? 'XOF',
+      invoiceDate,
+      totalHt,
+      totalVat,
+      totalTtc,
+      lines: ocrLines.map((l) => ({
+        unitPrice: l.unitPrice ?? null,
+        lineTotal: l.lineTotal ?? 0,
+      })),
+    });
+
     const invoice = await this.prisma.invoice.create({
       data: {
         invoiceNumber,
@@ -215,6 +275,7 @@ export class InvoiceService {
           ...(ocr.warnings && ocr.warnings.length > 0 ? { ocrWarnings: ocr.warnings } : {}),
         } as Prisma.InputJsonValue,
         status: InvoiceStatus.captured,
+        ...fxData.header,
         lines: ocrLines.length > 0
           ? {
               create: ocrLines.map((l, i) => ({
@@ -223,6 +284,7 @@ export class InvoiceService {
                 quantity: l.quantity ? new Prisma.Decimal(l.quantity) : null,
                 unitPrice: l.unitPrice ? new Prisma.Decimal(l.unitPrice) : null,
                 lineTotal: new Prisma.Decimal(l.lineTotal ?? 0),
+                ...fxData.lines[i],
               })),
             }
           : undefined,
@@ -248,6 +310,16 @@ export class InvoiceService {
   ): Promise<InvoiceWithLines> {
     await this.assertUniqueInvoiceNumber(dto.supplierId, dto.invoiceNumber);
 
+    // US-097 (F-S8-14) : triplet XOF figé à la création manuelle.
+    const fxData = await this.buildInvoiceFxData({
+      currency: dto.currency,
+      invoiceDate: new Date(dto.invoiceDate),
+      totalHt: dto.totalHt,
+      totalVat: dto.totalVat,
+      totalTtc: dto.totalTtc,
+      lines: dto.lines.map((l) => ({ unitPrice: l.unitPrice ?? null, lineTotal: l.lineTotal })),
+    });
+
     const invoice = await this.prisma.invoice.create({
       data: {
         invoiceNumber: dto.invoiceNumber,
@@ -261,8 +333,9 @@ export class InvoiceService {
         totalVat: dto.totalVat,
         totalTtc: dto.totalTtc,
         status: InvoiceStatus.captured,
+        ...fxData.header,
         lines: {
-          create: dto.lines.map((l) => ({
+          create: dto.lines.map((l, i) => ({
             lineNumber: l.lineNumber,
             description: l.description,
             quantity: l.quantity ? new Prisma.Decimal(l.quantity) : null,
@@ -271,6 +344,7 @@ export class InvoiceService {
             poLineId: l.poLineId,
             taxCodeId: l.taxCodeId,
             glAccount: l.glAccount,
+            ...fxData.lines[i],
           })),
         },
       },
@@ -322,6 +396,16 @@ export class InvoiceService {
   ): Promise<InvoiceWithLines> {
     await this.assertUniqueInvoiceNumber(params.supplierId, params.invoiceNumber);
 
+    // US-097 (F-S8-14) : triplet XOF figé aussi sur le flux démo.
+    const fxData = await this.buildInvoiceFxData({
+      currency: params.currency,
+      invoiceDate: params.invoiceDate,
+      totalHt: params.totalHt,
+      totalVat: params.totalVat,
+      totalTtc: params.totalTtc,
+      lines: params.lines.map((l) => ({ unitPrice: l.unitPrice, lineTotal: l.lineTotal })),
+    });
+
     const invoice = await this.prisma.invoice.create({
       data: {
         invoiceNumber: params.invoiceNumber,
@@ -337,13 +421,15 @@ export class InvoiceService {
         // Marqueur de provenance (mode démo) — pas de colonne dédiée.
         capturedPayload: { sourceType: 'DEMO_SIMULATOR' } as Prisma.InputJsonValue,
         status: InvoiceStatus.captured,
+        ...fxData.header,
         lines: {
-          create: params.lines.map((l) => ({
+          create: params.lines.map((l, i) => ({
             lineNumber: l.lineNumber,
             description: l.description,
             quantity: l.quantity != null ? new Prisma.Decimal(l.quantity) : null,
             unitPrice: l.unitPrice != null ? new Prisma.Decimal(l.unitPrice) : null,
             lineTotal: new Prisma.Decimal(l.lineTotal),
+            ...fxData.lines[i],
           })),
         },
       },

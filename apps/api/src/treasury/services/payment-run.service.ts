@@ -25,6 +25,7 @@ import {
 } from '../../common/exceptions/business.exception';
 import { isValidIban } from '../../referential/supplier/iban-bic.util';
 import { PostingService, type PostingActor } from '../../accounting/services/posting.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import { IbanFraudService, type IbanAlert } from './iban-fraud.service';
 import { SepaService } from './sepa.service';
 import type {
@@ -68,6 +69,8 @@ export class PaymentRunService {
     private readonly posting: PostingService,
     private readonly ibanFraud: IbanFraudService,
     private readonly sepa: SepaService,
+    // US-097 (F-S8-14) : triplet XOF figé à la création des paiements.
+    private readonly fx: ExchangeRateService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -161,6 +164,16 @@ export class PaymentRunService {
       .reduce((s, i) => s.plus(this.remainingAmount(i)), new Prisma.Decimal(0))
       .toNumber();
 
+    // US-097 (F-S8-14) : triplet XOF par paiement, valorisé à la date de
+    // paiement (montant = reste à payer dans la devise de la facture).
+    const paymentsFx = await Promise.all(
+      invoices.map(async (inv) => {
+        const amount = this.remainingAmount(inv);
+        const fx = await this.fx.convertToXof(amount, inv.currency, paymentDate);
+        return { inv, amount, fx };
+      }),
+    );
+
     return this.prisma.$transaction(async (tx) => {
       const runNumber = await this.generateRunNumber(tx);
       const run = await tx.paymentRun.create({
@@ -176,14 +189,17 @@ export class PaymentRunService {
       });
 
       await tx.payment.createMany({
-        data: invoices.map((inv) => ({
+        data: paymentsFx.map(({ inv, amount, fx }) => ({
           paymentRunId: run.id,
           invoiceId: inv.id,
-          amount: this.remainingAmount(inv),
+          amount,
           currency: inv.currency,
           method: dto.method,
           paymentDate,
           status: 'queued',
+          amount_xof: BigInt(fx.xofAmount),
+          fx_rate: fx.fxRate,
+          fx_rate_date: fx.fxRateDate,
         })),
       });
 
@@ -222,16 +238,28 @@ export class PaymentRunService {
     }
     const invoices = await this.loadAndValidateInvoices(dto.invoiceIds, run.currency);
 
+    // US-097 (F-S8-14) : même triplet XOF que createRun (date = runDate).
+    const paymentsFx = await Promise.all(
+      invoices.map(async (inv) => {
+        const amount = this.remainingAmount(inv);
+        const fx = await this.fx.convertToXof(amount, inv.currency, run.runDate);
+        return { inv, amount, fx };
+      }),
+    );
+
     return this.prisma.$transaction(async (tx) => {
       await tx.payment.createMany({
-        data: invoices.map((inv) => ({
+        data: paymentsFx.map(({ inv, amount, fx }) => ({
           paymentRunId: runId,
           invoiceId: inv.id,
-          amount: this.remainingAmount(inv),
+          amount,
           currency: inv.currency,
           method: 'sepa',
           paymentDate: run.runDate,
           status: 'queued',
+          amount_xof: BigInt(fx.xofAmount),
+          fx_rate: fx.fxRate,
+          fx_rate_date: fx.fxRateDate,
         })),
       });
       const allPayments = await tx.payment.findMany({ where: { paymentRunId: runId } });

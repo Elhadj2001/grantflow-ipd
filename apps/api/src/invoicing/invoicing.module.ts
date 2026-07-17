@@ -9,9 +9,11 @@ import { OCR_VISION_PROVIDER } from './services/ocr/ocr-tokens';
 import { MatchingService } from './services/matching.service';
 import { StorageService } from '../common/services/storage.service';
 import { AccountingModule } from '../accounting/accounting.module';
+// US-097 (F-S8-14) : ExchangeRateService pour figer les triplets XOF.
+import { ExchangeRateModule } from '../referential/exchange-rate/exchange-rate.module';
 
 @Module({
-  imports: [ConfigModule, AccountingModule],
+  imports: [ConfigModule, AccountingModule, ExchangeRateModule],
   controllers: [InvoiceController],
   providers: [
     InvoiceService,

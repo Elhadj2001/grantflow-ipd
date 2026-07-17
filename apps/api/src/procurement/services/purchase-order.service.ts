@@ -30,6 +30,7 @@ import { PostingService } from '../../accounting/services/posting.service';
 import { maskEmail } from '../../common/utils/mask-email.util';
 import { SupplierInvoicePdfService } from './supplier-invoice-pdf.service';
 import { InvoiceService } from '../../invoicing/services/invoice.service';
+import { ExchangeRateService } from '../../referential/exchange-rate/exchange-rate.service';
 import type {
   AcknowledgePoDto,
   CancelPoDto,
@@ -144,6 +145,8 @@ export class PurchaseOrderService {
     // Sprint F-INVOICE-SIM (mode démo) :
     private readonly supplierInvoicePdf: SupplierInvoicePdfService,
     private readonly invoiceSvc: InvoiceService,
+    // US-097 (F-S8-14) : triplets XOF figés à la création du BC.
+    private readonly fx: ExchangeRateService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -185,6 +188,13 @@ export class PurchaseOrderService {
       new Prisma.Decimal(0),
     );
 
+    // US-097 (F-S8-14, ADR-005) : triplet XOF figé à la création (date BC =
+    // aujourd'hui). TVA = 0 à ce stade → TTC = HT (même équivalent XOF).
+    const fxHt = await this.fx.convertToXof(totalHt, pr.currency);
+    const fxLines = await Promise.all(
+      pr.lines.map((l) => this.fx.convertToXof(l.unitPrice, pr.currency)),
+    );
+
     const created = await this.prisma.$transaction(async (tx) => {
       const po = await tx.purchaseOrder.create({
         data: {
@@ -201,6 +211,11 @@ export class PurchaseOrderService {
           incoterm: dto.incoterm,
           deliveryAddress: dto.deliveryAddress,
           buyerId: buyerAppUserId,
+          total_ht_xof: BigInt(fxHt.xofAmount),
+          total_vat_xof: BigInt(0),
+          total_ttc_xof: BigInt(fxHt.xofAmount),
+          fx_rate: fxHt.fxRate,
+          fx_rate_date: fxHt.fxRateDate,
           lines: {
             create: pr.lines.map((l, i) => ({
               lineNumber: i + 1,
@@ -210,6 +225,9 @@ export class PurchaseOrderService {
               unitPrice: l.unitPrice,
               budgetLineId: l.budgetLineId,
               prLineId: l.id,
+              unit_price_xof: BigInt(fxLines[i].xofAmount),
+              fx_rate: fxLines[i].fxRate,
+              fx_rate_date: fxLines[i].fxRateDate,
             })),
           },
           prLinks: {
@@ -323,6 +341,12 @@ export class PurchaseOrderService {
       new Prisma.Decimal(0),
     );
 
+    // US-097 (F-S8-14) : triplet XOF figé à la création (cf. createFromPr).
+    const fxHt = await this.fx.convertToXof(totalHt, prs[0].currency);
+    const fxLines = await Promise.all(
+      consolidatedLines.map((l) => this.fx.convertToXof(l.unitPrice, prs[0].currency)),
+    );
+
     const created = await this.prisma.$transaction(async (tx) => {
       const po = await tx.purchaseOrder.create({
         data: {
@@ -339,7 +363,19 @@ export class PurchaseOrderService {
           incoterm: dto.incoterm,
           deliveryAddress: dto.deliveryAddress,
           buyerId: buyerAppUserId,
-          lines: { create: consolidatedLines },
+          total_ht_xof: BigInt(fxHt.xofAmount),
+          total_vat_xof: BigInt(0),
+          total_ttc_xof: BigInt(fxHt.xofAmount),
+          fx_rate: fxHt.fxRate,
+          fx_rate_date: fxHt.fxRateDate,
+          lines: {
+            create: consolidatedLines.map((l, i) => ({
+              ...l,
+              unit_price_xof: BigInt(fxLines[i].xofAmount),
+              fx_rate: fxLines[i].fxRate,
+              fx_rate_date: fxLines[i].fxRateDate,
+            })),
+          },
           prLinks: { create: uniquePrIds.map((id) => ({ prId: id })) },
         },
         include: { lines: { orderBy: { lineNumber: 'asc' } } },

@@ -158,8 +158,10 @@ describe('PurchaseRequestService', () => {
     // fixtures budget de ce spec sont en XOF → xofAmount = montant brut).
     // PRÉSERVÉ tel quel : seul le mock PRISMA migre vers mockDeep.
     const fx = {
+      // US-097 : arrondi à l'entier comme le vrai service (contrat : xofAmount
+      // est un ENTIER — BigInt(xofAmount) au point d'écriture des triplets).
       convertToXof: jest.fn(async (amount: number | { toString(): string }) => ({
-        xofAmount: Number(amount),
+        xofAmount: Math.round(Number(amount)),
         fxRate: 1,
         fxRateDate: new Date('2026-05-10'),
         isIndicativeFallback: false,
@@ -304,6 +306,40 @@ describe('PurchaseRequestService', () => {
       );
       expect(persisted).toBeInstanceOf(Prisma.Decimal);
       expect(persisted?.toString()).toBe('0.3');
+    });
+
+    // US-097 (F-S8-14) : triplet XOF figé à la création de la DA (+ lignes).
+    it('US-097 — triplet XOF persisté (total_amount_xof BigInt + fx_rate + fx_rate_date)', async () => {
+      prisma.grantAgreement.findUnique.mockResolvedValue({
+        projectId,
+        budgetLines: [{ id: blId1 }],
+      } as never);
+      prisma.purchaseRequest.count.mockResolvedValue(0 as never);
+      let data:
+        | {
+            total_amount_xof: bigint;
+            fx_rate: number;
+            fx_rate_date: Date;
+            lines: { create: Array<{ unit_price_xof: bigint }> };
+          }
+        | undefined;
+      prisma.purchaseRequest.create.mockImplementation((args: unknown) => {
+        data = (args as { data: typeof data }).data;
+        return Promise.resolve(makePrWithLines([])) as never;
+      });
+      await svc.create(
+        demandeur,
+        createDto({
+          lines: [
+            { description: 'L1', quantity: 2, unit: 'unit', unitPrice: 1000, budgetLineId: blId1 },
+          ],
+        }),
+      );
+      // Stub fx identité (XOF) : total 2000 → BigInt(2000), rate 1.
+      expect(data?.total_amount_xof).toBe(BigInt(2000));
+      expect(data?.fx_rate).toBe(1);
+      expect(data?.fx_rate_date).toBeInstanceOf(Date);
+      expect(data?.lines.create[0].unit_price_xof).toBe(BigInt(1000));
     });
   });
 

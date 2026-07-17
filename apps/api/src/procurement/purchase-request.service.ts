@@ -213,6 +213,15 @@ export class PurchaseRequestService {
 
     const prNumber = await this.generatePrNumber();
 
+    // US-097 (F-S8-14, ADR-005) : triplet XOF figé À L'ÉCRITURE — équivalent
+    // XOF + taux + date du taux, valorisés au jour de création de la DA via
+    // convertToXof (unique chemin de conversion). Un appel par montant :
+    // l'arrondi half-up s'applique à chaque frontière persistée (US-095).
+    const fxTotal = await this.fx.convertToXof(totalAmount, dto.currency);
+    const fxLines = await Promise.all(
+      dto.lines.map((l) => this.fx.convertToXof(l.unitPrice, dto.currency)),
+    );
+
     const pr = await this.prisma.$transaction(async (tx) => {
       const created = await tx.purchaseRequest.create({
         data: {
@@ -229,6 +238,9 @@ export class PurchaseRequestService {
           description: dto.description,
           requestType: dto.requestType,
           cashBoxId: dto.cashBoxId ?? null,
+          total_amount_xof: BigInt(fxTotal.xofAmount),
+          fx_rate: fxTotal.fxRate,
+          fx_rate_date: fxTotal.fxRateDate,
           // US-064 → colonnes US-054 : transport brut, l'EligibilityEngine
           // statue au submit (runEligibilityGate).
           expenseNatureCode: dto.expenseNatureCode ?? null,
@@ -242,6 +254,9 @@ export class PurchaseRequestService {
               unit: line.unit,
               unitPrice: line.unitPrice,
               budgetLineId: line.budgetLineId,
+              unit_price_xof: BigInt(fxLines[i].xofAmount),
+              fx_rate: fxLines[i].fxRate,
+              fx_rate_date: fxLines[i].fxRateDate,
             })),
           },
         },
@@ -424,6 +439,21 @@ export class PurchaseRequestService {
       );
     }
 
+    // US-097 (F-S8-14) : re-fige le triplet XOF si le montant ou la devise
+    // change. Valorisation à la date de création de la DA (requestedAt) —
+    // même sémantique que le triplet initial, reproductible à l'audit.
+    const nextCurrency = dto.currency ?? pr.currency;
+    const mustRefreshFx = dto.lines !== undefined || dto.currency !== undefined;
+    const fxTotal = mustRefreshFx
+      ? await this.fx.convertToXof(totalAmount, nextCurrency, pr.requestedAt)
+      : null;
+    const fxLines =
+      dto.lines !== undefined
+        ? await Promise.all(
+            dto.lines.map((l) => this.fx.convertToXof(l.unitPrice, nextCurrency, pr.requestedAt)),
+          )
+        : null;
+
     return this.prisma.$transaction(async (tx) => {
       if (dto.lines) {
         // Replace-all : drop puis recrée. Plus simple qu'un diff par ID.
@@ -440,23 +470,32 @@ export class PurchaseRequestService {
           activityId: dto.activityId,
           currency: dto.currency,
           totalAmount,
+          ...(fxTotal && {
+            total_amount_xof: BigInt(fxTotal.xofAmount),
+            fx_rate: fxTotal.fxRate,
+            fx_rate_date: fxTotal.fxRateDate,
+          }),
           // US-064 : undefined = inchangé (sémantique PATCH Prisma).
           expenseNatureCode: dto.expenseNatureCode,
           pasteurParisReimbursed: dto.pasteurParisReimbursed,
           supplierInvoiceNumber: dto.supplierInvoiceNumber,
           updatedAt: new Date(),
-          ...(dto.lines && {
-            lines: {
-              create: dto.lines.map((line, i) => ({
-                lineNumber: i + 1,
-                description: line.description,
-                quantity: line.quantity,
-                unit: line.unit,
-                unitPrice: line.unitPrice,
-                budgetLineId: line.budgetLineId,
-              })),
-            },
-          }),
+          ...(dto.lines &&
+            fxLines && {
+              lines: {
+                create: dto.lines.map((line, i) => ({
+                  lineNumber: i + 1,
+                  description: line.description,
+                  quantity: line.quantity,
+                  unit: line.unit,
+                  unitPrice: line.unitPrice,
+                  budgetLineId: line.budgetLineId,
+                  unit_price_xof: BigInt(fxLines[i].xofAmount),
+                  fx_rate: fxLines[i].fxRate,
+                  fx_rate_date: fxLines[i].fxRateDate,
+                })),
+              },
+            }),
         },
         include: { lines: { orderBy: { lineNumber: 'asc' } } },
       });

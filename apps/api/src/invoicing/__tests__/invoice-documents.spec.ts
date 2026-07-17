@@ -60,6 +60,7 @@ describe('InvoiceService — documents (US-069)', () => {
       {} as never, // OcrService — non sollicité ici
       {} as never, // MatchingService
       {} as never, // PostingService
+      {} as never, // ExchangeRateService (US-097) — non sollicité ici
     );
   });
 

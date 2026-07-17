@@ -132,6 +132,15 @@ describe('PaymentRunService', () => {
       posting as unknown as PostingService,
       ibanFraud as unknown as import('../iban-fraud.service').IbanFraudService,
       sepa as unknown as import('../sepa.service').SepaService,
+      // US-097 : stub fx identité XOF (xofAmount ENTIER, contrat du service).
+      {
+        convertToXof: jest.fn(async (amount: number | { toString(): string }) => ({
+          xofAmount: Math.round(Number(amount)),
+          fxRate: 1,
+          fxRateDate: new Date('2026-06-15'),
+          isIndicativeFallback: false,
+        })),
+      } as never,
     );
   });
 
@@ -264,6 +273,33 @@ describe('PaymentRunService', () => {
       });
       const payArgs = paymentCreateData(prisma.payment.createMany.mock.calls);
       expect(Number(payArgs[0].amount)).toBe(68000); // 118000 - 50000
+    });
+
+    // US-097 (F-S8-14) : triplet XOF figé sur chaque paiement créé.
+    it('US-097 — triplet XOF persisté (amount_xof BigInt + fx_rate + fx_rate_date)', async () => {
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.invoice.findMany.mockResolvedValue([makeInvoice()] as never);
+      prisma.payment.findMany.mockResolvedValue([] as never);
+      prisma.paymentRun.findFirst.mockResolvedValue(null as never);
+      prisma.paymentRun.create.mockResolvedValue(makeRun() as never);
+      prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({
+        ...makeRun(),
+        payments: [],
+      } as never);
+
+      await svc.createRun(actor, {
+        bankAccountId: bankAccountXof.id,
+        invoiceIds: ['inv-1'],
+        method: 'sepa',
+      });
+      const payArgs = paymentCreateData(prisma.payment.createMany.mock.calls) as unknown as Array<{
+        amount_xof: bigint;
+        fx_rate: number;
+        fx_rate_date: Date;
+      }>;
+      expect(payArgs[0].amount_xof).toBe(BigInt(118000));
+      expect(payArgs[0].fx_rate).toBe(1);
+      expect(payArgs[0].fx_rate_date).toBeInstanceOf(Date);
     });
   });
 

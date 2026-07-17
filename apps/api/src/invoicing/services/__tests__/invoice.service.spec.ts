@@ -168,6 +168,15 @@ describe('InvoiceService', () => {
       ocr as never,
       matching as never,
       posting as never,
+      // US-097 : stub fx identité XOF (xofAmount ENTIER, contrat du service).
+      {
+        convertToXof: jest.fn(async (amount: number | { toString(): string }) => ({
+          xofAmount: Math.round(Number(amount)),
+          fxRate: 1,
+          fxRateDate: new Date('2026-05-14'),
+          isIndicativeFallback: false,
+        })),
+      } as never,
     );
   });
 
@@ -299,6 +308,24 @@ describe('InvoiceService', () => {
         currency: 'XOF', totalHt: 0, totalVat: 0, totalTtc: 1,
         lines: [{ lineNumber: 1, description: 'X', lineTotal: 1 }],
       })).rejects.toBeInstanceOf(InvoiceDuplicateNumberException);
+    });
+
+    // US-097 (F-S8-14) : triplet XOF figé à la création (totaux + lignes).
+    it('US-097 — triplet XOF persisté (total_*_xof BigInt + line_total_xof)', async () => {
+      prisma.invoice.create.mockResolvedValue(makeInvoice());
+      await svc.createManual(comptable, {
+        invoiceNumber: 'INV-MAN-097', supplierId,
+        invoiceDate: new Date('2026-05-14'), dueDate: new Date('2026-06-13'),
+        currency: 'XOF', totalHt: 100, totalVat: 18, totalTtc: 118,
+        lines: [{ lineNumber: 1, description: 'X', lineTotal: 118 }],
+      });
+      const data = prisma.invoice.create.mock.calls[0][0].data;
+      expect(data.total_ht_xof).toBe(BigInt(100));
+      expect(data.total_vat_xof).toBe(BigInt(18));
+      expect(data.total_ttc_xof).toBe(BigInt(118));
+      expect(data.fx_rate).toBe(1);
+      expect(data.fx_rate_date).toBeInstanceOf(Date);
+      expect(data.lines.create[0].line_total_xof).toBe(BigInt(118));
     });
   });
 
