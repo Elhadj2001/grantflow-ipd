@@ -284,6 +284,25 @@ export class GoodsReceiptService {
     if (gr.status === GrStatus.complete) throw new GrAlreadyCompleteException(gr.id);
     if (gr.status !== GrStatus.draft) throw new GrNotEditableException(gr.id, gr.status);
 
+    // US-093 (F-S8-08) : vérifier l'ÉTAT COURANT du BC — un GR draft ancien
+    // pouvait rouvrir un BC annulé/facturé en réécrivant son statut à
+    // received/partially_received, court-circuitant les gardes du PO.
+    const po = await this.prisma.purchaseOrder.findUnique({
+      where: { id: gr.poId },
+      select: { id: true, status: true },
+    });
+    if (!po) throw new EntityNotFoundException('PurchaseOrder', { id: gr.poId });
+    const receivableStatuses: PoStatus[] = [
+      PoStatus.sent,
+      PoStatus.acknowledged,
+      PoStatus.partially_received,
+    ];
+    if (!receivableStatuses.includes(po.status)) {
+      // Même exception que createFromPo (PO_NOT_RECEIVABLE) — le complete
+      // est soumis au même invariant que la création de réception.
+      throw new PoNotReceivableException(po.id, po.status);
+    }
+
     const receivedLines = gr.lines.filter((l) => Number(l.quantity) > 0);
     if (receivedLines.length === 0) throw new GrEmptyLinesException(gr.id);
 
