@@ -1,65 +1,38 @@
 /**
- * Sprint F-DASHBOARD — tests RTL pour la grille KPIs.
+ * Tests RTL pour la grille KPIs.
  *
- * Stratégie : on stube les hooks data (`useListPRs`, `useListInvoices`,
- * `useGrantsList`, `useListPaymentRuns`) plutôt que `fetch`, pour
- * vérifier uniquement la logique d'affichage (formatage `—` vs nombre,
- * gating BAILLEUR-only). Les tests d'intégration des hooks eux-mêmes
- * vivent dans leurs propres suites.
+ * US-066 (Sprint S7) : le composant consomme désormais UN hook unique
+ * `useDashboardSummary` (GET /dashboard/summary) au lieu du fan-out
+ * historique (5×useListPRs + useListInvoices + useGrantsList +
+ * useListPaymentRuns). On stube ce hook pour vérifier la logique
+ * d'affichage (formatage `—`, gating BAILLEUR-only, sections null).
  */
 
 import { render, screen } from '@testing-library/react';
 import type { GrantflowRole } from '@/lib/auth';
-import type { PrStatus } from '@/lib/api/procurement';
+import type { DashboardSummary } from '@/lib/api/dashboard';
 
-// ----- Mocks des hooks data -----
-type QueryResult = { data?: { total: number }; isLoading: boolean };
+// ----- Mock du hook unique US-066 -----
+type SummaryResult = { data?: DashboardSummary; isLoading: boolean };
 
-/**
- * Fix KPI "DA en attente" (Sprint F-DASHBOARD) : le composant appelle
- * désormais `useListPRs` une fois par statut d'attente d'approbation
- * (`submitted`, `pending_pi`, `pending_cg`, `pending_daf`, `pending_caissier`).
- * On indexe le mock par statut pour pouvoir simuler des totaux distincts par
- * étape du workflow et vérifier l'agrégation.
- */
-let prsResultsByStatus: Partial<Record<PrStatus, QueryResult>> = {
-  submitted: { data: { total: 7 }, isLoading: false },
-  pending_pi: { data: { total: 0 }, isLoading: false },
-  pending_cg: { data: { total: 0 }, isLoading: false },
-  pending_daf: { data: { total: 0 }, isLoading: false },
-  pending_caissier: { data: { total: 0 }, isLoading: false },
-};
-const PRS_DEFAULT: QueryResult = { data: { total: 0 }, isLoading: false };
+function makeSummary(over: Partial<DashboardSummary> = {}): DashboardSummary {
+  return {
+    prPending: {
+      byStatus: { submitted: 7, pending_pi: 0, pending_cg: 0, pending_daf: 0, pending_caissier: 0 },
+      total: 7,
+      scopedToOwn: false,
+    },
+    invoicesToMatch: 3,
+    activeGrants: 12,
+    paymentsExecutedThisMonth: 4,
+    ...over,
+  };
+}
 
-let invoicesResult: QueryResult = {
-  data: { total: 3 },
-  isLoading: false,
-};
-let grantsResult: QueryResult = {
-  data: { total: 12 },
-  isLoading: false,
-};
-let paymentsResult: QueryResult = {
-  data: { total: 4 },
-  isLoading: false,
-};
+let summaryResult: SummaryResult = { data: makeSummary(), isLoading: false };
 
-jest.mock('@/hooks/use-procurement', () => ({
-  useListPRs: (query: { status?: PrStatus }) => {
-    if (query.status !== undefined) {
-      return prsResultsByStatus[query.status] ?? PRS_DEFAULT;
-    }
-    return PRS_DEFAULT;
-  },
-}));
-jest.mock('@/hooks/use-invoicing', () => ({
-  useListInvoices: () => invoicesResult,
-}));
-jest.mock('@/hooks/use-referential', () => ({
-  useGrantsList: () => grantsResult,
-}));
-jest.mock('@/hooks/use-treasury', () => ({
-  useListPaymentRuns: () => paymentsResult,
+jest.mock('@/hooks/use-dashboard', () => ({
+  useDashboardSummary: () => summaryResult,
 }));
 
 // ----- Mock session pour usePermissions -----
@@ -74,24 +47,9 @@ jest.mock('next-auth/react', () => ({
 // Import APRÈS jest.mock (hoisting)
 import { DashboardKpis } from '../DashboardKpis';
 
-function resetData() {
-  // Par défaut : 7 DA "submitted" (cas historique du test "valeurs réelles"),
-  // 0 sur les autres statuts d'attente — la somme attendue reste 7.
-  prsResultsByStatus = {
-    submitted: { data: { total: 7 }, isLoading: false },
-    pending_pi: { data: { total: 0 }, isLoading: false },
-    pending_cg: { data: { total: 0 }, isLoading: false },
-    pending_daf: { data: { total: 0 }, isLoading: false },
-    pending_caissier: { data: { total: 0 }, isLoading: false },
-  };
-  invoicesResult = { data: { total: 3 }, isLoading: false };
-  grantsResult = { data: { total: 12 }, isLoading: false };
-  paymentsResult = { data: { total: 4 }, isLoading: false };
-}
-
-describe('DashboardKpis', () => {
+describe('DashboardKpis (US-066 — endpoint agrégé)', () => {
   beforeEach(() => {
-    resetData();
+    summaryResult = { data: makeSummary(), isLoading: false };
     mockRoles = ['SUPER_ADMIN'];
   });
 
@@ -110,26 +68,19 @@ describe('DashboardKpis', () => {
   });
 
   it('affiche "—" pendant le chargement (data=undefined)', () => {
-    const loading: QueryResult = { data: undefined, isLoading: true };
-    prsResultsByStatus = {
-      submitted: loading,
-      pending_pi: loading,
-      pending_cg: loading,
-      pending_daf: loading,
-      pending_caissier: loading,
-    };
-    invoicesResult = { data: undefined, isLoading: true };
-    grantsResult = { data: undefined, isLoading: true };
-    paymentsResult = { data: undefined, isLoading: true };
+    summaryResult = { data: undefined, isLoading: true };
     render(<DashboardKpis />);
-    // 4 cartes → 4 "—"
+    // 4 cartes → 4 "—" (toutes visibles tant que le rôle n'est pas résolu)
     expect(screen.getAllByText('—')).toHaveLength(4);
-    // Hint "Chargement…" présent
     expect(screen.getAllByText('Chargement…').length).toBeGreaterThan(0);
   });
 
   it('BAILLEUR pur : seule "Conventions actives" est rendue', () => {
     mockRoles = ['BAILLEUR'];
+    summaryResult = {
+      data: makeSummary({ invoicesToMatch: null, paymentsExecutedThisMonth: null }),
+      isLoading: false,
+    };
     render(<DashboardKpis />);
     const grid = screen.getByTestId('dashboard-kpis');
     expect(grid).toHaveAttribute('data-bailleur-only', 'true');
@@ -139,7 +90,7 @@ describe('DashboardKpis', () => {
     expect(screen.queryByText('Paiements ce mois')).toBeNull();
   });
 
-  it('BAILLEUR + CONTROLEUR : on est en rôle interne, les 4 cartes restent visibles', () => {
+  it('BAILLEUR + CONTROLEUR : rôle interne, les 4 cartes restent visibles', () => {
     mockRoles = ['BAILLEUR', 'CONTROLEUR'];
     render(<DashboardKpis />);
     const grid = screen.getByTestId('dashboard-kpis');
@@ -149,35 +100,59 @@ describe('DashboardKpis', () => {
     expect(screen.getByText('Paiements ce mois')).toBeInTheDocument();
   });
 
+  it('sections comptables null (rôle DEMANDEUR) : cartes factures/paiements masquées', () => {
+    mockRoles = ['DEMANDEUR'];
+    summaryResult = {
+      data: makeSummary({
+        prPending: {
+          byStatus: { submitted: 0, pending_pi: 2, pending_cg: 0, pending_daf: 0, pending_caissier: 0 },
+          total: 2,
+          scopedToOwn: true,
+        },
+        invoicesToMatch: null,
+        paymentsExecutedThisMonth: null,
+      }),
+      isLoading: false,
+    };
+    render(<DashboardKpis />);
+    expect(screen.getByText('DA en attente')).toBeInTheDocument();
+    expect(screen.queryByText('Factures à matcher')).toBeNull();
+    expect(screen.queryByText('Paiements ce mois')).toBeNull();
+    // Le hint précise le scoping "vos demandes"
+    expect(
+      screen.getByText("2 demandes en attente d'approbation (vos demandes)"),
+    ).toBeInTheDocument();
+  });
+
   it('singulier/pluriel cohérent dans les hints (1 vs 2+)', () => {
-    grantsResult = { data: { total: 1 }, isLoading: false };
-    // 1 seule DA en circuit (sur pending_pi), 0 ailleurs → total = 1
-    prsResultsByStatus = {
-      submitted: { data: { total: 0 }, isLoading: false },
-      pending_pi: { data: { total: 1 }, isLoading: false },
-      pending_cg: { data: { total: 0 }, isLoading: false },
-      pending_daf: { data: { total: 0 }, isLoading: false },
-      pending_caissier: { data: { total: 0 }, isLoading: false },
+    summaryResult = {
+      data: makeSummary({
+        prPending: {
+          byStatus: { submitted: 0, pending_pi: 1, pending_cg: 0, pending_daf: 0, pending_caissier: 0 },
+          total: 1,
+          scopedToOwn: false,
+        },
+        activeGrants: 1,
+      }),
+      isLoading: false,
     };
     render(<DashboardKpis />);
     expect(screen.getByText('1 convention en cours')).toBeInTheDocument();
     expect(screen.getByText("1 demande en attente d'approbation")).toBeInTheDocument();
   });
 
-  it("KPI 'DA en attente' agrège tous les statuts d'attente d'approbation", () => {
-    // Workflow réel : DA répartie sur plusieurs étapes du circuit.
-    // submitted=0, pending_pi=3, pending_cg=2, pending_daf=1, pending_caissier=0
-    // → Total attendu = 6
-    prsResultsByStatus = {
-      submitted: { data: { total: 0 }, isLoading: false },
-      pending_pi: { data: { total: 3 }, isLoading: false },
-      pending_cg: { data: { total: 2 }, isLoading: false },
-      pending_daf: { data: { total: 1 }, isLoading: false },
-      pending_caissier: { data: { total: 0 }, isLoading: false },
+  it("le total 'DA en attente' vient du serveur (agrégat groupBy, plus de somme front)", () => {
+    summaryResult = {
+      data: makeSummary({
+        prPending: {
+          byStatus: { submitted: 0, pending_pi: 3, pending_cg: 2, pending_daf: 1, pending_caissier: 0 },
+          total: 6,
+          scopedToOwn: false,
+        },
+      }),
+      isLoading: false,
     };
     render(<DashboardKpis />);
-    expect(screen.getByText('DA en attente')).toBeInTheDocument();
-    // La valeur affichée du KPI doit être la somme (6).
     expect(screen.getByText('6')).toBeInTheDocument();
     expect(screen.getByText("6 demandes en attente d'approbation")).toBeInTheDocument();
   });

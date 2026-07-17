@@ -23,6 +23,7 @@ import { TreasuryModule } from './treasury/treasury.module';
 import { ReportingModule } from './reporting/reporting.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { PilotageModule } from './pilotage/pilotage.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { AdminUsersModule } from './admin/users/admin-users.module';
 import { GrantOfficeModule } from './grant_office/grant-office.module';
 
@@ -90,6 +91,8 @@ const UUID_HEADER_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
     ReportingModule,
     AccountingModule,
     PilotageModule,
+    // US-066 — compteurs dashboard agrégés (1 requête au lieu du fan-out front).
+    DashboardModule,
     GrantOfficeModule,
     // Administration (sprint F-ADMIN-USERS) — gestion des utilisateurs (hybride Keycloak + AppUser).
     AdminUsersModule,
