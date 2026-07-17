@@ -262,7 +262,10 @@ Given un postPayment qui échoue en milieu de série When approve Then aucun pai
 # US-095 — conversion exacte
 Given un montant EUR de 152 449,02
 When convertToXof s'exécute Then le calcul interne est en Prisma.Decimal
-And le résultat est arrondi half-up à l'unité XOF UNE seule fois (100 000 000 XOF exactement)
+And le produit exact est 100 000 001,81214 XOF (jamais de dérive float64)
+And le résultat est arrondi half-up à l'unité XOF UNE seule fois (100 000 002 XOF)
+# (valeur corrigée à l'implémentation : le brief disait « 100 000 000 exactement »,
+#  arithmétiquement impossible — 100 000 000 / 655,957 n'a pas d'antécédent à 2 déc.)
 And le contrôle budgétaire compare des Decimal (aucun Number() sur la chaîne)
 
 # US-097 — triplets réalisés

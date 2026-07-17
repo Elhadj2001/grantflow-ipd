@@ -310,7 +310,7 @@ describe('ExchangeRateService', () => {
     it('Test 6 — Prisma.Decimal en entrée + précision (arrondi au franc)', async () => {
       const amount = new Prisma.Decimal('100.50');
       const result = await service.convertToXof(amount, 'EUR');
-      // 100.50 * 655.957 = 65923.6785 → Math.round → 65924
+      // 100.50 * 655.957 = 65923.6785 → half-up unité (US-095) → 65924
       expect(result.xofAmount).toBe(65924);
       expect(result.fxRate).toBe(655.957);
     });
@@ -322,6 +322,75 @@ describe('ExchangeRateService', () => {
       expect(result.xofAmount).toBe(80000);
       expect(result.fxRate).toBe(800);
       expect(result.isIndicativeFallback).toBe(true);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // convertToXof — Sprint S9 / US-095 (F-S8-10) : calcul interne en
+  // Prisma.Decimal exact, arrondi half-up à l'unité XOF appliqué UNE
+  // seule fois à la frontière (ADR-005, addendum §Politique d'arrondi).
+  // ------------------------------------------------------------------
+  describe('convertToXof — US-095 (Decimal exact + half-up frontière)', () => {
+    let prismaMock: DeepMockProxy<PrismaService>;
+    let service: ExchangeRateService;
+
+    beforeEach(() => {
+      prismaMock = mockDeep<PrismaService>();
+      service = new ExchangeRateService(prismaMock as unknown as PrismaService);
+    });
+
+    it('Gherkin S9 — 152 449,02 EUR : produit Decimal EXACT 100 000 001,81214 → 100 000 002', async () => {
+      // 152449.02 × 655.957 = 100000001.81214 exactement (décimal fini).
+      // Le calcul interne est en Prisma.Decimal — aucune dérive float64 —
+      // et l'arrondi half-up n'est appliqué qu'une fois, sur ce produit.
+      const result = await service.convertToXof(new Prisma.Decimal('152449.02'), 'EUR');
+      expect(
+        new Prisma.Decimal('152449.02').times('655.957').toString(),
+      ).toBe('100000001.81214');
+      expect(result.xofAmount).toBe(100000002);
+      expect(result.fxRate).toBe(655.957);
+    });
+
+    it('half-up (pas banker’s rounding) : 500 EUR → 327 978,5 → 327 979', async () => {
+      // Banker's (ROUND_HALF_EVEN) donnerait 327 978 — la politique ADR-005
+      // impose l'arrondi arithmétique half-up attendu par les comptables.
+      const result = await service.convertToXof(500, 'EUR');
+      expect(result.xofAmount).toBe(327979);
+    });
+
+    it('XOF fractionnaire : half-up à l’unité (2,5 → 3)', async () => {
+      const result = await service.convertToXof(new Prisma.Decimal('2.5'), 'XOF');
+      expect(result.xofAmount).toBe(3);
+      expect(result.fxRate).toBe(1);
+    });
+
+    it('pas d’arrondi en chaîne : 100,4999999 XOF → 100 (un pré-arrondi à 2 déc. donnerait 101)', async () => {
+      // Arrondir d'abord à 2 décimales (100,50) puis à l'unité donnerait 101 :
+      // l'arrondi ne s'applique qu'UNE fois, sur la valeur exacte.
+      const result = await service.convertToXof(new Prisma.Decimal('100.4999999'), 'XOF');
+      expect(result.xofAmount).toBe(100);
+    });
+
+    it('taux BD NUMERIC(18,8) : produit exact sans passage float (123,45 USD @ 590,12345678)', async () => {
+      prismaMock.exchangeRate.findFirst.mockResolvedValueOnce({
+        id: 'x',
+        fromCurrency: 'USD',
+        toCurrency: 'XOF',
+        rate: new Prisma.Decimal('590.12345678'),
+        rateDate: new Date('2026-07-15'),
+        source: null,
+        isFixed: false,
+      } as ExchangeRate);
+      const result = await service.convertToXof(new Prisma.Decimal('123.45'), 'USD');
+      // 123.45 × 590.12345678 = 72850.740739491 exactement → half-up → 72851.
+      expect(result.xofAmount).toBe(72851);
+      expect(result.fxRate).toBe(590.12345678);
+    });
+
+    it('entrée number et Prisma.Decimal équivalentes (même chaîne Decimal interne)', async () => {
+      const fromNumber = await service.convertToXof(152449.02, 'EUR');
+      const fromDecimal = await service.convertToXof(new Prisma.Decimal('152449.02'), 'EUR');
+      expect(fromNumber.xofAmount).toBe(fromDecimal.xofAmount);
     });
   });
 });

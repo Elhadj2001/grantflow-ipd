@@ -177,14 +177,18 @@ export class ExchangeRateService {
     currency: string,
     date?: Date,
   ): Promise<XofConversionResult> {
-    const value = Number(amount);
+    // US-095 (F-S8-10, ADR-005 §Politique d'arrondi) : calcul INTERNE en
+    // Prisma.Decimal — la multiplication montant×taux ne passe plus par
+    // float64 (F10 au cœur du convertisseur). L'arrondi half-up à l'unité
+    // XOF est appliqué UNE seule fois, à la frontière (roundXofHalfUp).
+    const valueD = new Prisma.Decimal(amount);
     const effectiveDate = date ?? new Date();
     let result: XofConversionResult;
 
     if (currency === 'XOF') {
       // 1. XOF : no-op (franc entier).
       result = {
-        xofAmount: Math.round(value),
+        xofAmount: ExchangeRateService.roundXofHalfUp(valueD),
         fxRate: 1,
         fxRateDate: effectiveDate,
         isIndicativeFallback: false,
@@ -192,7 +196,7 @@ export class ExchangeRateService {
     } else if (currency === 'EUR') {
       // 2. EUR : parité fixe BCEAO immuable (jamais de fallback / lookup).
       result = {
-        xofAmount: Math.round(value * FX_BCEAO_EUR_XOF),
+        xofAmount: ExchangeRateService.roundXofHalfUp(valueD.times(FX_BCEAO_EUR_XOF)),
         fxRate: FX_BCEAO_EUR_XOF,
         fxRateDate: effectiveDate,
         isIndicativeFallback: false,
@@ -205,10 +209,10 @@ export class ExchangeRateService {
           to: 'XOF',
           date: ExchangeRateService.toIsoDate(effectiveDate),
         });
-        const fxRate = Number(lookup.rate);
+        const fxRateD = new Prisma.Decimal(lookup.rate);
         result = {
-          xofAmount: Math.round(value * fxRate),
-          fxRate,
+          xofAmount: ExchangeRateService.roundXofHalfUp(valueD.times(fxRateD)),
+          fxRate: fxRateD.toNumber(),
           fxRateDate: lookup.rateDate,
           isIndicativeFallback: false,
         };
@@ -219,7 +223,7 @@ export class ExchangeRateService {
           throw new UnknownCurrencyException(currency);
         }
         result = {
-          xofAmount: Math.round(value * fallback),
+          xofAmount: ExchangeRateService.roundXofHalfUp(valueD.times(fallback)),
           fxRate: fallback,
           fxRateDate: effectiveDate,
           isIndicativeFallback: true,
@@ -253,6 +257,18 @@ export class ExchangeRateService {
     }
 
     return result;
+  }
+
+  /**
+   * US-095 (ADR-005 §Politique d'arrondi) — arrondi half-up à l'UNITÉ XOF,
+   * appliqué UNE SEULE fois à la frontière (persistance/décision), jamais
+   * en chaîne intermédiaire. Justification : le XOF n'a pas de subdivision
+   * en circulation, SYSCOHADA/SYSCEBNL tient le franc à l'unité, et la
+   * parité 655,957 génère mécaniquement des fractions. Le résultat est un
+   * ENTIER exact (< 2^53) — sûr à transporter en `number`.
+   */
+  private static roundXofHalfUp(d: Prisma.Decimal): number {
+    return d.toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
   }
 
   /** Formate une Date en `YYYY-MM-DD` pour `lookup` (qui attend une string ISO). */

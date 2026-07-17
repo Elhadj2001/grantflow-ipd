@@ -60,6 +60,74 @@ GRANTFLOW IPD adopte une architecture **multi-devise tripartite** inspirée des 
 - **Multi-devise sans stockage XOF** (conversion à la demande à chaque lecture) — rejetée. Coût de calcul sur chaque lecture, et impossibilité de geler la valeur XOF historique (si le taux change, l'historique change rétroactivement — inacceptable comptablement).
 - **Table dédiée `currency_conversion`** au lieu de colonnes dénormalisées — rejetée. Joints supplémentaires sur les requêtes les plus chaudes (balance générale, suivi budgétaire), pénalisation des performances.
 
+## Addendum 2026-07-17 — Politique d'arrondi et résorption des écarts d'engagement (Sprint S9)
+
+> Décisions validées le 2026-07-17 (Sprint S9, lot L4 « Intégrité montants », audit v2).
+> Rattachées à cet ADR plutôt qu'à un ADR-014 dédié : l'arrondi et la résorption
+> des écarts multi-taux sont des corollaires directs du modèle tripartite —
+> fragmenter la doctrine des montants sur deux ADR nuirait à sa lisibilité.
+
+### Politique d'arrondi (US-095 — F-S8-10/13)
+
+**Règle** : tout montant XOF issu d'une conversion est arrondi **half-up à
+l'unité** (0 décimale), **une seule fois, à la frontière** (persistance d'une
+colonne `*_amount_xof`, décision de contrôle, écriture comptable) — **jamais
+en chaîne** sur des valeurs intermédiaires. Tout le calcul amont (montant ×
+taux, agrégats budgétaires, comparaisons) est mené en `Prisma.Decimal` exact.
+
+**Justification SYSCEBNL** :
+
+- Le XOF n'a **pas de subdivision en circulation** : la pratique comptable
+  SYSCOHADA/SYSCEBNL tient le XOF à l'unité.
+- La parité fixe 1 EUR = 655,957 XOF génère structurellement des fractions
+  (taux à 3 décimales) : une politique d'arrondi explicite est indispensable.
+- Half-up est l'arrondi arithmétique attendu par les comptables — et le
+  comportement **de fait** du code historique (`Math.round` sur montants
+  positifs). Le passage à `Prisma.Decimal` remplace le **mécanisme** (float64),
+  pas la **règle** : zéro rupture sur les montants déjà persistés.
+
+**Implémentation** : `ExchangeRateService.roundXofHalfUp`
+(`Decimal.toDecimalPlaces(0, ROUND_HALF_UP)`), unique point d'arrondi de
+`convertToXof`. Les entiers XOF produits sont très inférieurs à 2^53, donc
+représentables exactement en `number` aux frontières DTO. L'interdiction
+`Number(decimal)` (règle F10) reste absolue sur toute valeur **non encore
+arrondie** engagée dans un agrégat ou une comparaison comptable.
+
+### Résorption de l'écart d'engagement multi-taux (US-099 — F-S8-26) : Option A
+
+**Problème** : un BC en devise est engagé en classe 8 à l'équivalent XOF du
+taux du jour de commande (parfois le fallback indicatif) ; chaque facture
+extourne l'engagement au taux d'origine mais est comptabilisée au taux de sa
+propre date. En fin de vie du BC, un **résidu d'engagement** (801/802) peut
+subsister alors que plus aucune facture n'est attendue.
+
+**Décision (Option A)** : à la fin de vie du BC (`fully_invoiced` ou
+`cancelled`), une **OD d'ajustement solde le résidu de classe 8**, hors
+résultat. L'extourne à la facture reste au taux d'origine (inchangée).
+*Justification SYSCEBNL* : la classe 8 est un cadre d'engagements hors
+gestion ; un écart d'**engagement** n'est pas un écart de change réalisé. Les
+comptes 676/776 (pertes/gains de change) constatent des écarts sur créances et
+dettes **réglées**, pas sur des engagements statistiques. L'OD de solde est
+simple, auditable, sans impact TER ni compte de résultat.
+
+**Options rejetées** :
+
+- **Option B — constater 676/776 à chaque facture** pour l'écart
+  engagement↔facture : rejetée. Cela crée un résultat de change sur un flux
+  hors bilan — hétérodoxe SYSCEBNL — et bruite le compte de résultat avec des
+  écarts non réalisés portant sur des montants statistiques.
+- **Option C — réévaluer l'engagement au taux du jour à chaque facture**
+  (re-mesure continue de la classe 8) : rejetée. Lourde et bruyante (une OD
+  par facture et par variation de taux) sans aucune exigence normative — la
+  classe 8 n'est pas soumise à la réévaluation de clôture (IAS 21/SYSCEBNL
+  visent les créances et dettes monétaires, pas les engagements).
+
+**Périmètre du vrai écart de change** : 676/776 restent réservés au
+**règlement** des dettes 401 en devise (taux de paiement ≠ taux de
+comptabilisation). La vérification de `postPayment` sur ce point est
+programmée en ouverture d'US-099 (intégration au périmètre si ≤ 2 pts, sinon
+story dédiée S10).
+
 ## Références
 
 - Acte uniforme OHADA relatif au droit comptable, Article 1 (devise de tenue comptable).
@@ -68,5 +136,6 @@ GRANTFLOW IPD adopte une architecture **multi-devise tripartite** inspirée des 
 - IFRS — *The Effects of Changes in Foreign Exchange Rates* (IAS 21).
 - ISA 230 — Audit Documentation.
 - Audit GRANTFLOW IPD du 02 juin 2026, finding F1.
+- Audit transversal v2 du 17 juillet 2026, findings F-S8-10/11/12/13/14/26.
 - Note de cadrage Phase 0, §8.
 - Commit `484839f` — premier fix multidevise sur le routage d'approbation.

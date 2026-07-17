@@ -110,6 +110,18 @@ Comportement par devise :
 | idem, table non alimentée | fallback indicatif (§5) | **`true`** |
 | devise inconnue | lève `UnknownCurrencyException` | — |
 
+### Politique d'arrondi (US-095 — ADR-005 §Politique d'arrondi)
+
+Depuis le Sprint S9, `convertToXof` calcule en **`Prisma.Decimal` exact**
+(montant × taux) et arrondit **half-up à l'unité XOF, une seule fois, à la
+frontière** (`ExchangeRateService.roundXofHalfUp`). Jamais d'arrondi en chaîne
+sur des intermédiaires. Justification : le XOF n'a pas de subdivision en
+circulation (tenue SYSCEBNL à l'unité) et la parité 655,957 génère des
+fractions. Half-up était déjà la règle de fait (`Math.round`) — seul le
+mécanisme float64 a été remplacé. Le `xofAmount` retourné est un **entier
+exact** (< 2^53), donc sûr en `number` ; les agrégats et comparaisons
+budgétaires en aval restent en `Prisma.Decimal` (F-S8-13).
+
 `convertToXof` (opérationnel) se distingue de `lookup` (comptable strict) :
 
 | | `lookup` | `convertToXof` |
@@ -183,6 +195,8 @@ Exposition des soldes XOF :
 ## 11. Erreurs courantes à éviter
 
 - ❌ `Number(decimal)` sur un montant utilisé dans un agrégat → perte précision.
+- ❌ Arrondi en chaîne (arrondir un intermédiaire puis re-calculer) — l'arrondi
+  half-up unité XOF s'applique UNE fois, à la frontière (ADR-005 addendum).
 - ❌ Comparaison de montant brut à un seuil XOF sans conversion.
 - ❌ Validation d'éligibilité ou de plafond hors XOF.
 - ❌ Modification de `FX_BCEAO_EUR_XOF`.
@@ -198,4 +212,4 @@ Exposition des soldes XOF :
 
 ---
 
-_Dernière mise à jour : 07/06/2026 — Sprint S3 / US-023 (El Hadj Amadou NIANG)._
+_Dernière mise à jour : 17/07/2026 — Sprint S9 / US-095, politique d'arrondi (El Hadj Amadou NIANG)._

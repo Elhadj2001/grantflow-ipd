@@ -759,10 +759,16 @@ export class PurchaseRequestService {
         pr: { select: { currency: true, requestedAt: true } },
       },
     });
-    const prByBl = new Map<string, number>();
+    // US-095 (F-S8-13) : agrégats en Prisma.Decimal — la décision budgétaire
+    // BLOQUANTE ne repose plus sur une chaîne float64. Les xofAmount sont des
+    // entiers exacts (arrondi frontière US-095), sommés en Decimal.
+    const prByBl = new Map<string, Prisma.Decimal>();
     for (const l of prLines) {
       const xof = await this.fx.convertToXof(l.lineTotal ?? 0, l.pr.currency, l.pr.requestedAt);
-      prByBl.set(l.budgetLineId, (prByBl.get(l.budgetLineId) ?? 0) + xof.xofAmount);
+      prByBl.set(
+        l.budgetLineId,
+        (prByBl.get(l.budgetLineId) ?? new Prisma.Decimal(0)).plus(xof.xofAmount),
+      );
     }
 
     // Agrégat BC ouverts (engagement effectif) — idem, devise + date du BC.
@@ -777,17 +783,23 @@ export class PurchaseRequestService {
         po: { select: { currency: true, orderDate: true } },
       },
     });
-    const poByBl = new Map<string, number>();
+    const poByBl = new Map<string, Prisma.Decimal>();
     for (const l of poLines) {
       const xof = await this.fx.convertToXof(l.lineTotal ?? 0, l.po.currency, l.po.orderDate);
-      poByBl.set(l.budgetLineId, (poByBl.get(l.budgetLineId) ?? 0) + xof.xofAmount);
+      poByBl.set(
+        l.budgetLineId,
+        (poByBl.get(l.budgetLineId) ?? new Prisma.Decimal(0)).plus(xof.xofAmount),
+      );
     }
 
     // Impact de la DA en cours par ligne (devise de la DA courante).
-    const willByBl = new Map<string, number>();
+    const willByBl = new Map<string, Prisma.Decimal>();
     for (const l of lines) {
       const xof = await this.fx.convertToXof(l.lineTotal ?? 0, pr.currency, pr.requestedAt);
-      willByBl.set(l.budgetLineId, (willByBl.get(l.budgetLineId) ?? 0) + xof.xofAmount);
+      willByBl.set(
+        l.budgetLineId,
+        (willByBl.get(l.budgetLineId) ?? new Prisma.Decimal(0)).plus(xof.xofAmount),
+      );
     }
 
     const result: CheckBudgetLineDto[] = [];
@@ -796,34 +808,40 @@ export class PurchaseRequestService {
       // US-024 : on privilégie l'équivalent XOF figé au paramétrage
       // (référence comptable stable). Fallback conversion à la volée pour
       // les lignes non encore matérialisées (transition douce + backfill).
-      let budgetedXof = 0;
+      let budgetedXof = new Prisma.Decimal(0);
       if (bl) {
         if (bl.budgetedAmountXof != null) {
-          budgetedXof = Number(bl.budgetedAmountXof);
+          budgetedXof = new Prisma.Decimal(bl.budgetedAmountXof.toString());
         } else {
-          budgetedXof = (
-            await this.fx.convertToXof(
-              bl.budgetedAmount,
-              bl.currency ?? bl.grant.currency,
-              pr.requestedAt,
-            )
-          ).xofAmount;
+          budgetedXof = new Prisma.Decimal(
+            (
+              await this.fx.convertToXof(
+                bl.budgetedAmount,
+                bl.currency ?? bl.grant.currency,
+                pr.requestedAt,
+              )
+            ).xofAmount,
+          );
         }
       }
-      const alreadyConsumed = (prByBl.get(blId) ?? 0) + (poByBl.get(blId) ?? 0);
-      const willConsume = willByBl.get(blId) ?? 0;
-      const available = budgetedXof - alreadyConsumed - willConsume;
+      // US-095 : comparaison en Decimal — plus aucun float sur la décision.
+      const alreadyConsumed = (prByBl.get(blId) ?? new Prisma.Decimal(0)).plus(
+        poByBl.get(blId) ?? new Prisma.Decimal(0),
+      );
+      const willConsume = willByBl.get(blId) ?? new Prisma.Decimal(0);
+      const available = budgetedXof.minus(alreadyConsumed).minus(willConsume);
       result.push({
         budgetLineId: blId,
         code: bl?.code ?? '?',
         label: bl?.label ?? '?',
         // ⚠️ Tous les montants ci-dessous sont en XOF (devise fonctionnelle),
         // pas dans la devise native de la ligne — cf. règle d'or §3.
-        budgeted: budgetedXof,
-        alreadyConsumed,
-        willConsume,
-        available,
-        wouldExceed: available < 0,
+        // Entiers exacts → .toNumber() sûr à la frontière DTO.
+        budgeted: budgetedXof.toNumber(),
+        alreadyConsumed: alreadyConsumed.toNumber(),
+        willConsume: willConsume.toNumber(),
+        available: available.toNumber(),
+        wouldExceed: available.lessThan(0),
       });
     }
     return result;
