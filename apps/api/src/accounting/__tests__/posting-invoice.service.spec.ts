@@ -58,7 +58,7 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
       findUnique: jest.Mock;
       findMany: jest.Mock;
     };
-    journalLine: { createMany: jest.Mock };
+    journalLine: { createMany: jest.Mock; findMany: jest.Mock };
     $transaction: jest.Mock;
     $executeRawUnsafe: jest.Mock;
   };
@@ -193,7 +193,12 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
         findUnique: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
       },
-      journalLine: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      journalLine: {
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        // US-099 : lignes 801 du BC pour le calcul du résidu — défaut [] =
+        // résidu nul = pas d'OD de solde.
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $transaction: jest.fn(async (cb: unknown) => {
         if (typeof cb === 'function') return (cb as (tx: unknown) => unknown)(prisma);
         return Promise.all(cb as unknown[]);
@@ -391,6 +396,58 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
       const updates = prisma.journalEntry.update.mock.calls.map((c) => c[0]);
       const reversed = updates.find((u) => u.data?.status === EntryStatus.reversed && u.where?.id === 'je-original-801');
       expect(reversed).toBeUndefined();
+    });
+
+    // US-099 (F-S8-26, Option A ADR-005) : fin de vie « totalement facturé »
+    // avec résidu classe 8 (arrondis d'extournes partielles multi-taux) →
+    // OD de solde 801/802, hors résultat.
+    it('US-099 — facturation complète avec résidu → OD de solde 801/802 (jamais 676/776)', async () => {
+      // Extournes précédentes 90 000 + facture 10 000 = 100 000 → fraction 100 %.
+      prisma.journalEntry.findMany.mockResolvedValue([
+        {
+          id: 'je-prev-rev', lines: [
+            { accountCode: '801', credit: new Prisma.Decimal(90000), debit: new Prisma.Decimal(0) },
+          ],
+        },
+      ]);
+      // Résidu simulé : 801 débit 100 000 (engagement) − crédit 99 000
+      // (extournes, arrondis cumulés) = +1 000 → l'OD crédite 801 / débite 802.
+      prisma.journalLine.findMany.mockResolvedValue([
+        { debit: new Prisma.Decimal(100000), credit: new Prisma.Decimal(0), projectId, grantId, budgetLineId: blId, costCenterId: null, activityId: null },
+        { debit: new Prisma.Decimal(0), credit: new Prisma.Decimal(99000), projectId, grantId, budgetLineId: blId, costCenterId: null, activityId: null },
+      ]);
+      const inv = makeInvoice({ totalHt: 10000, totalVat: 0, totalTtc: 10000 });
+      await svc.postInvoice(inv, actor);
+
+      const allLines = prisma.journalLine.createMany.mock.calls.flatMap((c) => c[0].data);
+      const solde801 = allLines.find((l: { label?: string }) => String(l.label).startsWith('Solde résidu 801'));
+      const solde802 = allLines.find((l: { label?: string }) => String(l.label).startsWith('Solde résidu 802'));
+      expect(solde801).toBeDefined();
+      expect(Number(solde801.credit)).toBe(1000);
+      expect(Number(solde801.debit)).toBe(0);
+      expect(Number(solde802.debit)).toBe(1000);
+      expect(solde801).toMatchObject({ currency: 'XOF', projectId, grantId, budgetLineId: blId });
+      expect(allLines.some((l: { accountCode: string }) => l.accountCode === '676' || l.accountCode === '776')).toBe(false);
+      // L'OD de solde est bien une écriture dédiée, libellé explicite.
+      const entries = prisma.journalEntry.create.mock.calls.map((c) => c[0].data);
+      expect(entries.some((e: { label: string }) => e.label.startsWith('Solde résidu engagement BC'))).toBe(true);
+    });
+
+    it('US-099 — résidu nul → aucune OD de solde', async () => {
+      // Fraction 100 % atteinte (même montage que ci-dessus)…
+      prisma.journalEntry.findMany.mockResolvedValue([
+        {
+          id: 'je-prev-rev', lines: [
+            { accountCode: '801', credit: new Prisma.Decimal(90000), debit: new Prisma.Decimal(0) },
+          ],
+        },
+      ]);
+      // …mais lignes 801 parfaitement soldées (journalLine.findMany défaut [])
+      // → résidu 0 → aucune OD de solde.
+      const inv = makeInvoice({ totalHt: 10000, totalVat: 0, totalTtc: 10000 });
+      await svc.postInvoice(inv, actor);
+      const entries = prisma.journalEntry.create.mock.calls.map((c) => c[0].data);
+      expect(entries.some((e: { label: string }) => e.label.startsWith('Solde résidu engagement BC'))).toBe(false);
     });
 
     it('marks original 801 entry as reversed when cumulative fraction ≥ 99.9%', async () => {

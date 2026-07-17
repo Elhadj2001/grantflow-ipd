@@ -283,6 +283,16 @@ Given un BC totalement facturé avec résidu d'engagement multi-taux
 When la fin de vie du BC est constatée Then une OD solde le résidu classe 8 selon l'option retenue
 ```
 
+**Pré-brief Sprint S10 — US-100 (écart de change réalisé au règlement, ~3 pts)** :
+vérification US-099 (2026-07-17) : `postPayment` débite le 401 au taux du JOUR
+DE PAIEMENT — l'écart avec le taux de comptabilisation de la dette reste en
+solde 401 auxiliaire, aucun 676/776 constaté. Story S10 : au règlement d'une
+facture en devise, débiter le 401 de l'équivalent XOF HISTORIQUE de la dette
+éteinte (prorata paiement partiel via `total_ttc_xof` US-097), créditer la
+banque au taux du jour, constater l'écart en 676 (perte) / 776 (gain).
+Dépendances : backfill US-097 APPLYé (triplets legacy), comptes 676/776 au
+plan seedé. Hors périmètre US-099 (>2 pts, décision user 2026-07-17).
+
 ---
 
 ## 3. Phase 2 — Santé de la suite de tests (en parallèle Phase 1)

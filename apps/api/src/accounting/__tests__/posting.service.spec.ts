@@ -116,6 +116,9 @@ describe('PostingService', () => {
     } as never);
     prisma.supplier.findUnique.mockResolvedValue({ name: 'ACME Lab Supplies' } as never);
     prisma.$executeRawUnsafe.mockResolvedValue(1 as never);
+    // US-099 : settleClass8ResidualTx interroge les lignes 801 du BC —
+    // défaut [] = résidu nul = pas d'OD de solde (comportement historique).
+    prisma.journalLine.findMany.mockResolvedValue([] as never);
     // US-020 (F18) : ExchangeRateService stub déterministe. XOF = identité ;
     // EUR = parité fixe BCEAO 655,957 ; USD = taux indicatif 600 (fallback).
     const fx = {
@@ -347,6 +350,54 @@ describe('PostingService', () => {
       await expect(
         svc.reverseCommitmentEntry(makePo(), actor, 'reason'),
       ).rejects.toBeInstanceOf(EntityNotFoundException);
+    });
+
+    // US-099 (F-S8-26, Option A) : un BC annulé APRÈS facturation partielle
+    // est sur-extourné (l'inverse reprend l'engagement complet alors que des
+    // extournes partielles ont déjà crédité le 801) → OD de solde du résidu,
+    // hors résultat (801/802 uniquement, jamais 676/776).
+    it('US-099 — annulation après facturation partielle → OD de solde du résidu classe 8', async () => {
+      prisma.journalEntry.findFirst
+        .mockResolvedValueOnce({
+          id: 'je-1',
+          entryNumber: 'OD-2026-0001',
+          lines: [{
+            id: 'l-1', lineNumber: 1, accountCode: '801', debit: 9000000, credit: 0,
+            currency: 'USD', label: 'Engagement',
+            projectId, grantId, budgetLineId: blId, costCenterId: null, activityId: null,
+          }],
+        } as never)
+        .mockResolvedValueOnce({ entryNumber: 'OD-2026-0002' } as never) // n° inverse
+        .mockResolvedValueOnce({ entryNumber: 'OD-2026-0003' } as never); // n° OD solde
+      prisma.journalEntry.create
+        .mockResolvedValueOnce({ id: 'je-2' } as never)
+        .mockResolvedValueOnce({ id: 'je-3' } as never);
+      prisma.journalEntry.update.mockResolvedValue({ id: 'je-2', entryNumber: 'OD-2026-0002', lines: [] } as never);
+      // État simulé du 801 pour ce BC (posted + reversed) : engagement
+      // 9 000 000 D, extourne partielle 8 857 500 C, inverse d'annulation
+      // 9 000 000 C → résidu = −8 857 500 (sur-extourne).
+      prisma.journalLine.findMany.mockResolvedValue([
+        { debit: new Prisma.Decimal(9000000), credit: new Prisma.Decimal(0), projectId, grantId, budgetLineId: blId, costCenterId: null, activityId: null },
+        { debit: new Prisma.Decimal(0), credit: new Prisma.Decimal(8857500), projectId, grantId, budgetLineId: blId, costCenterId: null, activityId: null },
+        { debit: new Prisma.Decimal(0), credit: new Prisma.Decimal(9000000), projectId, grantId, budgetLineId: blId, costCenterId: null, activityId: null },
+      ] as never);
+
+      await svc.reverseCommitmentEntry(makePo({ currency: 'USD' }), actor, 'annulation');
+
+      const allLines = prisma.journalLine.createMany.mock.calls.flatMap(
+        (c) => (c[0] as { data: Array<Record<string, unknown>> }).data,
+      );
+      const solde801 = allLines.find((l) => String(l.label).startsWith('Solde résidu 801'));
+      const solde802 = allLines.find((l) => String(l.label).startsWith('Solde résidu 802'));
+      expect(solde801).toBeDefined();
+      // Sur-extourne (résidu négatif) → on RE-débite le 801 pour revenir à 0.
+      expect(Number(solde801?.debit)).toBe(8857500);
+      expect(Number(solde801?.credit)).toBe(0);
+      expect(Number(solde802?.credit)).toBe(8857500);
+      // OD XOF pur, imputation analytique reprise de l'engagement.
+      expect(solde801).toMatchObject({ currency: 'XOF', projectId, grantId, budgetLineId: blId });
+      // Aucun compte de résultat mobilisé (ni 676 ni 776).
+      expect(allLines.some((l) => l.accountCode === '676' || l.accountCode === '776')).toBe(false);
     });
   });
 

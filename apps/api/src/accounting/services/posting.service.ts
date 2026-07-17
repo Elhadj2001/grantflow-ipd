@@ -321,6 +321,12 @@ export class PostingService {
         data: { reversedById: posted.id, status: EntryStatus.reversed },
       });
 
+      // US-099 (F-S8-26, Option A) : annulation = fin de vie du BC → solde
+      // du résidu classe 8 (couvre notamment la sur-extourne d'un BC annulé
+      // après facturation partielle : l'inverse ci-dessus reprend l'engagement
+      // COMPLET alors que des extournes partielles ont déjà crédité le 801).
+      await this.settleClass8ResidualTx(tx, po, actor, `BC annulé (${reason})`);
+
       this.logger.log(
         { entryNumber, poId: po.id, originalEntry: original.entryNumber, reason },
         'commitment entry reversed',
@@ -1092,9 +1098,140 @@ export class PostingService {
         { poId: po.id, cumulativeFraction, total: totalHt, reversed: cumulativeReversed },
         'class 8 commitment fully reversed by invoice posting',
       );
+      // US-099 (F-S8-26, Option A ADR-005) : fin de vie du BC (totalement
+      // facturé) → OD de solde du résidu classe 8 éventuel, hors résultat.
+      await this.settleClass8ResidualTx(tx, po, actor, 'BC totalement facturé');
     }
 
     return reversal;
+  }
+
+  /**
+   * US-099 (F-S8-26 — décision Option A, ADR-005 addendum 2026-07-17) :
+   * solde le RÉSIDU d'engagement classe 8 d'un BC en fin de vie
+   * (totalement facturé ou annulé), par une OD 801/802 HORS RÉSULTAT.
+   *
+   * Origines possibles du résidu : arrondis d'extournes partielles
+   * successives (Σ round(htᵢ×taux) ≠ round(Σhtᵢ×taux)), facturation
+   * partielle/écart de prix, engagements legacy sans taux figé,
+   * annulation après facturation partielle (sur-extourne).
+   *
+   * Le résidu est calculé en PARTIE DOUBLE stricte : somme (débit − crédit)
+   * des lignes 801 de TOUTES les écritures du BC, statuts posted ET
+   * reversed (le statut `reversed` marque le chaînage d'extourne, mais
+   * l'écriture reste au journal — cf. tâche d'audit « reversed vs balance »).
+   * Jamais de 676/776 ici : un écart d'ENGAGEMENT n'est pas un écart de
+   * change réalisé (SYSCEBNL — les pertes/gains de change constatent des
+   * écarts sur dettes RÉGLÉES).
+   *
+   * @returns l'OD de solde postée, ou null si le résidu est nul.
+   */
+  private async settleClass8ResidualTx(
+    tx: Prisma.TransactionClient,
+    po: PurchaseOrder,
+    actor: PostingActor,
+    trigger: string,
+  ): Promise<JournalEntry | null> {
+    const lines801 = await tx.journalLine.findMany({
+      where: {
+        accountCode: ACCOUNT_ENGAGEMENT_DONNE,
+        entry: {
+          sourceType: SOURCE_TYPE_PO,
+          sourceId: po.id,
+          journal: JournalType.OD,
+          status: { in: [EntryStatus.posted, EntryStatus.reversed] },
+        },
+      },
+      select: {
+        debit: true,
+        credit: true,
+        projectId: true,
+        grantId: true,
+        budgetLineId: true,
+        costCenterId: true,
+        activityId: true,
+      },
+    });
+
+    // Résidu en Decimal exact (F10) — positif = 801 encore débiteur.
+    const residual = lines801.reduce(
+      (s, l) => s.plus(l.debit).minus(l.credit),
+      new Prisma.Decimal(0),
+    );
+    if (residual.isZero()) return null;
+
+    // Imputation analytique reprise de l'engagement (1ʳᵉ ligne 801 imputée).
+    const imputed = lines801.find((l) => l.projectId || l.grantId || l.budgetLineId);
+    const imputation = {
+      projectId: imputed?.projectId ?? null,
+      grantId: imputed?.grantId ?? null,
+      budgetLineId: imputed?.budgetLineId ?? null,
+      costCenterId: imputed?.costCenterId ?? null,
+      activityId: imputed?.activityId ?? null,
+    };
+
+    const abs = residual.abs();
+    const today = new Date();
+    const period = await this.findOpenPeriodForDate(today);
+    const entryNumber = await this.generateEntryNumber(tx, JournalType.OD);
+    const entry = await tx.journalEntry.create({
+      data: {
+        entryNumber,
+        journal: JournalType.OD,
+        entryDate: today,
+        periodId: period.id,
+        label: `Solde résidu engagement BC ${po.poNumber} — ${trigger}`.slice(0, 256),
+        sourceType: SOURCE_TYPE_PO,
+        sourceId: po.id,
+        status: EntryStatus.draft,
+      },
+    });
+    // Résidu déjà en XOF (debit/credit sont fonctionnels) → OD XOF pur,
+    // pas de montant transactionnel (l'ajustement ne valorise aucun flux).
+    const line801 = {
+      entryId: entry.id,
+      accountCode: ACCOUNT_ENGAGEMENT_DONNE,
+      label: `Solde résidu 801 ${po.poNumber}`,
+      currency: 'XOF',
+      fx_rate: 1,
+      fx_rate_date: today,
+      ...imputation,
+    };
+    const line802 = {
+      entryId: entry.id,
+      accountCode: ACCOUNT_CONTRE_ENGAGEMENT,
+      label: `Solde résidu 802 ${po.poNumber}`,
+      currency: 'XOF',
+      fx_rate: 1,
+      fx_rate_date: today,
+      ...imputation,
+    };
+    await tx.journalLine.createMany({
+      data: residual.greaterThan(0)
+        ? [
+            { ...line801, lineNumber: 1, debit: 0, credit: abs },
+            { ...line802, lineNumber: 2, debit: abs, credit: 0 },
+          ]
+        : [
+            { ...line801, lineNumber: 1, debit: abs, credit: 0 },
+            { ...line802, lineNumber: 2, debit: 0, credit: abs },
+          ],
+    });
+    const posted = await tx.journalEntry.update({
+      where: { id: entry.id },
+      data: { status: EntryStatus.posted, postedAt: new Date(), postedBy: actor.id },
+    });
+
+    this.logger.log(
+      {
+        entryNumber,
+        poId: po.id,
+        residualXof: residual.toString(),
+        trigger,
+      },
+      'class 8 residual settled (OD, no P&L impact — US-099 Option A)',
+    );
+    return posted;
   }
 
   /**

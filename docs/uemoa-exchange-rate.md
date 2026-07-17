@@ -189,6 +189,18 @@ Exposition des soldes XOF :
 - L'audit interne mensuel doit traiter les warns fallback (tableau de
   bord à concevoir Phase 7).
 
+### Résorption des écarts d'engagement (US-099 — Option A)
+
+En fin de vie d'un BC (totalement facturé ou annulé), le **résidu de classe 8**
+(801/802 — arrondis d'extournes partielles, facturation partielle, taux legacy,
+sur-extourne d'annulation) est soldé par une **OD automatique hors résultat**
+(`PostingService.settleClass8ResidualTx`, libellé « Solde résidu engagement
+BC … »). Jamais de 676/776 sur un engagement : ces comptes sont réservés aux
+écarts de change **réalisés** au règlement des dettes 401 en devise —
+constatation au règlement NON couverte à ce jour (`postPayment` débite le 401
+au taux du jour de paiement), story dédiée prévue S10. Décision et rejets des
+options B/C : ADR-005, addendum 2026-07-17.
+
 ## 10. Migration et backfill
 
 - Nouvelle convention : `convertToXof` appelé au paramétrage.
