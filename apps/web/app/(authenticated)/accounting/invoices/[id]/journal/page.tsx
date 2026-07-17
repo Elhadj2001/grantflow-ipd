@@ -87,11 +87,7 @@ export default function InvoiceJournalPage() {
                 Écritures Achats (AC)
               </h2>
               {journals.data.acEntries.map((entry) => (
-                <JournalEntryTable
-                  key={entry.id}
-                  entry={toDisplayEntry(entry)}
-                  currency={inv.data?.currency ?? 'XOF'}
-                />
+                <JournalEntryTable key={entry.id} entry={toDisplayEntry(entry)} />
               ))}
             </section>
 
@@ -105,11 +101,7 @@ export default function InvoiceJournalPage() {
                   Réduction des engagements 801/802 du BC pour la fraction facturée.
                 </p>
                 {journals.data.class8Reversals.map((entry) => (
-                  <JournalEntryTable
-                    key={entry.id}
-                    entry={toDisplayEntry(entry)}
-                    currency={inv.data?.currency ?? 'XOF'}
-                  />
+                  <JournalEntryTable key={entry.id} entry={toDisplayEntry(entry)} />
                 ))}
               </section>
             )}
@@ -137,6 +129,11 @@ function toDisplayEntry(e: JournalEntry): DisplayJournalEntry {
       debit: l.debit,
       credit: l.credit,
       currency: l.currency,
+      // Hotfix devise : montants BRUTS + taux figé pour la mention
+      // secondaire (« ≈ 5 000,00 USD @ 590,50 ») — debit/credit sont en XOF.
+      debitCurrency: l.debitCurrency,
+      creditCurrency: l.creditCurrency,
+      fxRate: l.fx_rate,
       projectId: l.projectId,
       grantId: l.grantId,
       budgetLineId: l.budgetLineId,

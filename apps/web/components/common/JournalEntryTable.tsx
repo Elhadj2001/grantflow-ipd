@@ -17,10 +17,16 @@ export interface JournalEntryLine {
   id?: string;
   accountCode: string;
   label?: string | null;
+  /** Montants XOF (tenue fonctionnelle SYSCEBNL — ADR-005/I2). */
   debit: number | string;
   credit: number | string;
-  /** Devise locale (XOF par défaut). */
+  /** Devise TRANSACTIONNELLE d'origine (XOF si opération locale). */
   currency?: string;
+  /** Montants BRUTS en devise d'origine (colonnes debit/credit_currency). */
+  debitCurrency?: number | string | null;
+  creditCurrency?: number | string | null;
+  /** Taux de conversion figé à l'écriture (fx_rate). */
+  fxRate?: number | string | null;
   /** Imputation analytique optionnelle. */
   projectId?: string | null;
   grantId?: string | null;
@@ -41,7 +47,6 @@ export interface JournalEntry {
 
 export interface JournalEntryTableProps {
   entry: JournalEntry;
-  currency?: string;
   className?: string;
 }
 
@@ -51,8 +56,16 @@ export interface JournalEntryTableProps {
  * `gl.check_entry_balance` côté Postgres garantit débit = crédit
  * pour tout entry validé ; on affiche un badge "Équilibré" si OK,
  * "DÉSÉQUILIBRÉ" sinon (cas théorique d'un brouillon ou bug serveur).
+ *
+ * HOTFIX devise (audit v2, journal FAC-SIM-BC-2026-0005-1) : les colonnes
+ * `debit`/`credit` de journal_line sont TOUJOURS en XOF (tenue
+ * fonctionnelle, règle d'or n°4) — l'ancien rendu leur collait le label de
+ * la devise TRANSACTIONNELLE (« 2 952 500,00 USD » pour un montant XOF).
+ * Désormais : label XOF systématique + mention secondaire
+ * « ≈ 5 000,00 USD @ 590,50 » quand la devise d'origine ≠ XOF (montants
+ * bruts `debit/credit_currency` + `fx_rate` stockés sur la ligne).
  */
-export function JournalEntryTable({ entry, currency = 'XOF', className }: JournalEntryTableProps) {
+export function JournalEntryTable({ entry, className }: JournalEntryTableProps) {
   const totalDebit = entry.lines.reduce((s, l) => s + numeric(l.debit), 0);
   const totalCredit = entry.lines.reduce((s, l) => s + numeric(l.credit), 0);
   const balanced = Math.abs(totalDebit - totalCredit) < 0.01;
@@ -91,18 +104,10 @@ export function JournalEntryTable({ entry, currency = 'XOF', className }: Journa
               <TableCell className="font-mono text-xs">{l.accountCode}</TableCell>
               <TableCell>{l.label ?? '—'}</TableCell>
               <TableCell className="text-right">
-                {numeric(l.debit) > 0 ? (
-                  <AmountDisplay amount={l.debit} currency={l.currency ?? currency} />
-                ) : (
-                  <span className="text-slate-muted">—</span>
-                )}
+                <AmountCell amountXof={l.debit} line={l} txAmount={l.debitCurrency} />
               </TableCell>
               <TableCell className="text-right">
-                {numeric(l.credit) > 0 ? (
-                  <AmountDisplay amount={l.credit} currency={l.currency ?? currency} />
-                ) : (
-                  <span className="text-slate-muted">—</span>
-                )}
+                <AmountCell amountXof={l.credit} line={l} txAmount={l.creditCurrency} />
               </TableCell>
             </TableRow>
           ))}
@@ -111,10 +116,10 @@ export function JournalEntryTable({ entry, currency = 'XOF', className }: Journa
               Totaux
             </TableCell>
             <TableCell className="text-right" data-testid="journal-total-debit">
-              <AmountDisplay amount={totalDebit} currency={currency} className="font-semibold" />
+              <AmountDisplay amount={totalDebit} currency="XOF" className="font-semibold" />
             </TableCell>
             <TableCell className="text-right" data-testid="journal-total-credit">
-              <AmountDisplay amount={totalCredit} currency={currency} className="font-semibold" />
+              <AmountDisplay amount={totalCredit} currency="XOF" className="font-semibold" />
             </TableCell>
           </TableRow>
         </TableBody>
@@ -138,6 +143,42 @@ function BalanceBadge({ balanced }: { balanced: boolean }) {
     <Badge variant="error" data-testid="journal-unbalanced">
       <X className="mr-1 h-3 w-3" /> DÉSÉQUILIBRÉ
     </Badge>
+  );
+}
+
+/**
+ * Cellule montant : XOF (tenue fonctionnelle) + mention secondaire de la
+ * devise TRANSACTIONNELLE quand elle diffère (« ≈ 5 000,00 USD @ 590,50 »).
+ */
+function AmountCell({
+  amountXof,
+  line,
+  txAmount,
+}: {
+  amountXof: number | string;
+  line: JournalEntryLine;
+  txAmount?: number | string | null;
+}) {
+  if (numeric(amountXof) <= 0) return <span className="text-slate-muted">—</span>;
+  const isForeign =
+    !!line.currency && line.currency !== 'XOF' && txAmount != null && numeric(txAmount) > 0;
+  return (
+    <div className="flex flex-col items-end">
+      <AmountDisplay amount={amountXof} currency="XOF" />
+      {isForeign && (
+        <span className="text-xs text-slate-muted" data-testid="journal-tx-currency">
+          ≈{' '}
+          {numeric(txAmount as number | string).toLocaleString('fr-FR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}{' '}
+          {line.currency}
+          {line.fxRate != null && numeric(line.fxRate) > 0 && (
+            <> @ {numeric(line.fxRate).toLocaleString('fr-FR', { maximumFractionDigits: 4 })}</>
+          )}
+        </span>
+      )}
+    </div>
   );
 }
 

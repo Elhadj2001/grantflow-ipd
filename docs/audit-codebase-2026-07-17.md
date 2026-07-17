@@ -164,6 +164,17 @@ _Informatif : routes API sans client front (candidates démo/UI future ou code m
 
 ---
 
+### Complément post-audit (2026-07-17, hotfix journal) — F-S8-25/26
+
+#### F-S8-25 🟠 [RÉSOLU hotfix `fix/journal-currency-label`] Étiquette de devise du journal : montant XOF affiché avec le label transactionnel
+- **Constat prod** (journal FAC-SIM-BC-2026-0005-1) : « 2 952 500,00 USD » affiché pour une écriture dont le montant est le XOF (5 000 USD × 590,50). Comptabilité **juste**, affichage catastrophique.
+- **Modèle documenté** (complément L4) : `gl.journal_line` — `debit`/`credit` = **XOF** (Decimal 18,2, tenue fonctionnelle, I2/ADR-005) ; `currency` = devise **transactionnelle** ; `debit_currency`/`credit_currency` = **montants BRUTS** en devise (noms trompeurs — ce sont des montants, pas des codes devise) ; `fx_rate`/`fx_rate_date` = taux figé. Aucun « bug inverse » trouvé (aucun endroit ne sert le montant transactionnel avec label XOF).
+- **Cause** : `JournalEntryTable` collait `l.currency` (transactionnelle) sur `l.debit/credit` (XOF) ; la page journal passait en plus `currency={invoice.currency}` aux totaux.
+- **Fix appliqué** : label **XOF systématique** sur montants et totaux + mention secondaire « ≈ 5 000,00 USD @ 590,50 » (bruts + taux stockés) quand devise ≠ XOF.
+
+#### F-S8-26 🟡 [S9/L4] Écart d'extourne engagement vs facture (taux différents) — comportement normal, résorption à cadrer
+Engagement classe 8 posté au taux **indicatif** historique (600) vs écriture AC au taux **seedé** (590,50) → l'extourne de la fraction facturée (3 000 000 XOF @600) ne coïncide pas avec le montant facturé (2 952 500 @590,50). Chaque écriture est équilibrée — l'écart est un **résidu d'engagement** en classe 8, pas une erreur. À traiter au lot L4/S9 (dette montants ADR-005) : politique de résorption (extourne au taux d'origine ✓ déjà le cas, + écriture d'ajustement de l'écart de change en fin de vie du BC ou à la clôture).
+
 ## Synthèse — Top 5 par impact utilisateur
 
 1. **Aperçu PDF cassé partout** (F-S8-01) — toute consultation de document échoue ; fix d'une ligne (retrait `sandbox`), gain immédiat maximal.

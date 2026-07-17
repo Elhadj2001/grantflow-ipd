@@ -186,6 +186,8 @@ export interface JournalLine {
   currency: string;
   debitCurrency: string | null;
   creditCurrency: string | null;
+  /** Taux figé à l'écriture (colonne snake exposée telle quelle par Prisma). */
+  fx_rate?: string | null;
   projectId: string | null;
   grantId: string | null;
   budgetLineId: string | null;
