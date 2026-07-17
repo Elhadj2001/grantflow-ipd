@@ -18,16 +18,42 @@ jest.mock('@/hooks/use-toast', () => ({
 }));
 
 // Mock fetch global pour éviter de vrais appels HTTP — les pickers tentent
-// `/projects`, `/grants?projectId=…`, `/grants/:id/dashboard`. On renvoie
-// vide partout, le form ne dépend pas des données pour les assertions
-// (testées avec des UUIDs en defaultValues).
-const fetchMock = jest.fn().mockResolvedValue({
-  ok: true,
-  status: 200,
-  headers: { get: (k: string) => (k === 'content-type' ? 'application/json' : null) },
-  json: async () => ({ data: [], total: 0, page: 1, pageSize: 20, hasMore: false }),
-  text: async () => '',
-});
+// `/projects`, `/grants?projectId=…`, `/grants/:id/dashboard`, et US-064
+// `/expense-natures` (qui renvoie un TABLEAU, pas une ListResponse).
+const NATURES = [
+  {
+    id: 'n1',
+    code: 'LAB_CONSUMABLES',
+    label: 'Consommables laboratoire',
+    category: 'fonctionnement',
+    defaultAccountClass: '6',
+    description: null,
+  },
+  {
+    id: 'n2',
+    code: 'MISSION_TRAVEL',
+    label: 'Frais de mission',
+    category: 'fonctionnement',
+    defaultAccountClass: '6',
+    description: null,
+  },
+];
+
+function defaultFetchImpl(input: RequestInfo) {
+  const url = typeof input === 'string' ? input : (input as Request).url;
+  const body = url.includes('/expense-natures')
+    ? NATURES
+    : { data: [], total: 0, page: 1, pageSize: 20, hasMore: false };
+  return Promise.resolve({
+    ok: true,
+    status: 200,
+    headers: { get: (k: string) => (k === 'content-type' ? 'application/json' : null) },
+    json: async () => body,
+    text: async () => '',
+  } as unknown as Response);
+}
+
+const fetchMock = jest.fn(defaultFetchImpl);
 global.fetch = fetchMock as unknown as typeof fetch;
 
 const UUID = '11111111-1111-1111-1111-111111111111';
@@ -56,7 +82,10 @@ function renderForm(props: Parameters<typeof PurchaseRequestForm>[0]) {
 
 describe('PurchaseRequestForm', () => {
   beforeEach(() => {
-    fetchMock.mockClear();
+    // Reset complet : certains tests installent leur propre implémentation
+    // (mismatch devise) — on réinstalle le défaut url-aware à chaque test.
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(defaultFetchImpl);
   });
 
   it('renders the 3 PR type chips', () => {
@@ -195,9 +224,12 @@ describe('PurchaseRequestForm', () => {
       const url = typeof input === 'string' ? input : (input as Request).url;
       // Match /grants/<UUID> mais PAS /grants/<UUID>/dashboard ni /budget-lines
       const isGrantOnly = /\/grants\/[0-9a-f-]+(\?|$)/.test(url) && !url.includes('/dashboard');
-      const body = isGrantOnly
-        ? grantUsd
-        : { data: [], total: 0, page: 1, pageSize: 20, hasMore: false };
+      // US-064 : /expense-natures renvoie un TABLEAU (pas une ListResponse).
+      const body = url.includes('/expense-natures')
+        ? []
+        : isGrantOnly
+          ? grantUsd
+          : { data: [], total: 0, page: 1, pageSize: 20, hasMore: false };
       return {
         ok: true,
         status: 200,
@@ -217,5 +249,54 @@ describe('PurchaseRequestForm', () => {
     });
     expect(screen.getByTestId('pr-currency-mismatch')).toHaveTextContent(/USD/);
     expect(screen.getByTestId('pr-currency-mismatch')).toHaveTextContent(/BCEAO/i);
+  });
+
+  // ----- US-064 — champs éligibilité (Sprint S7) -----
+
+  it('US-064 : la section éligibilité rend nature / Pasteur Paris / n° facture', () => {
+    renderForm({ onSubmit: jest.fn(), defaultValues: baseDefaults() });
+    expect(screen.getByTestId('pr-expense-nature')).toBeInTheDocument();
+    expect(screen.getByTestId('pr-pasteur-paris')).toBeInTheDocument();
+    expect(screen.getByTestId('pr-supplier-invoice-number')).toBeInTheDocument();
+  });
+
+  it('US-064 : payload transporte expenseNatureCode / pasteurParisReimbursed / supplierInvoiceNumber', async () => {
+    const onSubmit = jest.fn();
+    renderForm({
+      onSubmit,
+      defaultValues: {
+        ...baseDefaults(),
+        expenseNatureCode: 'LAB_CONSUMABLES',
+        pasteurParisReimbursed: true,
+        supplierInvoiceNumber: 'INV-2026-0042',
+      },
+    });
+    fireEvent.submit(screen.getByTestId('pr-form'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const call = onSubmit.mock.calls[0][0];
+    expect(call.expenseNatureCode).toBe('LAB_CONSUMABLES');
+    expect(call.pasteurParisReimbursed).toBe(true);
+    expect(call.supplierInvoiceNumber).toBe('INV-2026-0042');
+  });
+
+  it('US-064 : champs vides → undefined / false (gate dormante côté serveur)', async () => {
+    const onSubmit = jest.fn();
+    renderForm({ onSubmit, defaultValues: baseDefaults() });
+    fireEvent.submit(screen.getByTestId('pr-form'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const call = onSubmit.mock.calls[0][0];
+    expect(call.expenseNatureCode).toBeUndefined();
+    expect(call.pasteurParisReimbursed).toBe(false);
+    expect(call.supplierInvoiceNumber).toBeUndefined();
+  });
+
+  it('US-064 : cocher la case Pasteur Paris se retrouve dans le payload', async () => {
+    const user = userEvent.setup();
+    const onSubmit = jest.fn();
+    renderForm({ onSubmit, defaultValues: baseDefaults() });
+    await user.click(screen.getByTestId('pr-pasteur-paris'));
+    fireEvent.submit(screen.getByTestId('pr-form'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0].pasteurParisReimbursed).toBe(true);
   });
 });

@@ -46,6 +46,7 @@ import {
   type UpdateProjectInput,
   type UpdateSupplierInput,
 } from '@/lib/api/referential';
+import { listExpenseNatures, type ExpenseNature } from '@/lib/api/expense-natures';
 import { mapApiErrorToToast } from '@/lib/use-api';
 
 /**
@@ -81,6 +82,26 @@ function useToken() {
     accessToken: session?.accessToken ?? null,
     sessionReady: status === 'authenticated',
   };
+}
+
+// =====================================================================
+// US-064 — catalogue des natures de dépense (formulaire DA + détail)
+// =====================================================================
+export function useExpenseNatures() {
+  const { accessToken, sessionReady } = useToken();
+  return useQuery<ExpenseNature[]>({
+    queryKey: [...referentialKeys.all, 'expense-natures'],
+    enabled: sessionReady,
+    staleTime: FIVE_MIN,
+    queryFn: async () => {
+      try {
+        return await listExpenseNatures({ accessToken });
+      } catch (err) {
+        mapApiErrorToToast(err);
+        throw err;
+      }
+    },
+  });
 }
 
 // =====================================================================

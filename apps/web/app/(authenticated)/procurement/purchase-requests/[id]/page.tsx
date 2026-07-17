@@ -32,6 +32,11 @@ import {
   useSubmitPR,
 } from '@/hooks/use-procurement';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useExpenseNatures } from '@/hooks/use-referential';
+import {
+  EligibilityErrorAlert,
+  isEligibilityError,
+} from '@/components/procurement/EligibilityErrorAlert';
 import type { PrStatus } from '@/lib/api/procurement';
 
 type DialogKind = 'submit' | 'approve' | 'reject' | 'return' | 'cancel' | null;
@@ -52,6 +57,8 @@ export default function PurchaseRequestDetailPage() {
   const permissions = usePermissions();
   const pr = usePR(id);
   const history = usePrApprovalHistory(id);
+  // US-064 : mapping code nature → libellé pour l'affichage détail.
+  const { data: expenseNatures } = useExpenseNatures();
 
   const submitM = useSubmitPR(id);
   const approveM = useApprovePR(id);
@@ -190,6 +197,14 @@ export default function PurchaseRequestDetailPage() {
         }
       />
 
+      {/* US-064 : refus d'éligibilité au submit — panneau lisible dédié,
+          pas un toast générique (ADR-007). */}
+      {submitM.isError && isEligibilityError(submitM.error) && (
+        <div className="px-8 pt-6">
+          <EligibilityErrorAlert error={submitM.error} />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-6 p-8 lg:grid-cols-3">
         {/* Lignes + métadonnées */}
         <div className="space-y-6 lg:col-span-2">
@@ -246,6 +261,40 @@ export default function PurchaseRequestDetailPage() {
               <Field label="Devise" value={data.currency} />
               <Field label="Demandé le" value={<DateDisplay value={data.requestedAt} relative />} />
               <Field label="Besoin pour" value={<DateDisplay value={data.neededBy} format="short" />} />
+              {/* US-064 — champs éligibilité (colonnes US-054) */}
+              <Field
+                label="Nature de dépense"
+                value={
+                  data.expenseNatureCode ? (
+                    <span data-testid="pr-detail-nature">
+                      {expenseNatures?.find((n) => n.code === data.expenseNatureCode)?.label ??
+                        data.expenseNatureCode}
+                    </span>
+                  ) : (
+                    <span className="text-slate-muted">—</span>
+                  )
+                }
+              />
+              <Field
+                label="Refacturée Pasteur Paris"
+                value={
+                  <span data-testid="pr-detail-pasteur-paris">
+                    {data.pasteurParisReimbursed ? 'Oui' : 'Non'}
+                  </span>
+                }
+              />
+              <Field
+                label="N° facture fournisseur"
+                value={
+                  data.supplierInvoiceNumber ? (
+                    <span className="font-mono text-xs" data-testid="pr-detail-supplier-invoice">
+                      {data.supplierInvoiceNumber}
+                    </span>
+                  ) : (
+                    <span className="text-slate-muted">—</span>
+                  )
+                }
+              />
             </CardContent>
           </Card>
 
@@ -290,7 +339,13 @@ export default function PurchaseRequestDetailPage() {
         confirmLabel="Soumettre"
         loading={submitM.isPending}
         onConfirm={async () => {
-          await submitM.mutateAsync();
+          // US-064 : on ferme le dialog même sur refus — l'erreur est
+          // restituée par le panneau EligibilityErrorAlert (ou le toast).
+          try {
+            await submitM.mutateAsync();
+          } catch {
+            /* restitué via submitM.error */
+          }
           closeDialog();
         }}
       />

@@ -42,6 +42,16 @@ export const CreatePurchaseRequestObjectSchema = z.object({
    */
   cashBoxId: z.string().uuid().optional(),
 
+  /**
+   * US-064 — champs éligibilité (colonnes US-054). Zod ne valide que la
+   * STRUCTURE : l'existence de la nature au catalogue et sa conformité aux
+   * règles de la Note Technique sont jugées par l'EligibilityEngine au
+   * submit (ADR-007 — pas de validation métier en doublon, §8 CLAUDE.md).
+   */
+  expenseNatureCode: z.string().min(1).max(64).optional(),
+  pasteurParisReimbursed: z.boolean().default(false),
+  supplierInvoiceNumber: z.string().min(1).max(100).optional(),
+
   lines: z
     .array(
       z.object({

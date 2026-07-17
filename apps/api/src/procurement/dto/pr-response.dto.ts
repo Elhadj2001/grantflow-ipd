@@ -66,6 +66,16 @@ export class PurchaseRequestResponseDto {
 
   @ApiProperty({ required: false, nullable: true })
   description!: string | null;
+
+  // US-064 — champs éligibilité (colonnes US-054), restitués pour le détail DA.
+  @ApiProperty({ required: false, nullable: true, example: 'LAB_CONSUMABLES' })
+  expenseNatureCode!: string | null;
+
+  @ApiProperty({ default: false })
+  pasteurParisReimbursed!: boolean;
+
+  @ApiProperty({ required: false, nullable: true })
+  supplierInvoiceNumber!: string | null;
 }
 
 export class PurchaseRequestDetailResponseDto extends PurchaseRequestResponseDto {

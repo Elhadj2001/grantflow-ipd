@@ -5,14 +5,15 @@ import { ExpenseNatureService } from './expense-nature.service';
 
 /**
  * GET-only : catalogue des natures de dépense (géré par seed, US-032).
- * RBAC : rôles « Grant Office » au sens fonctionnel. Une rôle dédié `GO`
- * sera ajouté en Sprint S5 (réalm Keycloak + ROLES + packages/shared) ;
- * en attendant, CONTROLEUR (contrôle de gestion) porte cette fonction.
+ * RBAC : élargi US-064 aux rôles qui SAISISSENT une DA (DEMANDEUR, PI,
+ * ACHETEUR) — le formulaire DA alimente son select de natures ici. Le
+ * catalogue est read-only et non sensible ; le rôle dédié `GO` arrive
+ * en US-065.
  */
 @ApiTags('Grant Office — Expense Natures')
 @ApiBearerAuth()
 @Controller('expense-natures')
-@Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
+@Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN', 'DEMANDEUR', 'PI', 'ACHETEUR')
 export class ExpenseNatureController {
   constructor(private readonly service: ExpenseNatureService) {}
 
