@@ -33,12 +33,15 @@ describe('AppSidebar', () => {
     [
       'Dashboard',
       'Achats',
-      'Réception',
+      'Bons de commande',
+      'Réceptions',
+      'Réception rapide',
       'Inventaire / Scan',
       'Comptabilité',
       'Clôture',
       'Trésorerie',
       'Pilotage',
+      'Analytique',
       'Reporting',
       'États financiers',
       'Fournisseurs',
@@ -278,11 +281,11 @@ describe('AppSidebar', () => {
   // Sprint F-DASHBOARD — Réception + Inventaire/Scan (canReceive)
   // -----------------------------------------------------------------
 
-  it('Réception visible pour MAGASINIER → /procurement/reception-rapide', () => {
+  it('Réception rapide visible pour MAGASINIER → /procurement/reception-rapide', () => {
     mockPathname = '/dashboard';
     mockRoles = ['MAGASINIER'];
     render(<AppSidebar />);
-    const link = screen.getByText('Réception').closest('a');
+    const link = screen.getByText('Réception rapide').closest('a');
     expect(link).toHaveAttribute('href', '/procurement/reception-rapide');
   });
 
@@ -294,43 +297,98 @@ describe('AppSidebar', () => {
     expect(link).toHaveAttribute('href', '/procurement/inventaire-scan');
   });
 
-  it('Réception + Inventaire visibles pour SUPER_ADMIN', () => {
+  it('Réception rapide + Inventaire visibles pour SUPER_ADMIN', () => {
     mockPathname = '/dashboard';
     mockRoles = ['SUPER_ADMIN'];
     render(<AppSidebar />);
-    expect(screen.getByText('Réception')).toBeInTheDocument();
+    expect(screen.getByText('Réception rapide')).toBeInTheDocument();
     expect(screen.getByText('Inventaire / Scan')).toBeInTheDocument();
   });
 
-  it('Réception + Inventaire masqués pour DEMANDEUR (pas canReceive)', () => {
+  it('Réception rapide + Inventaire masqués pour DEMANDEUR (pas canReceive)', () => {
     mockPathname = '/dashboard';
     mockRoles = ['DEMANDEUR'];
     render(<AppSidebar />);
-    expect(screen.queryByText('Réception')).toBeNull();
+    expect(screen.queryByText('Réception rapide')).toBeNull();
     expect(screen.queryByText('Inventaire / Scan')).toBeNull();
   });
 
-  it('Réception + Inventaire masqués pour BAILLEUR (pas canReceive)', () => {
+  it('Réception rapide + Inventaire masqués pour BAILLEUR (pas canReceive)', () => {
     mockPathname = '/dashboard';
     mockRoles = ['BAILLEUR'];
     render(<AppSidebar />);
-    expect(screen.queryByText('Réception')).toBeNull();
+    expect(screen.queryByText('Réception rapide')).toBeNull();
     expect(screen.queryByText('Inventaire / Scan')).toBeNull();
   });
 
-  it('Réception + Inventaire masqués pour ACHETEUR (acheteur ≠ réceptionneur)', () => {
+  it('Réception rapide + Inventaire masqués pour ACHETEUR (acheteur ≠ réceptionneur)', () => {
     mockPathname = '/dashboard';
     mockRoles = ['ACHETEUR'];
     render(<AppSidebar />);
-    expect(screen.queryByText('Réception')).toBeNull();
+    expect(screen.queryByText('Réception rapide')).toBeNull();
     expect(screen.queryByText('Inventaire / Scan')).toBeNull();
+  });
+
+  // -----------------------------------------------------------------
+  // US-076 (F-S8-05/24) — entrées dédiées BC / Réceptions / Analytique
+  // -----------------------------------------------------------------
+
+  it('US-076 : Bons de commande visible pour ACHETEUR → /procurement/purchase-orders', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['ACHETEUR'];
+    render(<AppSidebar />);
+    const bc = screen.getByText('Bons de commande').closest('a');
+    expect(bc).toHaveAttribute('href', '/procurement/purchase-orders');
+    // ACHETEUR liste aussi les GR (canListGoodsReceipts)
+    expect(screen.getByText('Réceptions')).toBeInTheDocument();
+  });
+
+  it('US-076 : Bons de commande + Réceptions masqués pour DEMANDEUR (hors @Roles listes)', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['DEMANDEUR'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Bons de commande')).toBeNull();
+    expect(screen.queryByText('Réceptions')).toBeNull();
+  });
+
+  it('US-076 : Analytique visible pour CONTROLEUR, masquée pour PI', () => {
+    mockPathname = '/dashboard';
+    mockRoles = ['CONTROLEUR'];
+    const { unmount } = render(<AppSidebar />);
+    expect(screen.getByText('Analytique').closest('a')).toHaveAttribute(
+      'href',
+      '/pilotage/analytics',
+    );
+    unmount();
+    mockRoles = ['PI'];
+    render(<AppSidebar />);
+    expect(screen.queryByText('Analytique')).toBeNull();
+  });
+
+  it('US-076 : sur /procurement/purchase-orders → Bons de commande actif, Achats PAS actif', () => {
+    mockPathname = '/procurement/purchase-orders';
+    mockRoles = ['SUPER_ADMIN'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Bons de commande').closest('a')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByText('Achats').closest('a')).not.toHaveAttribute('aria-current', 'page');
+  });
+
+  it('US-076 : sur /pilotage/analytics → Analytique actif, Pilotage PAS actif', () => {
+    mockPathname = '/pilotage/analytics';
+    mockRoles = ['CONTROLEUR'];
+    render(<AppSidebar />);
+    expect(screen.getByText('Analytique').closest('a')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByText('Pilotage').closest('a')).not.toHaveAttribute('aria-current', 'page');
   });
 
   it('match actif fin : sur /procurement/reception-rapide → Réception active, Achats PAS active', () => {
     mockPathname = '/procurement/reception-rapide';
     mockRoles = ['SUPER_ADMIN'];
     render(<AppSidebar />);
-    const reception = screen.getByText('Réception').closest('a');
+    const reception = screen.getByText('Réception rapide').closest('a');
     const achats = screen.getByText('Achats').closest('a');
     expect(reception).toHaveAttribute('aria-current', 'page');
     expect(achats).not.toHaveAttribute('aria-current', 'page');

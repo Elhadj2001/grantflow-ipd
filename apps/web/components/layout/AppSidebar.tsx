@@ -13,11 +13,14 @@ import {
   ChevronLeft,
   ChevronRight,
   FileBarChart,
+  FileBarChart2,
   FolderKanban,
   HandCoins,
   LayoutDashboard,
   LogOut,
   Package,
+  PackageCheck,
+  PieChart,
   ShoppingCart,
   Target,
   Truck,
@@ -76,18 +79,35 @@ const GROUPES: NavGroup[] = [
         href: '/procurement/purchase-requests',
         label: 'Achats',
         icon: ShoppingCart,
-        // Sprint F-DASHBOARD : matchPrefix resserré aux vraies sous-pages
-        // d'Achats (DA / BC / GR).
-        matchPrefixes: [
-          '/procurement/purchase-requests',
-          '/procurement/purchase-orders',
-          '/procurement/goods-receipts',
-        ],
+        // US-076 (F-S8-05) : resserré aux DA — les BC et GR ont désormais
+        // leurs entrées dédiées (elles étaient orphelines : « Achats »
+        // s'allumait sur ces pages sans jamais y mener).
+        matchPrefix: '/procurement/purchase-requests',
+      },
+      {
+        // US-076 (F-S8-05) : liste des Bons de commande — n'était accessible
+        // qu'en rebond depuis une DA. Gating aligné @Roles GET /purchase-orders.
+        href: '/procurement/purchase-orders',
+        label: 'Bons de commande',
+        icon: FileBarChart2,
+        matchPrefix: '/procurement/purchase-orders',
+        visible: (p) => p.canListPurchaseOrders(),
+      },
+      {
+        // US-076 (F-S8-24) : liste des Réceptions — orpheline pour tous les
+        // rôles non-magasinier pourtant autorisés par l'API.
+        href: '/procurement/goods-receipts',
+        label: 'Réceptions',
+        icon: PackageCheck,
+        matchPrefix: '/procurement/goods-receipts',
+        visible: (p) => p.canListGoodsReceipts(),
       },
       {
         // Workflow Réception (tablette/mobile) — MAGASINIER / SUPER_ADMIN.
+        // US-076 : renommé « Réception rapide » (désambiguïsation avec la
+        // nouvelle liste « Réceptions »).
         href: '/procurement/reception-rapide',
-        label: 'Réception',
+        label: 'Réception rapide',
         icon: Truck,
         matchPrefix: '/procurement/reception-rapide',
         visible: (p) => p.canReceive(),
@@ -132,11 +152,22 @@ const GROUPES: NavGroup[] = [
     items: [
       {
         // Sprint F-PILOTAGE — CG/DAF/SA (portefeuille) et PI (Mes Projets).
+        // US-076 : matchPrefixes resserrés (l'Analytique a son entrée) —
+        // le hub /pilotage redirige immédiatement, pas besoin de le matcher.
         href: '/pilotage',
         label: 'Pilotage',
         icon: Target,
-        matchPrefix: '/pilotage',
+        matchPrefixes: ['/pilotage/conventions', '/pilotage/my-projects'],
         visible: (p) => p.canViewGrantPortfolio() || p.canViewMyProjects(),
+      },
+      {
+        // US-076 (F-S8-24) : vue analytique cross-conventions — page
+        // orpheline (permission canViewAnalytics existait sans lien entrant).
+        href: '/pilotage/analytics',
+        label: 'Analytique',
+        icon: PieChart,
+        matchPrefix: '/pilotage/analytics',
+        visible: (p) => p.canViewAnalytics(),
       },
       {
         // Reporting bailleur (F5a) — templates + donor-reports.
