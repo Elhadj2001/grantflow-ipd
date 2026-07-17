@@ -8,6 +8,10 @@ export interface PageHeaderProps {
 /**
  * Entête de page standard : titre, sous-titre/breadcrumb optionnel,
  * actions à droite (boutons, dropdowns).
+ *
+ * US-068 (charte 2025) : sous-titre en Poppins Light — teinte
+ * `ipd-bleu-fonce` (#055A8C, la variante AA du bleu de marque sur fond
+ * clair, cf. règles d'usage CHARTE_OFFICIELLE_2025).
  */
 export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
   return (
@@ -15,7 +19,9 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-text">{title}</h1>
-          {subtitle && <p className="mt-1 text-sm text-slate-muted">{subtitle}</p>}
+          {subtitle && (
+            <p className="mt-1 font-titre text-sm font-light text-ipd-bleu-fonce">{subtitle}</p>
+          )}
         </div>
         {actions && <div className="flex items-center gap-2">{actions}</div>}
       </div>

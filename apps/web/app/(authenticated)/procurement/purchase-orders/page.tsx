@@ -63,7 +63,9 @@ export default function PurchaseOrdersListPage() {
     {
       key: 'totalTtc',
       header: 'Total TTC',
-      cell: (r) => <AmountDisplay amount={r.totalTtc} currency={r.currency} />,
+      cell: (r) => (
+        <AmountDisplay amount={r.totalTtc} currency={r.currency} amountXof={r.total_ttc_xof} />
+      ),
       align: 'right',
       width: '160px',
     },

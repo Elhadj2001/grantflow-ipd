@@ -10,6 +10,12 @@ export interface AmountDisplayProps {
   showSign?: boolean;
   /** Couleur selon signe : utile pour variances. */
   signColor?: boolean;
+  /**
+   * US-068 (ADR-005) : équivalent XOF STOCKÉ (colonnes `*_amount_xof`) —
+   * affiché en infobulle quand la devise ≠ XOF. AUCUN recalcul front :
+   * si la valeur n'est pas fournie, pas d'infobulle.
+   */
+  amountXof?: number | string | null;
   className?: string;
 }
 
@@ -31,6 +37,7 @@ export function AmountDisplay({
   decimals,
   showSign = false,
   signColor = false,
+  amountXof,
   className,
 }: AmountDisplayProps) {
   const num = typeof amount === 'string' ? Number(amount) : (amount ?? 0);
@@ -52,11 +59,23 @@ export function AmountDisplay({
         : 'text-slate-muted'
     : '';
 
+  // Infobulle équivalent XOF (US-068) : uniquement en devise étrangère et
+  // si la valeur STOCKÉE est disponible. Format FR entier (XOF sans
+  // décimales), infobulle native (title) — zéro dépendance.
+  const xofNum =
+    typeof amountXof === 'string' ? Number(amountXof) : (amountXof ?? null);
+  const xofTitle =
+    currency !== 'XOF' && xofNum != null && Number.isFinite(xofNum)
+      ? `≈ ${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(xofNum)} XOF`
+      : undefined;
+
   return (
     <span
       data-testid="amount-display"
       data-amount={String(safe)}
-      className={cn('font-mono tabular-nums', colorClass, className)}
+      title={xofTitle}
+      {...(xofTitle ? { 'data-xof': String(xofNum) } : {})}
+      className={cn('font-mono tabular-nums', colorClass, xofTitle && 'cursor-help', className)}
     >
       {sign}
       {formatted}

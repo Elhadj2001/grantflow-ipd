@@ -220,15 +220,15 @@ export default function PurchaseOrderDetailPage() {
               <div className="grid grid-cols-3 gap-4 border-t border-slate-200 px-4 py-3 text-right">
                 <div>
                   <p className="text-xs uppercase tracking-wide text-slate-muted">Total HT</p>
-                  <AmountDisplay amount={data.totalHt} currency={data.currency} />
+                  <AmountDisplay amount={data.totalHt} currency={data.currency} amountXof={data.total_ht_xof} />
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-wide text-slate-muted">TVA</p>
-                  <AmountDisplay amount={data.totalVat} currency={data.currency} />
+                  <AmountDisplay amount={data.totalVat} currency={data.currency} amountXof={data.total_vat_xof} />
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-wide text-slate-muted">Total TTC</p>
-                  <AmountDisplay amount={data.totalTtc} currency={data.currency} className="font-semibold" />
+                  <AmountDisplay amount={data.totalTtc} currency={data.currency} amountXof={data.total_ttc_xof} className="font-semibold" />
                 </div>
               </div>
             </CardContent>

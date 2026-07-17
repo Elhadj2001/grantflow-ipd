@@ -59,6 +59,12 @@ export interface PurchaseRequest {
   totalAmount: string;
   currency: string;
   description: string | null;
+  /**
+   * US-068 (ADR-005) : équivalent XOF stocké (colonne `total_amount_xof`,
+   * nom snake exposé tel quel par Prisma). Sert à l'infobulle XOF —
+   * aucun recalcul front.
+   */
+  total_amount_xof?: string | number | null;
 }
 
 export interface PurchaseRequestDetail extends PurchaseRequest {
@@ -147,6 +153,11 @@ export interface PurchaseOrder {
   totalTtc: string;
   currency: string;
   prId: string | null;
+  // US-068 (ADR-005) : équivalents XOF stockés (colonnes snake exposées
+  // telles quelles par Prisma) — infobulle XOF, aucun recalcul front.
+  total_ht_xof?: string | number | null;
+  total_vat_xof?: string | number | null;
+  total_ttc_xof?: string | number | null;
 }
 
 export interface PurchaseOrderDetail extends PurchaseOrder {
