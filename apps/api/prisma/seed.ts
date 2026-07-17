@@ -222,6 +222,42 @@ async function seedFixedExchangeRates() {
   console.log(`✅ ${rates.length} parités fixes BCEAO (EUR↔XOF) chargées`);
 }
 
+/**
+ * US-067 (Sprint S7) — taux USD↔XOF daté (cours indicatif BCEAO, saisie CG,
+ * cf. docs/uemoa-exchange-rate.md §3/§9). Sans lui, convertToXof retombe
+ * sur le fallback indicatif (WARN fx_indicative_fallback_used). Miroir du
+ * script prod `scripts/seed-exchange-rate-usd-xof.sql` — upsert idempotent
+ * qui n'écrase jamais une saisie CG existante à cette date.
+ */
+async function seedUsdExchangeRate() {
+  const rateDate = new Date('2026-07-15');
+  const entries = [
+    { from: 'USD', to: 'XOF', rate: 590.5 },
+    { from: 'XOF', to: 'USD', rate: 0.00169348 },
+  ];
+  for (const r of entries) {
+    await prisma.exchangeRate.upsert({
+      where: {
+        fromCurrency_toCurrency_rateDate: {
+          fromCurrency: r.from,
+          toCurrency: r.to,
+          rateDate,
+        },
+      },
+      update: {},
+      create: {
+        fromCurrency: r.from,
+        toCurrency: r.to,
+        rate: r.rate,
+        rateDate,
+        source: 'BCEAO cours indicatif — saisie CG (US-067)',
+        isFixed: false,
+      },
+    });
+  }
+  console.log('✅ taux USD↔XOF daté 2026-07-15 chargé (US-067)');
+}
+
 async function seedFiscalPeriods() {
   const periods = loadFixture<FiscalPeriodFixture>('fiscal-periods-2026.json', 'periods');
   for (const p of periods) {
@@ -504,6 +540,7 @@ async function main() {
   await seedSuppliers();
   await seedTaxCodes();
   await seedFixedExchangeRates();
+  await seedUsdExchangeRate();
   await seedFiscalPeriods();
   await seedUsers();
   await seedDefaultCashBox();
