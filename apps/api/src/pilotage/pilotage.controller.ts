@@ -77,7 +77,7 @@ export class PilotageController {
   // ------------------------------------------------------------------
 
   @Get('grants/:id/transactions')
-  @Roles('CONTROLEUR', 'DAF', 'PI', 'COMPTABLE', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'PI', 'COMPTABLE', 'SUPER_ADMIN')
   @ApiOperation({
     summary: 'Timeline chronologique PR/PO/Invoice/Payment/OD imputés au grant',
   })
@@ -105,7 +105,7 @@ export class PilotageController {
   // ------------------------------------------------------------------
 
   @Get('grants/:id/analytical-breakdown')
-  @Roles('CONTROLEUR', 'DAF', 'PI', 'COMPTABLE', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'PI', 'COMPTABLE', 'SUPER_ADMIN')
   @ApiOperation({
     summary:
       'Ventilation des charges (classe 6) imputées au grant selon une dimension analytique',
@@ -138,7 +138,7 @@ export class PilotageController {
   // ------------------------------------------------------------------
 
   @Get('grants/:id/dedicated-funds')
-  @Roles('CONTROLEUR', 'DAF', 'PI', 'COMPTABLE', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'PI', 'COMPTABLE', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Solde fonds dédiés (compte 19) + mouvements 689/789' })
   @ApiOkResponse({ type: DedicatedFundsResponseDto })
   @ApiNotFoundResponse({ description: 'Grant not found (BUSINESS.NOT_FOUND)' })
@@ -155,7 +155,7 @@ export class PilotageController {
   // ------------------------------------------------------------------
 
   @Get('grants/:id/overhead-calculation')
-  @Roles('CONTROLEUR', 'DAF', 'PI', 'COMPTABLE', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'PI', 'COMPTABLE', 'SUPER_ADMIN')
   @ApiOperation({
     summary:
       'Overhead facturable (somme co.overhead_calculation) vs reversé (crédits compte 754x) + variance',

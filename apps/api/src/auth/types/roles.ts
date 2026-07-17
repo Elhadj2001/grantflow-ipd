@@ -21,6 +21,9 @@ export const ROLES = [
   'DEMANDEUR',
   'BAILLEUR',
   'CAISSIER',
+  // US-065 (ADR-006) : Grant Office — rédige/soumet/active les Notes
+  // Techniques ; la VALIDATION reste DAF (SoD ADR-009).
+  'GO',
 ] as const;
 
 export type Role = (typeof ROLES)[number];

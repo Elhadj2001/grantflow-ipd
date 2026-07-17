@@ -326,8 +326,9 @@ export function usePermissions(): Permissions {
         hasAny('COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
       canLockStatement: () => hasAny('DAF', 'SUPER_ADMIN'),
 
-      // Pilotage — F-PILOTAGE
-      canViewGrantPortfolio: () => hasAny('CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
+      // Pilotage — F-PILOTAGE (US-065 : GO consulte le portefeuille des
+      // conventions — @Roles pilotage lecture élargis en miroir côté API)
+      canViewGrantPortfolio: () => hasAny('GO', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN'),
       canViewGrant: (piUserIdOfGrant, currentUserId) => {
         if (hasAny('SUPER_ADMIN', 'DAF', 'CONTROLEUR')) return true;
         if (!hasAny('PI')) return false;

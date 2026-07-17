@@ -21,6 +21,7 @@ const ROLE_LABELS_FR: Record<GrantflowRoleCode, string> = {
   DEMANDEUR: 'Demandeur',
   BAILLEUR: 'Bailleur / Auditeur',
   CAISSIER: 'Caissier',
+  GO: 'Grant Office',
 };
 
 export interface AdminUserRoleSelectorProps {

@@ -15,6 +15,7 @@
     { "code": "PI",          "label": "Principal Investigator",               "description": "Validation budgétaire des DA sur son projet/grant." },
     { "code": "DEMANDEUR",   "label": "Demandeur",                            "description": "Saisie des DA, consultation de son périmètre." },
     { "code": "BAILLEUR",    "label": "Bailleur / Auditeur (lecture)",        "description": "Consultation en lecture seule des conventions et reporting." },
-    { "code": "CAISSIER",    "label": "Caissier",                             "description": "Gestion de la caisse en espèces, approbation des DA petty_cash." }
+    { "code": "CAISSIER",    "label": "Caissier",                             "description": "Gestion de la caisse en espèces, approbation des DA petty_cash." },
+    { "code": "GO",          "label": "Grant Office",                         "description": "Rédige, soumet et active les Notes Techniques (ADR-006) ; interface bailleurs ↔ opérationnel. La validation reste DAF (SoD ADR-009)." }
   ]
 }

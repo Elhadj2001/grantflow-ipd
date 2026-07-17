@@ -12,7 +12,7 @@ import { ExpenseNatureService } from './expense-nature.service';
 @ApiTags('Grant Office — Expense Natures')
 @ApiBearerAuth()
 @Controller('expense-natures')
-@Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
+@Roles('GO', 'CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
 export class ExpenseNatureController {
   constructor(private readonly service: ExpenseNatureService) {}
 

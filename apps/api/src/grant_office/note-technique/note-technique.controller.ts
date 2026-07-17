@@ -21,9 +21,12 @@ import { NoteTechniqueQueryDto } from './dto/note-technique-query.dto';
 import { RejectNoteTechniqueDto } from './dto/reject-note-technique.dto';
 
 /**
- * CRUD basique Note Technique (scaffolding US-033 — pas de workflow).
- * RBAC : CONTROLEUR (fonction Grant Office, rôle GO dédié = Sprint S5)
- * crée/édite ; DAF/COMPTABLE/SUPER_ADMIN consultent.
+ * CRUD + workflow Note Technique (US-033, US-051/052).
+ * RBAC (US-065) : le rôle GO (Grant Office, ADR-006) rédige, édite, soumet
+ * et ACTIVE les Notes Techniques — l'activation est l'acte final du circuit
+ * GO après validation DAF, pas une validation (SoD ADR-009 intacte).
+ * CONTROLEUR reste co-porteur (continuité historique) ; la validation et le
+ * rejet restent EXCLUSIVEMENT DAF/SUPER_ADMIN.
  */
 @ApiTags('Grant Office — Notes Techniques')
 @ApiBearerAuth()
@@ -32,28 +35,28 @@ export class NoteTechniqueController {
   constructor(private readonly service: NoteTechniqueService) {}
 
   @Get()
-  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Liste les Notes Techniques (filtres grantId / status).' })
   list(@Query() query: NoteTechniqueQueryDto) {
     return this.service.list(query);
   }
 
   @Get(':id')
-  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'COMPTABLE', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Détail d’une Note Technique (overheadRule + budgetLines).' })
   findById(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.findById(id);
   }
 
   @Post()
-  @Roles('CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Crée une Note Technique en statut draft.' })
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateNoteTechniqueDto) {
     return this.service.create(user, dto);
   }
 
   @Patch(':id')
-  @Roles('CONTROLEUR', 'DAF', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Met à jour une Note Technique (draft uniquement).' })
   update(
     @CurrentUser() user: AuthenticatedUser,
@@ -65,14 +68,14 @@ export class NoteTechniqueController {
 
   // ------------------------------------------------------------------
   // Transitions de workflow (US-052, ADR-006) — exposition REST des
-  // transitions service livrées en US-051. RBAC par rôle existant :
-  // GO = CONTROLEUR tant que le rôle GO dédié n'existe pas (US-058).
+  // transitions service livrées en US-051. US-065 : le rôle GO dédié
+  // remplace l'intérim CONTROLEUR (conservé pour continuité).
   // La SoD enforced par identité (drafted_by ≠ validated_by) = US-053.
   // ------------------------------------------------------------------
 
   @Post(':id/submit')
   @HttpCode(200)
-  @Roles('CONTROLEUR', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Soumettre la Note Technique au DAF (draft → pending_daf).' })
   @ApiResponse({ status: 200, description: 'NT en attente de validation DAF.' })
   @ApiResponse({ status: 409, description: 'Transition impossible depuis le statut actuel.' })
@@ -125,7 +128,7 @@ export class NoteTechniqueController {
 
   @Post(':id/activate')
   @HttpCode(200)
-  @Roles('CONTROLEUR', 'SUPER_ADMIN')
+  @Roles('GO', 'CONTROLEUR', 'SUPER_ADMIN')
   @ApiOperation({
     summary: 'Activer la Note Technique (validated_daf → active, supersede l’ancienne).',
   })

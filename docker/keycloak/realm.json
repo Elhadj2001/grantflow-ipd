@@ -63,7 +63,8 @@
       { "name": "PI",          "description": "Principal Investigator" },
       { "name": "DEMANDEUR",   "description": "Demandeur" },
       { "name": "BAILLEUR",    "description": "Bailleur / Auditeur (lecture seule)" },
-      { "name": "CAISSIER",    "description": "Caissier — gestion espèces, valide les DA petty_cash" }
+      { "name": "CAISSIER",    "description": "Caissier — gestion espèces, valide les DA petty_cash" },
+      { "name": "GO",          "description": "Grant Office — rédige/soumet/active les Notes Techniques (validation = DAF)" }
     ]
   },
 
@@ -247,6 +248,16 @@
       "emailVerified": true,
       "credentials": [{ "type": "password", "value": "Bailleur#2026", "temporary": false }],
       "realmRoles": ["BAILLEUR"]
+    },
+    {
+      "username": "go.demo@pasteur.sn",
+      "email": "go.demo@pasteur.sn",
+      "firstName": "Ndeye",
+      "lastName": "GUEYE (Grant Office)",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "Go#2026-IPD", "temporary": false }],
+      "realmRoles": ["GO"]
     },
     {
       "username": "service-account-grantflow-api",
