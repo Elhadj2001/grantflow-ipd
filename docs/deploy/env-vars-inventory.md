@@ -31,11 +31,11 @@
 | `TIMEZONE` | 🟢 | `Africa/Dakar` | `Africa/Dakar` | render.yaml:90 |
 | `DEFAULT_CURRENCY` | 🟢 | `XOF` | `XOF` | render.yaml:92 |
 | `DEFAULT_LOCALE` | 🟢 | `fr` | `fr` | render.yaml:94 |
-| `S3_ENDPOINT` | 🟢 (voir note) | vide | **secret R2** (`https://<acct>.r2.cloudflarestorage.com`) — **volontairement omis à ce stade** | storage.service.ts:69 |
-| `S3_ACCESS_KEY` | 🟢 | vide | **secret R2** — omis | storage.service.ts:95 |
-| `S3_SECRET_KEY` | 🟢 | vide | **secret R2** — omis | storage.service.ts:99 |
+| `S3_ENDPOINT` | 🟠 FONCTIONNEL (upload/lecture PDF) | vide | **secret R2** (`https://<acct>.r2.cloudflarestorage.com`) — **restauré le 2026-07-17** (US-143 fermée, cf. post-mortem §5) | storage.service.ts:69 |
+| `S3_ACCESS_KEY` | 🟠 | vide | **secret R2** — restauré 2026-07-17 | storage.service.ts:95 |
+| `S3_SECRET_KEY` | 🟠 | vide | **secret R2** — restauré 2026-07-17 | storage.service.ts:99 |
 | `S3_REGION` | 🟢 | `us-east-1` (défaut) | `auto` (R2) | storage.service.ts:104 |
-| `S3_BUCKET` | 🟢 | vide | `grantflow-pdf` — omis | storage.service.ts:116 |
+| `S3_BUCKET` | 🟠 | vide | `grantflow-pdf` — restauré 2026-07-17 (active le routing cloud-single-bucket) | storage.service.ts:116 |
 | `MINIO_HOST/PORT/USE_SSL/ACCESS_KEY/SECRET_KEY` | 🟢 | MinIO local | non requis en prod (fallback si S3_* absent) | storage.service.ts:89-100 |
 | `OCR_PROVIDER` | 🟢 | `pdfparse` | `auto` (render.yaml) → nécessite ANTHROPIC_API_KEY sinon retombe sur pdfparse | ocr.service.ts:50, invoicing.module.ts:29 |
 | `ANTHROPIC_API_KEY` | 🟠 FONCTIONNEL | vide | **secret** — console.anthropic.com → API keys. Prod a `OCR_PROVIDER=auto` : absente → OCR retombe silencieusement sur pdf-parse (constaté post-migration Frankfurt 2026-07) | invoicing.module.ts:30, claude-vision-ocr.provider.ts:128 |
@@ -67,10 +67,13 @@ Toutes déclarées `sync:false` dans `render.yaml` ; parité render.yaml ↔
 inventaire (boot-critiques **et** fonctionnelles, listes séparées) vérifiable
 via `scripts/check-render-env-parity.sh`.
 
-**Bloc S3_\* volontairement omis** à ce stade (cf. debug R2) → l'API démarre en
-mode `dev-multi-bucket` (endPoint=localhost). Conséquence : **upload PDF de BC
-KO**, tout le reste fonctionne. À restaurer après validation R2
-(cf. `scripts/test-r2-credentials.ts`).
+**Bloc S3_\*** : **RESTAURÉ le 2026-07-17** (US-143 fermée — boot en
+`cloud-single-bucket`, upload BC vérifié en prod, cause racine historique =
+corruption presse-papier lors des copies de tokens ; cf.
+`prod-restoration-2026-07-13.md` §5). En cas de recréation de service, les
+re-saisir depuis le dashboard R2 et valider via `scripts/test-r2-credentials.ts`.
+Les documents capturés PENDANT la fenêtre sans stockage n'ont pas d'objet R2 →
+404 `BUSINESS.DOCUMENT_NOT_FOUND` attendu et définitif (US-069).
 
 **Keycloak** (service séparé) : ses variables (`KC_DB_URL`, `KC_DB_USERNAME`,
 `KC_DB_PASSWORD`, `KC_HOSTNAME`, `KEYCLOAK_ADMIN_PASSWORD`) sont aussi

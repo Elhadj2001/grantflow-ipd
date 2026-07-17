@@ -143,10 +143,23 @@ Neon) — relancer après 60-90 s si timeout.
 
 ---
 
-## 5. Restauration R2 (différée)
+## 5. Restauration R2 — **RÉSOLU le 2026-07-17** (US-143 fermée)
 
-Une fois la prod validée, restaurer le stockage objet :
+> **Fait** : `S3_ENDPOINT/S3_ACCESS_KEY/S3_SECRET_KEY/S3_BUCKET` +
+> `S3_REGION=auto` restaurés sur `grantflow-api`, boot en
+> `mode: cloud-single-bucket`, upload vérifié en prod (log `object uploaded`
+> à l'envoi du BC-2026-0001 vers R2). **Cause racine historique** du debug R2 :
+> corruption presse-papier lors des copies de tokens (les credentials
+> semblaient invalides alors qu'ils étaient corrompus à la saisie).
+>
+> **Conséquence résiduelle** : les factures/BC capturés PENDANT la fenêtre
+> sans stockage (dont FAC-SIM-BC-2026-0002-1) n'ont pas d'objet R2 →
+> l'aperçu affiche « Aucun document archivé » (404
+> `BUSINESS.DOCUMENT_NOT_FOUND`, US-069) — comportement attendu et définitif.
+
+Procédure de référence si un service est recréé :
 1. `scripts/test-r2-credentials.ts` avec les credentials R2 (putObject réel).
 2. Si OK → saisir `S3_ENDPOINT/S3_ACCESS_KEY/S3_SECRET_KEY/S3_BUCKET` +
    `S3_REGION=auto` sur `grantflow-api` → redeploy. Le boot doit alors afficher
-   `mode: cloud-single-bucket`.
+   `mode: cloud-single-bucket`. ⚠️ Coller les tokens depuis un éditeur texte
+   intermédiaire (piège presse-papier ci-dessus).

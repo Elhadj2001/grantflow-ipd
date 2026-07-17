@@ -56,9 +56,12 @@ matérialisés au croisement des lignées 054 × 055-057, fait au close).
 
 ## Dettes ouvertes restantes
 
-1. **R2 / stockage (US-143 pressenti)** : variables `S3_*` volontairement
-   absentes de la prod → upload PDF de BC KO. Valider les credentials via
-   `scripts/test-r2-credentials.ts` (putObject réel) puis re-saisir sur Render.
+1. ~~**R2 / stockage (US-143)** : variables `S3_*` absentes de la prod~~ —
+   **RÉSOLU le 2026-07-17** : S3_* restaurés sur Render, boot
+   `cloud-single-bucket`, upload BC vérifié en prod (cause racine historique :
+   corruption presse-papier des tokens — cf.
+   `docs/deploy/prod-restoration-2026-07-13.md` §5). Les documents capturés
+   pendant la fenêtre sans stockage restent sans objet R2 (404 attendu, US-069).
 2. **Backfill prod `budget_line.category`** : script prêt, exécution Neon à
    décider (sinon fallback proxy + WARN, jamais bloquant).
 3. **Peuplement des nouveaux champs par l'UI** : les DTO de création de DA ne

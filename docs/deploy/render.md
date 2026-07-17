@@ -146,7 +146,9 @@ scripts/check-render-env-parity.sh   # doit afficher « PARITÉ OK » (exit 0)
 3. **Saisir les secrets `sync:false`** — `grantflow-api` :
    `DATABASE_URL`, `KEYCLOAK_URL` (URL du service KC), `KEYCLOAK_CLIENT_SECRET`,
    **`WEB_ORIGIN`** (URL Vercel du front — sinon CORS bloque le login),
-   `S3_*` (différé tant que R2 non validé — cf. US-143).
+   `S3_*` (US-143 fermée 2026-07-17 — re-saisir depuis le dashboard R2 en
+   passant par un éditeur texte, cf. post-mortem §5, puis vérifier le boot
+   `mode: cloud-single-bucket`).
 4. **Restaurer le tier FONCTIONNEL (non-boot)** — `grantflow-api`. L'API boote
    sans ces vars mais les features se dégradent **silencieusement** (omises
    lors de la migration Frankfurt 2026-07 : mail `530 Authentication required`
