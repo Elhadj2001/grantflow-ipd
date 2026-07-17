@@ -427,6 +427,22 @@ describe('InvoiceService', () => {
       await expect(svc.reject(comptable, invoiceId, { reason: 'too late' }))
         .rejects.toBeInstanceOf(InvoiceNotRejectableException);
     });
+
+    it('US-092 (F-S8-07) : facture POSTED non-rejetable (écritures orphelines sinon)', async () => {
+      prisma.invoice.findUnique.mockResolvedValue(makeInvoice({ status: InvoiceStatus.posted }));
+      await expect(svc.reject(comptable, invoiceId, { reason: 'erreur de saisie' }))
+        .rejects.toBeInstanceOf(InvoiceNotRejectableException);
+      // Chemin légitime : cancelPosting (extourne) d'abord — aucun write ici.
+      expect(prisma.invoice.update).not.toHaveBeenCalled();
+    });
+
+    it('US-092 : facture PARTIALLY_PAID non-rejetable', async () => {
+      prisma.invoice.findUnique.mockResolvedValue(
+        makeInvoice({ status: InvoiceStatus.partially_paid }),
+      );
+      await expect(svc.reject(comptable, invoiceId, { reason: 'paiement partiel en cours' }))
+        .rejects.toBeInstanceOf(InvoiceNotRejectableException);
+    });
   });
 
   // ============================================================
