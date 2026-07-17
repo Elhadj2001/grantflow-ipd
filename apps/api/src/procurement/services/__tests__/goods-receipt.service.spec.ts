@@ -202,6 +202,9 @@ describe('GoodsReceiptService', () => {
     );
     prisma.purchaseOrderLine.update.mockResolvedValue({} as never);
     prisma.purchaseOrderPr.findFirst.mockResolvedValue({ poId } as never);
+    // US-093 : `complete` relit l'état courant du BC (garde receivable) —
+    // défaut = PO réceptionnable ; les tests spécifiques overrident.
+    prisma.purchaseOrder.findUnique.mockResolvedValue(makePo() as never);
     prisma.goodsReceipt.count.mockResolvedValue(0 as never);
     // generateGrNumber utilise désormais findFirst (MAX) au lieu de count :
     // null par défaut → première séquence (0001).
@@ -362,6 +365,33 @@ describe('GoodsReceiptService', () => {
   // complete
   // ============================================================
   describe('complete', () => {
+    it('US-093 (F-S8-08) : BC cancelled → 409 PO_NOT_RECEIVABLE (un GR draft ne rouvre JAMAIS un BC annulé)', async () => {
+      prisma.goodsReceipt.findUnique.mockResolvedValue(
+        makeGr({}, [{ id: grLine1, quantity: new Prisma.Decimal('5') }]),
+      );
+      prisma.purchaseOrder.findUnique.mockResolvedValue(
+        makePo({ status: PoStatus.cancelled }) as never,
+      );
+      await expect(svc.complete(magasinier, grId)).rejects.toBeInstanceOf(
+        PoNotReceivableException,
+      );
+      // Aucune écriture : ni propagation de quantités, ni statut PO.
+      expect(prisma.purchaseOrderLine.update).not.toHaveBeenCalled();
+      expect(prisma.purchaseOrder.update).not.toHaveBeenCalled();
+    });
+
+    it('US-093 : BC invoiced → 409 PO_NOT_RECEIVABLE au complete', async () => {
+      prisma.goodsReceipt.findUnique.mockResolvedValue(
+        makeGr({}, [{ id: grLine1, quantity: new Prisma.Decimal('5') }]),
+      );
+      prisma.purchaseOrder.findUnique.mockResolvedValue(
+        makePo({ status: PoStatus.invoiced }) as never,
+      );
+      await expect(svc.complete(magasinier, grId)).rejects.toBeInstanceOf(
+        PoNotReceivableException,
+      );
+    });
+
     it('happy path partial : updates qty + sets PO partially_received', async () => {
       prisma.goodsReceipt.findUnique.mockResolvedValue(makeGr({}, [
         { id: grLine1, quantity: new Prisma.Decimal('5') }, // partiel 5/10

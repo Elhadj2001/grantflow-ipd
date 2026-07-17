@@ -64,7 +64,11 @@ export class PaymentRunController {
     return this.svc.findMany(query);
   }
 
+  // US-091 (F-S8-17) : le commentaire de la liste (« BAILLEUR ne doit pas
+  // voir les fournisseurs payés ») était contredit par les endpoints détail
+  // SANS @Roles ni filtre service — mêmes rôles reportés sur les 5 routes.
   @Get('payment-runs/:id')
+  @Roles('TRESORIER', 'COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Détail payment run + paiements + facture courte' })
   @ApiNotFoundResponse({ description: 'BUSINESS.NOT_FOUND' })
   findOne(@Param('id', new ParseUUIDPipe()) id: string) {
@@ -72,18 +76,21 @@ export class PaymentRunController {
   }
 
   @Get('payment-runs/:id/payments')
+  @Roles('TRESORIER', 'COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Paiements rattachés au run' })
   payments(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.svc.listPayments(id);
   }
 
   @Get('payment-runs/:id/journal-entries')
+  @Roles('TRESORIER', 'COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Écritures BQ associées (1 par paiement executed)' })
   journalEntries(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.svc.listJournalEntries(id);
   }
 
   @Get('payments/:id')
+  @Roles('TRESORIER', 'COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Détail d\'un paiement' })
   @ApiNotFoundResponse({ description: 'Payment not found' })
   async paymentDetail(@Param('id', new ParseUUIDPipe()) id: string) {
@@ -104,6 +111,7 @@ export class PaymentRunController {
   }
 
   @Get('invoices/:invoiceId/payments')
+  @Roles('TRESORIER', 'COMPTABLE', 'CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Historique des paiements pour une facture' })
   historyForInvoice(@Param('invoiceId', new ParseUUIDPipe()) invoiceId: string) {
     return this.prisma.payment.findMany({

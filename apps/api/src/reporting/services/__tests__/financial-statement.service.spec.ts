@@ -250,17 +250,27 @@ describe('FinancialStatementService', () => {
   });
 
   describe('downloads', () => {
+    // US-091 (F-S8-18) : signature avec ACTEUR — mêmes règles que findOne.
+    const dafActor = { ...actor, roles: ['DAF' as const] };
+    const bailleurActor = {
+      id: 'bbb',
+      email: 'audit@usaid.gov',
+      fullName: 'USAID Audit',
+      roles: ['BAILLEUR' as const],
+    };
+
     it('throws FinancialStatementFileNotGeneratedException when no pdfObjectKey', async () => {
       prisma.financialStatement.findUnique.mockResolvedValue({
         id: statementId,
         pdfObjectKey: null,
         xlsxObjectKey: null,
+        locked: false,
         period: openPeriod,
       });
-      await expect(svc.downloadPdf(statementId)).rejects.toBeInstanceOf(
+      await expect(svc.downloadPdf(dafActor, statementId)).rejects.toBeInstanceOf(
         FinancialStatementFileNotGeneratedException,
       );
-      await expect(svc.downloadExcel(statementId)).rejects.toBeInstanceOf(
+      await expect(svc.downloadExcel(dafActor, statementId)).rejects.toBeInstanceOf(
         FinancialStatementFileNotGeneratedException,
       );
     });
@@ -270,10 +280,42 @@ describe('FinancialStatementService', () => {
         id: statementId,
         type: 'TER',
         pdfObjectKey: 'statements/2026/01/TER-x.pdf',
+        locked: false,
         period: openPeriod,
       });
       storage.getObject.mockResolvedValue({ buffer: Buffer.from('PDF'), contentType: 'application/pdf', size: 3 });
-      const r = await svc.downloadPdf(statementId);
+      const r = await svc.downloadPdf(dafActor, statementId);
+      expect(r.filename).toContain('TER');
+    });
+
+    it('US-091 : BAILLEUR pur + état NON verrouillé → 404 (jamais le buffer)', async () => {
+      prisma.financialStatement.findUnique.mockResolvedValue({
+        id: statementId,
+        type: 'TER',
+        pdfObjectKey: 'statements/2026/01/TER-x.pdf',
+        xlsxObjectKey: 'statements/2026/01/TER-x.xlsx',
+        locked: false,
+        period: openPeriod,
+      });
+      await expect(svc.downloadPdf(bailleurActor, statementId)).rejects.toBeInstanceOf(
+        FinancialStatementNotFoundException,
+      );
+      await expect(svc.downloadExcel(bailleurActor, statementId)).rejects.toBeInstanceOf(
+        FinancialStatementNotFoundException,
+      );
+      expect(storage.getObject).not.toHaveBeenCalled();
+    });
+
+    it('US-091 : BAILLEUR pur + état verrouillé → téléchargement autorisé', async () => {
+      prisma.financialStatement.findUnique.mockResolvedValue({
+        id: statementId,
+        type: 'TER',
+        pdfObjectKey: 'statements/2026/01/TER-x.pdf',
+        locked: true,
+        period: openPeriod,
+      });
+      storage.getObject.mockResolvedValue({ buffer: Buffer.from('PDF'), contentType: 'application/pdf', size: 3 });
+      const r = await svc.downloadPdf(bailleurActor, statementId);
       expect(r.filename).toContain('TER');
     });
   });

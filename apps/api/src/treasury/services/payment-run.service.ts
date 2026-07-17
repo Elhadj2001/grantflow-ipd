@@ -13,6 +13,7 @@ import {
   PaymentCurrencyMismatchException,
   PaymentRunCancelReasonRequiredException,
   PaymentRunEmptyException,
+  PaymentRunInvoiceNotPayableException,
   PaymentRunNotApprovableException,
   PaymentRunNotCancellableException,
   PaymentRunNotEditableException,
@@ -432,21 +433,32 @@ export class PaymentRunService {
       throw new PaymentRunEmptyException(runId);
     }
 
-    // Phase 1 (hors transaction) — créer les écritures BQ en série :
-    // chaque postPayment ouvre sa propre transaction (numérotation
-    // séquentielle + advisory lock par appel).
-    const postingResults: Array<{ paymentId: string; entryId: string; entryNumber: string }> = [];
-    for (const p of payments) {
-      const r = await this.posting.postPayment(actor, p, bankAccount);
-      postingResults.push({ paymentId: p.id, entryId: r.entryId, entryNumber: r.entryNumber });
+    // US-094 (F-S8-09) — reprise idempotente : seuls les paiements encore
+    // `prepared` sont traités. Après un échec en milieu de série, un
+    // re-approve reprend là où le run s'était arrêté (les paiements déjà
+    // `executed` portent déjà leur écriture BQ + facture à jour).
+    const pending = payments.filter((p) => p.status === 'prepared');
+
+    // US-094 — re-validation ENTRE prepare et approve : chaque facture des
+    // paiements restants doit toujours être payable (posted /
+    // partially_paid). Un rejet, une dé-comptabilisation ou un solde
+    // intervenu entre-temps bloque AVANT toute écriture.
+    const PAYABLE: InvoiceStatus[] = [InvoiceStatus.posted, InvoiceStatus.partially_paid];
+    for (const p of pending) {
+      if (!PAYABLE.includes(p.invoice.status)) {
+        throw new PaymentRunInvoiceNotPayableException(runId, p.invoiceId, p.invoice.status);
+      }
     }
 
-    // Phase 2 — bascule des paiements + factures + run dans une seule
-    // transaction. Si une étape échoue, on rollbacke les statuts mais
-    // les écritures BQ déjà postées restent (extournement manuel via DAF).
-    const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      for (const p of payments) {
+    // US-094 — marquage PAR PAIEMENT : l'écriture BQ (postPayment, sa
+    // propre transaction interne) est immédiatement suivie de la bascule
+    // payment + facture dans une transaction courte. Un échec au paiement
+    // N laisse 1..N-1 totalement cohérents (écriture + statuts) et N..fin
+    // intacts (ni écriture ni statut) — fini l'état mixte « écriture BQ
+    // postée / payment prepared » de l'ancienne exécution en deux phases.
+    for (const p of pending) {
+      await this.posting.postPayment(actor, p, bankAccount);
+      await this.prisma.$transaction(async (tx) => {
         await tx.payment.update({
           where: { id: p.id },
           data: {
@@ -471,21 +483,30 @@ export class PaymentRunService {
           where: { id: p.invoiceId },
           data: { status: fullyPaid ? InvoiceStatus.paid : InvoiceStatus.partially_paid },
         });
-      }
-
-      await tx.paymentRun.update({
-        where: { id: runId },
-        data: {
-          status: 'executed',
-          approvedBy: actor.id,
-          approvedAt: now,
-          executedAt: now,
-        },
       });
+    }
+
+    // Finalisation du run — atteinte uniquement si TOUS les paiements sont
+    // passés (les reprises re-passent ici une fois la série soldée).
+    const now = new Date();
+    await this.prisma.paymentRun.update({
+      where: { id: runId },
+      data: {
+        status: 'executed',
+        approvedBy: actor.id,
+        approvedAt: now,
+        executedAt: now,
+      },
     });
 
     this.logger.log(
-      { runId, actor: actor.email, paymentCount: payments.length, comment },
+      {
+        runId,
+        actor: actor.email,
+        paymentCount: payments.length,
+        resumedCount: payments.length - pending.length,
+        comment,
+      },
       'payment run approved + executed',
     );
 

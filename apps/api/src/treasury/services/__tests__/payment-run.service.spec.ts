@@ -14,6 +14,7 @@ import {
   PaymentCurrencyMismatchException,
   PaymentRunCancelReasonRequiredException,
   PaymentRunEmptyException,
+  PaymentRunInvoiceNotPayableException,
   PaymentRunNotApprovableException,
   PaymentRunNotCancellableException,
   PaymentRunNotEditableException,
@@ -418,9 +419,11 @@ describe('PaymentRunService', () => {
           invoiceId: 'inv-1',
           amount: new Prisma.Decimal('118000'),
           currency: 'XOF',
+          status: 'prepared',
           invoice: {
             id: 'inv-1',
             invoiceNumber: 'F001',
+            status: InvoiceStatus.posted,
             totalTtc: new Prisma.Decimal('118000'),
             supplier: { code: 'ACME', name: 'ACME' },
           },
@@ -452,9 +455,11 @@ describe('PaymentRunService', () => {
           invoiceId: 'inv-1',
           amount: new Prisma.Decimal('50000'),
           currency: 'XOF',
+          status: 'prepared',
           invoice: {
             id: 'inv-1',
             invoiceNumber: 'F001',
+            status: InvoiceStatus.posted,
             totalTtc: new Prisma.Decimal('118000'),
             supplier: { code: 'ACME', name: 'ACME' },
           },
@@ -473,6 +478,94 @@ describe('PaymentRunService', () => {
         where: { id: 'inv-1' },
         data: { status: InvoiceStatus.partially_paid },
       });
+    });
+
+    // ----- US-094 (F-S8-09) — résilience + re-validation -----
+
+    function makePayment(id: string, invoiceId: string, over: Record<string, unknown> = {}) {
+      return {
+        id,
+        invoiceId,
+        amount: new Prisma.Decimal('118000'),
+        currency: 'XOF',
+        status: 'prepared',
+        invoice: {
+          id: invoiceId,
+          invoiceNumber: `F-${invoiceId}`,
+          status: InvoiceStatus.posted,
+          totalTtc: new Prisma.Decimal('118000'),
+          supplier: { code: 'ACME', name: 'ACME' },
+        },
+        ...over,
+      };
+    }
+
+    it('US-094 : échec du 2e postPayment → 1er paiement TOTALEMENT cohérent, run PAS finalisé', async () => {
+      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun as never);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.payment.findMany.mockResolvedValue([
+        makePayment('p1', 'inv-1'),
+        makePayment('p2', 'inv-2'),
+      ] as never);
+      posting.postPayment
+        .mockResolvedValueOnce({ entryId: 'je-1', entryNumber: 'BQ-2026-0001', amountXof: 118000 })
+        .mockRejectedValueOnce(new Error('SEQ_LOCK_TIMEOUT'));
+      prisma.payment.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal('118000') } } as never);
+
+      await expect(svc.approve(actor, 'run-1')).rejects.toThrow('SEQ_LOCK_TIMEOUT');
+      // p1 : écriture + bascule payment + facture faites (marquage par paiement).
+      expect(prisma.payment.update).toHaveBeenCalledTimes(1);
+      expect(prisma.payment.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'p1' } }),
+      );
+      expect(prisma.invoice.update).toHaveBeenCalledTimes(1);
+      // Le run n'est JAMAIS passé executed (reprise possible).
+      expect(prisma.paymentRun.update).not.toHaveBeenCalled();
+    });
+
+    it('US-094 : reprise — paiement déjà executed SKIPPÉ, seul le prepared restant est posté', async () => {
+      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun as never);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.payment.findMany.mockResolvedValue([
+        makePayment('p1', 'inv-1', { status: 'executed' }),
+        makePayment('p2', 'inv-2'),
+      ] as never);
+      posting.postPayment.mockResolvedValue({ entryId: 'je-2', entryNumber: 'BQ-2026-0002', amountXof: 118000 });
+      prisma.payment.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal('118000') } } as never);
+      prisma.paymentRun.findUniqueOrThrow.mockResolvedValue({ ...preparedRun, status: 'executed' } as never);
+
+      await svc.approve(actor, 'run-1');
+      // Un SEUL postPayment (p2) — p1 n'est jamais re-posté (pas de double écriture BQ).
+      expect(posting.postPayment).toHaveBeenCalledTimes(1);
+      expect(prisma.payment.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'p2' } }),
+      );
+      // Le run est finalisé.
+      expect(prisma.paymentRun.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'executed' }) }),
+      );
+    });
+
+    it('US-094 : facture devenue non-payable entre prepare et approve → 409 AVANT toute écriture', async () => {
+      prisma.paymentRun.findUnique.mockResolvedValue(preparedRun as never);
+      prisma.bankAccount.findUnique.mockResolvedValue(bankAccountXof as never);
+      prisma.payment.findMany.mockResolvedValue([
+        makePayment('p1', 'inv-1', {
+          invoice: {
+            id: 'inv-1',
+            invoiceNumber: 'F-inv-1',
+            status: InvoiceStatus.rejected,
+            totalTtc: new Prisma.Decimal('118000'),
+            supplier: { code: 'ACME', name: 'ACME' },
+          },
+        }),
+      ] as never);
+
+      await expect(svc.approve(actor, 'run-1')).rejects.toBeInstanceOf(
+        PaymentRunInvoiceNotPayableException,
+      );
+      expect(posting.postPayment).not.toHaveBeenCalled();
+      expect(prisma.payment.update).not.toHaveBeenCalled();
     });
 
     it('rejects when run has no bankAccount', async () => {

@@ -57,8 +57,16 @@ const EDITABLE_STATUSES: InvoiceStatus[] = [
   InvoiceStatus.exception_qty,
 ];
 
-/** Statuts immuables (la facture est consommée par le pipeline en aval). */
-const IMMUTABLE_STATUSES: InvoiceStatus[] = [
+/**
+ * US-092 (F-S8-07) — statuts NON-REJETABLES : au-delà des immuables
+ * (paid/archived), une facture `posted` (écritures 4/6 + extourne classe 8
+ * au journal) ou `partially_paid` ne peut pas être rejetée sans laisser des
+ * écritures orphelines. Chemin légitime : `cancelPosting` (qui extourne)
+ * d'abord. Remplace l'ancienne liste IMMUTABLE_STATUSES (sous-ensemble).
+ */
+const NON_REJECTABLE_STATUSES: InvoiceStatus[] = [
+  InvoiceStatus.posted,
+  InvoiceStatus.partially_paid,
   InvoiceStatus.paid,
   InvoiceStatus.archived,
 ];
@@ -413,7 +421,10 @@ export class InvoiceService {
     const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) throw new EntityNotFoundException(ENTITY_NAME, { id: invoiceId });
     await this.assertCanRead(actor, invoice);
-    if (IMMUTABLE_STATUSES.includes(invoice.status)) {
+    // US-092 (F-S8-07) : `posted`/`partially_paid` protégés — l'ancien
+    // garde (immuables seuls) laissait rejeter une facture COMPTABILISÉE,
+    // écritures de journal orphelines à la clé.
+    if (NON_REJECTABLE_STATUSES.includes(invoice.status)) {
       throw new InvoiceNotRejectableException(invoice.id, invoice.status);
     }
 

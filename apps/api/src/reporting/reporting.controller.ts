@@ -56,12 +56,16 @@ export class ReportingController {
   // ------------------------------------------------------------------
 
   @Get('templates')
+  // US-091 (F-S8-20) : lectures alignées sur les écritures (les templates
+  // servent le paramétrage CG/DAF — aucun autre rôle n'en a l'usage).
+  @Roles('CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Liste des templates de rapport bailleur' })
   listTemplates() {
     return this.templates.findMany();
   }
 
   @Get('templates/:id')
+  @Roles('CONTROLEUR', 'DAF', 'SUPER_ADMIN')
   @ApiOperation({ summary: 'Détail d\'un template + catégories + mappings' })
   @ApiNotFoundResponse({ description: 'DONOR_TEMPLATE_NOT_FOUND' })
   findTemplate(@Param('id', new ParseUUIDPipe()) id: string) {
@@ -294,14 +298,19 @@ export class ReportingController {
   }
 
   @Get('statements/:id/pdf')
+  // US-091 (F-S8-18) : mêmes rôles que la lecture des états — sans @Roles,
+  // tout authentifié (MAGASINIER, CAISSIER…) téléchargeait les états
+  // SYSCEBNL, brouillons compris.
+  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'BAILLEUR', 'SUPER_ADMIN')
   @ApiProduces('application/pdf')
   @Header('Content-Type', 'application/pdf')
-  @ApiOperation({ summary: 'Télécharger le PDF d\'un état financier' })
+  @ApiOperation({ summary: 'Télécharger le PDF d\'un état financier (BAILLEUR : locked only)' })
   async downloadStatementPdf(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Res() res: Response,
   ): Promise<void> {
-    const { buffer, filename } = await this.statements.downloadPdf(id);
+    const { buffer, filename } = await this.statements.downloadPdf(user, id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', buffer.length.toString());
@@ -309,13 +318,15 @@ export class ReportingController {
   }
 
   @Get('statements/:id/excel')
+  @Roles('CONTROLEUR', 'DAF', 'COMPTABLE', 'BAILLEUR', 'SUPER_ADMIN')
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-  @ApiOperation({ summary: 'Télécharger le Excel d\'un état financier (2 onglets)' })
+  @ApiOperation({ summary: 'Télécharger le Excel d\'un état financier (BAILLEUR : locked only)' })
   async downloadStatementExcel(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Res() res: Response,
   ): Promise<void> {
-    const { buffer, filename } = await this.statements.downloadExcel(id);
+    const { buffer, filename } = await this.statements.downloadExcel(user, id);
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

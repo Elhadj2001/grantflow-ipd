@@ -227,12 +227,25 @@ export class FinancialStatementService {
   // Downloads
   // ------------------------------------------------------------------
 
-  async downloadPdf(statementId: string): Promise<{ buffer: Buffer; filename: string }> {
+  /**
+   * US-091 (F-S8-18) : les téléchargements portent désormais l'ACTEUR et
+   * appliquent les MÊMES règles que la lecture (`findOne`) — BAILLEUR pur
+   * ne télécharge que les états `locked` (404 d'obscurité sinon). Avant ce
+   * fix, tout utilisateur authentifié téléchargeait PDF/Excel, brouillons
+   * compris.
+   */
+  async downloadPdf(
+    actor: AuthenticatedUser,
+    statementId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
     const s = await this.prisma.financialStatement.findUnique({
       where: { id: statementId },
       include: { period: true },
     });
     if (!s) throw new FinancialStatementNotFoundException(statementId);
+    if (isBailleurOnly(actor) && !s.locked) {
+      throw new FinancialStatementNotFoundException(statementId);
+    }
     if (!s.pdfObjectKey) throw new FinancialStatementFileNotGeneratedException(statementId, 'pdf');
     const obj = await this.storage.getObject(STATEMENTS_BUCKET, s.pdfObjectKey);
     return {
@@ -241,12 +254,18 @@ export class FinancialStatementService {
     };
   }
 
-  async downloadExcel(statementId: string): Promise<{ buffer: Buffer; filename: string }> {
+  async downloadExcel(
+    actor: AuthenticatedUser,
+    statementId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
     const s = await this.prisma.financialStatement.findUnique({
       where: { id: statementId },
       include: { period: true },
     });
     if (!s) throw new FinancialStatementNotFoundException(statementId);
+    if (isBailleurOnly(actor) && !s.locked) {
+      throw new FinancialStatementNotFoundException(statementId);
+    }
     if (!s.xlsxObjectKey)
       throw new FinancialStatementFileNotGeneratedException(statementId, 'xlsx');
     const obj = await this.storage.getObject(STATEMENTS_BUCKET, s.xlsxObjectKey);
