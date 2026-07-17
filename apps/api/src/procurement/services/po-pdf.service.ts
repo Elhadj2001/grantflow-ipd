@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { formatMoneyFr, formatQuantityFr } from '../../common/utils/fr-number-format';
 import PDFDocument from 'pdfkit';
 
 export interface PoPdfLine {
@@ -248,11 +249,13 @@ export class PoPdfService {
     return `${day}/${month}/${d.getUTCFullYear()}`;
   }
 
+  // fix/pdf-thousands-separator : séparateur normalisé U+00A0 (WinAnsi) —
+  // U+202F produit par les ICU récents casse le glyphe en Helvetica pdfkit.
   private formatMoney(v: number): string {
-    return v.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    return formatMoneyFr(v);
   }
 
   private formatQuantity(v: number): string {
-    return v.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+    return formatQuantityFr(v);
   }
 }
