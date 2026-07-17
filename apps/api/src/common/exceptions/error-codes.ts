@@ -214,6 +214,8 @@ export const ErrorCode = {
     DOCUMENT_STORE_UNAVAILABLE:               'BUSINESS.DOCUMENT_STORE_UNAVAILABLE',
     /** Sprint S8 (US-078, F-S8-02) — jamais de « Rapprochée » par vacuité. */
     MATCHING_EMPTY_INVOICE:                   'BUSINESS.MATCHING_EMPTY_INVOICE',
+    /** Sprint S8 (US-079, F-S8-03) — comptabilisation refusée : facture sans lignes. */
+    INVOICE_NO_LINES_NOT_POSTABLE:            'BUSINESS.INVOICE_NO_LINES_NOT_POSTABLE',
   },
   REF: {
     INVALID_GL_ACCOUNT: 'REF.INVALID_GL_ACCOUNT',

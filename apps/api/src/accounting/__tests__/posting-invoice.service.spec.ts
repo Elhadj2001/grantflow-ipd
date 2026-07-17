@@ -7,6 +7,7 @@ import {
   ExchangeRateMissingException,
   GlAccountNotFoundException,
   InvoiceAlreadyPostedException,
+  InvoiceNoLinesNotPostableException,
   InvoiceNotPostableException,
   PeriodClosedException,
   PostingCancelReasonRequiredException,
@@ -223,6 +224,16 @@ describe('PostingService — postInvoice/cancelPosting (sprint-4.2b)', () => {
     it('rejects when invoice has no poId', async () => {
       const inv = makeInvoice({ poId: null });
       await expect(svc.postInvoice(inv, actor)).rejects.toBeInstanceOf(EntityNotFoundException);
+    });
+
+    it('US-079 (F-S8-03) : facture matched SANS lignes → 409 INVOICE_NO_LINES_NOT_POSTABLE (plus un 404)', async () => {
+      const inv = makeInvoice({ lines: [] });
+      const err = await svc.postInvoice(inv, actor).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(InvoiceNoLinesNotPostableException);
+      expect((err as InvoiceNoLinesNotPostableException).getStatus()).toBe(409);
+      expect((err as InvoiceNoLinesNotPostableException).code).toBe(
+        'BUSINESS.INVOICE_NO_LINES_NOT_POSTABLE',
+      );
     });
 
     it('rejects when fiscal period covering date is closed', async () => {

@@ -131,7 +131,13 @@ export default function InvoiceDetailPage() {
   const canEdit = isEditable && permissions.canMatchInvoice();
   const canSubmit = SUBMITTABLE_STATUSES.includes(data.status) && permissions.canMatchInvoice();
   const canReject = REJECTABLE_STATUSES.includes(data.status) && permissions.canRejectInvoice();
-  const canPost = data.status === 'matched' && permissions.canPostInvoice();
+  // US-079 (F-S8-03) : une facture sans lignes n'est PAS comptabilisable
+  // (imputation analytique portée par les lignes, règle d'or n°1). Le
+  // bouton est désactivé avec message explicite au lieu d'un 4xx au clic.
+  const hasLines = (data.lines?.length ?? 0) > 0;
+  const canPost = data.status === 'matched' && permissions.canPostInvoice() && hasLines;
+  const postBlockedNoLines =
+    data.status === 'matched' && permissions.canPostInvoice() && !hasLines;
   const canForceMatch =
     (data.status === 'exception_price' || data.status === 'exception_qty') &&
     permissions.canForceMatchInvoice();
@@ -200,6 +206,16 @@ export default function InvoiceDetailPage() {
                 <CheckCircle2 className="mr-2 h-4 w-4" /> Comptabiliser…
               </Button>
             )}
+            {postBlockedNoLines && (
+              <Button
+                size="sm"
+                disabled
+                title="Facture sans lignes — comptabilisation impossible (imputation analytique requise). Corrigez les lignes au statut capturé."
+                data-testid="invoice-post-blocked"
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" /> Comptabiliser…
+              </Button>
+            )}
             {canCancelPosting && (
               <Button
                 variant="outline"
@@ -240,6 +256,20 @@ export default function InvoiceDetailPage() {
           <div>
             <b>Confiance OCR faible ({Math.round(ocrPayload!.confidence)}%).</b> Vérifiez et
             corrigez les champs ci-dessous avant de soumettre au matching.
+          </div>
+        </div>
+      )}
+      {/* US-079 (F-S8-03) : état explicite — pas d'erreur-surprise au clic. */}
+      {postBlockedNoLines && (
+        <div
+          data-testid="invoice-no-lines-warning"
+          className="mx-8 mt-6 flex items-start gap-2 rounded-md border border-state-warning/40 bg-state-warning/10 px-3 py-2 text-sm text-state-warning"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <b>Facture sans lignes — comptabilisation impossible.</b> L&apos;imputation
+            analytique est portée par les lignes (règle d&apos;or n°1). Rejetez puis
+            recapturez la facture, ou corrigez ses lignes au statut capturé.
           </div>
         </div>
       )}

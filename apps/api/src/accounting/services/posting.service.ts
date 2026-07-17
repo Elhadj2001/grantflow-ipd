@@ -16,6 +16,7 @@ import {
   ExchangeRateMissingException,
   GlAccountNotFoundException,
   InvoiceAlreadyPostedException,
+  InvoiceNoLinesNotPostableException,
   InvoiceNotPostableException,
   NoOpenFiscalPeriodException,
   PaymentCurrencyMismatchException,
@@ -395,8 +396,12 @@ export class PostingService {
     if (!invoice.poId) {
       throw new EntityNotFoundException('PurchaseOrder', { invoiceId: invoice.id });
     }
+    // US-079 (F-S8-03) : refus EXPLICITE — l'ancien 404
+    // EntityNotFound('InvoiceLine') était sémantiquement faux et
+    // illisible côté UI. Le refus lui-même est légitime (règle d'or n°1 :
+    // pas d'écriture sans imputation analytique, portée par les lignes).
     if (invoice.lines.length === 0) {
-      throw new EntityNotFoundException('InvoiceLine', { invoiceId: invoice.id });
+      throw new InvoiceNoLinesNotPostableException(invoice.id);
     }
 
     // 2) Période fiscale ouverte à invoice_date (peut lever PERIOD_CLOSED

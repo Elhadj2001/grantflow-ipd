@@ -2058,6 +2058,23 @@ export class EligibilityValidationException extends BusinessException {
 }
 
 /**
+ * US-079 (Sprint S8, F-S8-03) — comptabilisation refusée : la facture n'a
+ * aucune ligne, donc aucune imputation analytique possible (règle d'or n°1).
+ * Remplace l'ancien 404 EntityNotFound('InvoiceLine') sémantiquement faux
+ * (la facture existe — c'est son état qui est non-comptabilisable). 409.
+ */
+export class InvoiceNoLinesNotPostableException extends BusinessException {
+  constructor(invoiceId: string) {
+    super(
+      ErrorCode.BUSINESS.INVOICE_NO_LINES_NOT_POSTABLE,
+      HttpStatus.CONFLICT,
+      `La facture ${invoiceId} n'a aucune ligne — comptabilisation impossible (imputation analytique requise).`,
+      { invoiceId },
+    );
+  }
+}
+
+/**
  * US-078 (Sprint S8, F-S8-02) — la facture soumise au matching n'a aucune
  * ligne (ou des totaux nuls) : le verdict « tout OK » serait obtenu PAR
  * VACUITÉ (aucune comparaison possible). 409 Conflict — la facture doit
