@@ -9,7 +9,8 @@ import { apiFetch, type ApiFetchOptions } from '../api-client';
  *  - GET   /invoices                — liste paginée + filtres
  *  - GET   /invoices/:id            — détail + lignes
  *  - GET   /invoices/:id/match-details — détail rapprochement
- *  - GET   /invoices/:id/pdf        — stream PDF (utilisé par PdfFrame)
+ *  - GET   /invoices/:id/pdf        — stream PDF (flux blob DocumentViewer, US-069)
+ *  - GET   /invoices/:id/documents  — listing documents (DocumentsPanel, US-069)
  *  - PATCH /invoices/:id            — correction (statuts captured/exception)
  *  - POST  /invoices/:id/submit     — lance le matching 3-way
  *  - POST  /invoices/:id/force-match (DAF) — bypass exception + reason

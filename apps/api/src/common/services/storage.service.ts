@@ -166,6 +166,29 @@ export class StorageService implements OnModuleInit {
     return { objectKey: args.objectKey, bucket: args.bucket };
   }
 
+  /**
+   * US-069 — métadonnées d'un objet SANS le télécharger (taille pour le
+   * panneau Documents). BEST-EFFORT : toute erreur (objet absent, stockage
+   * indisponible) → null. Le listing reste affichable même stockage down ;
+   * c'est l'APERÇU qui qualifiera l'erreur (404/503) via getObject.
+   */
+  async statObjectSafe(
+    logicalBucket: string,
+    objectKey: string,
+  ): Promise<{ size: number; contentType: string } | null> {
+    try {
+      const target = this.resolveBucket(logicalBucket);
+      const key = this.resolveKey(logicalBucket, objectKey);
+      const stat = await this.client.statObject(target, key);
+      return {
+        size: stat.size,
+        contentType: stat.metaData?.['content-type'] ?? 'application/octet-stream',
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async getObject(logicalBucket: string, objectKey: string): Promise<GetObjectResult> {
     const target = this.resolveBucket(logicalBucket);
     const key = this.resolveKey(logicalBucket, objectKey);

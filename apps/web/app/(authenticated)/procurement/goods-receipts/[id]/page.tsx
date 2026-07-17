@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Printer, Trash2, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
+import { DocumentsPanel } from '@/components/common/DocumentsPanel';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { DateDisplay } from '@/components/common/DateDisplay';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -234,32 +235,42 @@ export default function GoodsReceiptDetailPage() {
           </Card>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Informations</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex items-baseline justify-between">
-              <span className="text-xs uppercase tracking-wide text-slate-muted">BC associé</span>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-ipd-darker"
-                onClick={() => router.push(`/procurement/purchase-orders/${data.poId}`)}
-              >
-                Voir BC
-              </Button>
-            </div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-xs uppercase tracking-wide text-slate-muted">Réception</span>
-              <DateDisplay value={data.receiptDate} format="short" />
-            </div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-xs uppercase tracking-wide text-slate-muted">Magasinier</span>
-              <span className="font-mono text-xs">{data.receivedBy.slice(0, 8)}…</span>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Informations</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs uppercase tracking-wide text-slate-muted">BC associé</span>
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-ipd-darker"
+                  onClick={() => router.push(`/procurement/purchase-orders/${data.poId}`)}
+                >
+                  Voir BC
+                </Button>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs uppercase tracking-wide text-slate-muted">Réception</span>
+                <DateDisplay value={data.receiptDate} format="short" />
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs uppercase tracking-wide text-slate-muted">Magasinier</span>
+                <span className="font-mono text-xs">{data.receivedBy.slice(0, 8)}…</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* US-069 : aucun document stocké pour les BL/GR aujourd'hui
+              (étiquettes générées à la volée) → état vide charte. Un PDF
+              de bon de livraison archivé est noté au backlog. */}
+          <DocumentsPanel
+            documents={[]}
+            emptyMessage="Aucun document archivé pour les réceptions (bon de livraison PDF : à venir)."
+          />
+        </div>
       </div>
 
       <ConfirmDialog

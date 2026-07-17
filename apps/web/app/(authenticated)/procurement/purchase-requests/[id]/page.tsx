@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { ArrowLeft, CheckCircle2, Pencil, Send, ShoppingCart, Undo2, XCircle, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
+import { DocumentsPanel } from '@/components/common/DocumentsPanel';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { AmountDisplay } from '@/components/common/AmountDisplay';
 import { DateDisplay } from '@/components/common/DateDisplay';
@@ -247,6 +248,13 @@ export default function PurchaseRequestDetailPage() {
               <Field label="Besoin pour" value={<DateDisplay value={data.neededBy} format="short" />} />
             </CardContent>
           </Card>
+
+          {/* US-069 : aucun document stocké pour les DA aujourd'hui →
+              état vide charte. Un PDF de DA archivé est noté au backlog. */}
+          <DocumentsPanel
+            documents={[]}
+            emptyMessage="Aucun document archivé pour les demandes d'achat (PDF de DA : à venir)."
+          />
 
           <Card>
             <CardHeader>

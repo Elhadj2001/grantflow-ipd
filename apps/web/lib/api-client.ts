@@ -71,3 +71,38 @@ export async function apiFetch<T = unknown>(
 
   return payload as T;
 }
+
+/**
+ * US-069 — variante binaire d'apiFetch : récupère un document (PDF…) en
+ * Blob avec le Bearer en HEADER (jamais d'URL API embarquée directement —
+ * règle CSP + token). Les erreurs restent des ApiError typées (le corps
+ * JSON d'une BusinessException est parsé, ex. BUSINESS.DOCUMENT_NOT_FOUND).
+ */
+export async function apiFetchBlob(
+  path: string,
+  options: ApiFetchOptions = {},
+): Promise<{ blob: Blob; contentType: string; filename: string | null }> {
+  const { accessToken, headers, ...rest } = options;
+  const url = path.startsWith('http')
+    ? path
+    : `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const finalHeaders = new Headers(headers);
+  if (accessToken) finalHeaders.set('Authorization', `Bearer ${accessToken}`);
+
+  const res = await fetch(url, { ...rest, headers: finalHeaders });
+  if (!res.ok) {
+    const ct = res.headers.get('content-type') ?? '';
+    const errBody: ApiErrorBody = ct.includes('application/json')
+      ? ((await res.json().catch(() => ({}))) as ApiErrorBody)
+      : {};
+    throw new ApiError(res.status, errBody);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get('content-disposition') ?? '';
+  const filenameMatch = /filename="?([^";]+)"?/.exec(cd);
+  return {
+    blob,
+    contentType: res.headers.get('content-type') ?? blob.type ?? 'application/octet-stream',
+    filename: filenameMatch?.[1] ?? null,
+  };
+}

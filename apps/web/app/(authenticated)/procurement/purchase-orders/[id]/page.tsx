@@ -34,6 +34,8 @@ import {
   usePO,
   useSendPO,
 } from '@/hooks/use-procurement';
+import { DocumentsPanel } from '@/components/common/DocumentsPanel';
+import { usePoDocuments } from '@/hooks/use-documents';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useFeatures } from '@/hooks/use-features';
 import { simulateInvoiceDownload, simulateInvoiceInject } from '@/lib/api/procurement';
@@ -49,6 +51,8 @@ export default function PurchaseOrderDetailPage() {
   const { features } = useFeatures();
   const { data: session } = useSession();
   const po = usePO(id);
+  // US-069 : documents archivés du BC.
+  const documents = usePoDocuments(id);
 
   const sendM = useSendPO(id);
   const ackM = useAcknowledgePO(id);
@@ -235,32 +239,43 @@ export default function PurchaseOrderDetailPage() {
           </Card>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Informations</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Row label="Fournisseur" value={<span className="font-mono text-xs">{data.supplierId}</span>} />
-            <Row label="Devise" value={data.currency} />
-            <Row label="Date BC" value={<DateDisplay value={data.orderDate} format="short" />} />
-            <Row label="Livraison prévue" value={<DateDisplay value={data.expectedDate} format="short" />} />
-            {data.prId && (
-              <Row
-                label="DA source"
-                value={
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto p-0 text-ipd-darker"
-                    onClick={() => router.push(`/procurement/purchase-requests/${data.prId}`)}
-                  >
-                    Voir DA
-                  </Button>
-                }
-              />
-            )}
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Informations</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <Row label="Fournisseur" value={<span className="font-mono text-xs">{data.supplierId}</span>} />
+              <Row label="Devise" value={data.currency} />
+              <Row label="Date BC" value={<DateDisplay value={data.orderDate} format="short" />} />
+              <Row label="Livraison prévue" value={<DateDisplay value={data.expectedDate} format="short" />} />
+              {data.prId && (
+                <Row
+                  label="DA source"
+                  value={
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-ipd-darker"
+                      onClick={() => router.push(`/procurement/purchase-requests/${data.prId}`)}
+                    >
+                      Voir DA
+                    </Button>
+                  }
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* US-069 : documents du BC (PDF généré au send). */}
+          <DocumentsPanel
+            documents={documents.data}
+            isLoading={documents.isLoading}
+            isError={documents.isError}
+            inlinePreview={false}
+            emptyMessage="Aucun document — le PDF du BC est généré à l'envoi au fournisseur."
+          />
+        </div>
       </div>
 
       <ConfirmDialog

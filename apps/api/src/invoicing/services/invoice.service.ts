@@ -7,6 +7,7 @@ import { StorageService } from '../../common/services/storage.service';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.type';
 import type { Role } from '../../auth/types/roles';
 import {
+  DocumentNotFoundException,
   EntityNotFoundException,
   InvoiceDuplicateNumberException,
   InvoiceNoPoLinkedException,
@@ -16,6 +17,8 @@ import {
   MatchingForceReasonRequiredException,
   PrNotOwnedException,
 } from '../../common/exceptions/business.exception';
+import { mapStorageError } from '../../common/services/storage-errors';
+import type { EntityDocument } from '../../common/services/entity-document';
 import type {
   CreateInvoiceManualDto,
   ForceMatchDto,
@@ -668,15 +671,50 @@ export class InvoiceService {
     const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) throw new EntityNotFoundException(ENTITY_NAME, { id: invoiceId });
     await this.assertCanRead(actor, invoice);
+    // US-069 : 404 métier propre (facture saisie manuellement / jamais archivée).
     if (!invoice.pdfObjectKey) {
-      throw new EntityNotFoundException('InvoicePdf', { invoiceId });
+      throw new DocumentNotFoundException('invoice', invoiceId);
     }
-    const obj = await this.storage.getObject(INVOICE_BUCKET, invoice.pdfObjectKey);
-    return {
-      buffer: obj.buffer,
-      contentType: 'application/pdf',
-      filename: `${invoice.invoiceNumber}.pdf`,
-    };
+    try {
+      const obj = await this.storage.getObject(INVOICE_BUCKET, invoice.pdfObjectKey);
+      return {
+        buffer: obj.buffer,
+        contentType: 'application/pdf',
+        filename: `${invoice.invoiceNumber}.pdf`,
+      };
+    } catch (err) {
+      // US-069 : plus jamais de 500 brut — NoSuchKey → 404, sinon 503.
+      throw mapStorageError(err, {
+        entityType: 'invoice',
+        entityId: invoiceId,
+        objectKey: invoice.pdfObjectKey,
+      });
+    }
+  }
+
+  /**
+   * US-069 — documents archivés d'une facture (panneau Documents). Dérivé
+   * des métadonnées existantes (`pdfObjectKey`) — aucune table dédiée. La
+   * taille est un statObject BEST-EFFORT (null si stockage indisponible :
+   * la liste reste affichable, l'aperçu qualifiera l'erreur en 404/503).
+   */
+  async listDocuments(actor: AuthenticatedUser, invoiceId: string): Promise<EntityDocument[]> {
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) throw new EntityNotFoundException(ENTITY_NAME, { id: invoiceId });
+    await this.assertCanRead(actor, invoice);
+    if (!invoice.pdfObjectKey) return [];
+    const stat = await this.storage.statObjectSafe(INVOICE_BUCKET, invoice.pdfObjectKey);
+    return [
+      {
+        objectKey: invoice.pdfObjectKey,
+        label: `${invoice.invoiceNumber}.pdf`,
+        kind: 'invoice_pdf',
+        contentType: 'application/pdf',
+        sizeBytes: stat?.size ?? null,
+        storedAt: invoice.createdAt?.toISOString() ?? null,
+        downloadPath: `/invoices/${invoiceId}/pdf`,
+      },
+    ];
   }
 
   // ------------------------------------------------------------------
