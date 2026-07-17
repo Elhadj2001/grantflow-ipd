@@ -132,6 +132,55 @@ And aucune DA n'est persistée
 And le log Pino contient { ruleCode, verdict, prDraftPayload }
 ```
 
+### Sprint S7 (cadence réelle 2026-07) — Effectivité Eligibility Engine côté utilisateurs + dettes courtes
+
+> **Numérotation** : US-057 (audit PPT) et US-058 (référencée close-s6) ont été
+> consommées par le S6 réel hors backlog ; le S7 réel démarre donc à **US-064**
+> (US-064/065 résolvent la dette « US-058 » de `docs/sprints/close-s6.md`).
+> Ne pas confondre avec le « Sprint S7 — Audit log domain + pentest » du
+> planning thématique initial (§4), non encore exécuté.
+
+| ID | Story | Pts | ADR/Finding |
+|---|---|---|---|
+| US-064 | En tant que demandeur, je veux saisir dans le formulaire DA la nature de dépense (select alimenté par `GET /expense-natures`, libellé + catégorie, recherche), le flag « Dépense refacturée à Pasteur Paris » et le n° de facture fournisseur (optionnel), afin que l'EligibilityEngine statue sur des données réelles (chaîne form → DTO Zod structure-only → service → colonnes US-054 → `runEligibilityGate`) et que le détail DA les affiche. | 5 | ADR-007, close-s6 §dettes |
+| US-065 | En tant que Grant Office, je veux un rôle GO (realm Keycloak dev + note prod, ROLE_PRIORITY, `@Roles` note-technique/eligibility/overhead, sidebar gantée, user seed `go.demo@…`) qui crée/édite les Notes Techniques en draft/pending_daf sans pouvoir les valider (SoD DAF intacte), afin d'incarner le circuit ADR-006. | 5 | ADR-006, ADR-009 |
+| US-066 | En tant qu'utilisateur du dashboard, je veux un endpoint agrégé `GET /api/v1/dashboard/summary` (DA par statut via groupBy, factures à matcher, conventions actives, paiements du mois) consommé en UNE requête par le front (staleTime 30 s), afin de supprimer le fan-out actuel (jusqu'à 13 requêtes). | 3 | audit refonte UI |
+| US-067 | En tant que CG, je veux le backfill prod de `budget_line.category` (dry-run rapporté, APPLY sur GO explicite) et un seed idempotent `ref.exchange_rate` USD→XOF daté (procédure `uemoa-exchange-rate.md`), afin d'éteindre les WARN `us049_proxy_fallback_used` et `fx_indicative_fallback_used`. | 2 | US-055/056, ADR-005 |
+| US-068 | En tant qu'utilisateur, je veux des sous-titres Poppins Light systématiques et l'équivalent XOF en infobulle sur tout montant affiché en devise ≠ XOF (source `*_amount_xof`, format français, aucun recalcul front), afin de finaliser la charte 2025. | 2 | charte 2025, ADR-005 |
+
+**Critères d'acceptation Sprint S7** :
+```gherkin
+# US-064 — gate d'éligibilité effective depuis l'UI
+Given le catalogue expense-natures seedé (US-032) et une NT active excluant la nature 'EQUIPEMENT'
+When un demandeur crée une DA en sélectionnant 'EQUIPEMENT' dans le formulaire et la soumet
+Then l'API rejette la soumission avec le code PPT 'ELIG_NATURE_NOT_ALLOWED'
+And le formulaire affiche un message d'erreur lisible dédié (pas un toast générique)
+And le détail DA affiche nature, flag Pasteur Paris et n° facture fournisseur
+
+# US-065 — SoD du circuit Note Technique
+Given un utilisateur porteur du rôle GO
+When il crée une Note Technique (draft) puis la passe en pending_daf
+Then les deux opérations réussissent
+But quand il tente validateAsDaf Then 403 (rôle DAF requis)
+And un PI qui tente de créer une NT reçoit 403
+
+# US-066 — dashboard en une requête
+Given un utilisateur authentifié sur le dashboard
+When la page se charge
+Then une seule requête GET /api/v1/dashboard/summary alimente les compteurs
+And les 5 requêtes DA mono-statut du fan-out n'existent plus
+
+# US-067 — données prod assainies
+Given le dry-run du backfill rapporté ligne à ligne et le GO explicite de l'user
+When le backfill et le seed exchange_rate sont appliqués sur Neon
+Then plus aucun WARN us049_proxy_fallback_used ni fx_indicative_fallback_used au parcours DA
+
+# US-068 — équivalent XOF
+Given une DA en USD
+When son montant s'affiche (détail, liste, dashboard)
+Then une infobulle montre l'équivalent XOF depuis *_amount_xof au format français
+```
+
 ---
 
 ## 3. Phase 2 — Santé de la suite de tests (en parallèle Phase 1)
