@@ -46,9 +46,16 @@ conflit `lib/api/procurement.ts` : cumul champs éligibilité + `total_amount_xo
 
 1. **Keycloak PROD** : créer le rôle `GO` + l'utilisateur Grant Office via
    l'admin UI (le realm.json ne s'importe qu'à la création du conteneur).
-2. **US-067 — exécution Neon** : fournir `DATABASE_URL` → dry-run backfill
-   rapporté ligne à ligne → **GO explicite** → APPLY + seed taux USD
-   (`scripts/seed-exchange-rate-usd-xof.sql`).
+2. ~~**US-067 — exécution Neon**~~ — **EXÉCUTÉE le 2026-07-17 (GO « seed
+   seul »)** : inventaire préalable (2 parités fixes EUR seulement — le taux
+   605,50 @01/07 d'un dépannage manuel évoqué n'existait pas en base), seed
+   USD↔XOF 590,50 @2026-07-15 appliqué et vérifié (4 lignes finales dans
+   `ref.exchange_rate`) → WARN `fx_indicative_fallback_used` éteints pour
+   l'USD. **Backfill `category` DIFFÉRÉ sur dry-run** : 24 lignes budgétaires
+   toutes NULL, 0 résoluble (aucune DA ne portait encore
+   `expense_nature_code` — le formulaire US-064 vient d'arriver). Idempotent
+   et rejouable quand l'historique de natures aura vécu ; d'ici là, fallback
+   proxy US-056 + WARN, jamais bloquant.
 
 ## Dettes / backlog notés
 
