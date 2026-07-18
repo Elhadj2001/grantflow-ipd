@@ -283,7 +283,14 @@ Given un BC totalement facturé avec résidu d'engagement multi-taux
 When la fin de vie du BC est constatée Then une OD solde le résidu classe 8 selon l'option retenue
 ```
 
-**Pré-brief Sprint S10 — US-100 (écart de change réalisé au règlement, ~3 pts)** :
+### Sprint S10 (cadence réelle 2026-07/08) — pré-briefs
+
+| ID | Story | Pts | Priorité | Source |
+|---|---|---|---|---|
+| US-100 | Écart de change réalisé au règlement (676/776) | 3 | haute | vérif US-099 |
+| US-101 | Remettre `validate-ddl` au vert — `xmllint` absent du runner | 1 | moyenne | CI S9 |
+
+**Pré-brief US-100 (écart de change réalisé au règlement, ~3 pts)** :
 vérification US-099 (2026-07-17) : `postPayment` débite le 401 au taux du JOUR
 DE PAIEMENT — l'écart avec le taux de comptabilisation de la dette reste en
 solde 401 auxiliaire, aucun 676/776 constaté. Story S10 : au règlement d'une
@@ -292,6 +299,26 @@ facture en devise, débiter le 401 de l'équivalent XOF HISTORIQUE de la dette
 banque au taux du jour, constater l'écart en 676 (perte) / 776 (gain).
 Dépendances : backfill US-097 APPLYé (triplets legacy), comptes 676/776 au
 plan seedé. Hors périmètre US-099 (>2 pts, décision user 2026-07-17).
+
+**Pré-brief US-101 (job CI `validate-ddl` au vert — `xmllint` absent, ~1 pt)** :
+Priorité MOYENNE — dette de signal CI, **zéro impact fonctionnel** (le job
+`migrate-neon` et le déploiement n'en dépendent pas).
+*Diagnostic (2026-07-18)* : le job `validate-ddl` de `.github/workflows/ci.yml`
+échoue depuis avant S9 à l'**étape 7 « fixture SEPA »**. Cause racine
+confirmée par le log : `xmllint: command not found`. Le binaire (paquet
+`libxml2-utils`) **n'est plus préinstallé sur `ubuntu-latest`** (image passée
+à ubuntu-24.04) — le commentaire du workflow (« xmllint disponible nativement
+sur ubuntu-latest ») est devenu faux. **La fixture
+`tests/fixtures/sepa-pain001-sample.xml` est saine** : bien formée, namespace
+`urn:iso:std:iso:20022:tech:xsd:pain.001.001.03` présent (l.2), élément
+`<CstmrCdtTrfInitn>` littéral présent (l.3) — les deux `grep` passeraient.
+*Fix (recommandation)* : remplacer `xmllint --noout` par une validation
+well-formed sans dépendance apt — `python3 -c "import xml.dom.minidom,sys;
+xml.dom.minidom.parse(sys.argv[1])"` (python3 préinstallé sur les runners) ;
+mettre à jour le commentaire obsolète. *Alternatives* : (a) ajouter
+`sudo apt-get install -y libxml2-utils` avant l'étape ; (b) épingler
+`runs-on: ubuntu-22.04` (moins pérenne). **La fixture ne change pas.**
+*DoD* : run `ci` → job `validate-ddl` vert de bout en bout (étapes 1-7).
 
 ---
 
