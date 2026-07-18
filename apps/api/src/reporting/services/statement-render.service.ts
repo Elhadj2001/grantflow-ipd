@@ -240,8 +240,9 @@ export class StatementRenderService {
     return d.toISOString().slice(0, 10);
   }
   private fmtAmount(v: number): string {
-    // US-075 (F-S8-15) : séparateur U+00A0 WinAnsi-safe (chemin PDF pdfkit ;
-    // l'Excel tolère U+00A0 sans problème).
+    // US-075 (F-S8-15) : séparateur en espace ASCII U+0020 (seul glyphe
+    // d'espace rendu par Helvetica pdfkit ; l'Excel l'accepte aussi).
+    // Cf. fr-number-format.ts pour la démonstration au niveau octets.
     return formatMoneyFr2(v);
   }
 }

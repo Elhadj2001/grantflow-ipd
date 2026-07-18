@@ -201,8 +201,8 @@ export class PdfRenderService {
   }
 
   private fmtAmount(v: number): string {
-    // US-075 (F-S8-15) : séparateur U+00A0 WinAnsi-safe — le toLocaleString
-    // direct produisait U+202F → glyphe cassé dans les PDF bailleurs.
+    // US-075 (F-S8-15) : séparateur en espace ASCII U+0020 (seul glyphe
+    // d'espace rendu par Helvetica pdfkit) — cf. fr-number-format.ts.
     return formatMoneyFr2(v);
   }
   private fmtPct(v: number): string {

@@ -249,8 +249,9 @@ export class PoPdfService {
     return `${day}/${month}/${d.getUTCFullYear()}`;
   }
 
-  // fix/pdf-thousands-separator : séparateur normalisé U+00A0 (WinAnsi) —
-  // U+202F produit par les ICU récents casse le glyphe en Helvetica pdfkit.
+  // fix/pdf-thousands-separator : séparateur normalisé en espace ASCII U+0020
+  // (seul glyphe d'espace dans Helvetica pdfkit ; U+202F → « / », U+00A0 →
+  // carré cassé). Cf. common/utils/fr-number-format.ts.
   private formatMoney(v: number): string {
     return formatMoneyFr(v);
   }

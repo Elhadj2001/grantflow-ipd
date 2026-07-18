@@ -220,8 +220,8 @@ export class SupplierInvoicePdfService {
     return `${day}/${month}/${d.getUTCFullYear()}`;
   }
 
-  // fix/pdf-thousands-separator : séparateur normalisé U+00A0 (WinAnsi) —
-  // cf. common/utils/fr-number-format.ts.
+  // fix/pdf-thousands-separator : séparateur normalisé en espace ASCII U+0020
+  // (seul glyphe d'espace dans Helvetica pdfkit) — cf. fr-number-format.ts.
   private formatMoney(v: number): string {
     return formatMoneyFr(v);
   }
